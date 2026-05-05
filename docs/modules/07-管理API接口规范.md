@@ -181,7 +181,25 @@
 
 ---
 
-### 1.7 更新消费者状态
+### 1.7 复制消费者密钥
+
+**`POST /api/consumers/:id/reveal-key`**
+
+> **安全机制**：该 API 返回明文密钥，仅用于直接写入剪贴板，前端不得将明文存入状态变量。后端记录审计日志（谁、何时、复制了哪个密钥），并设置频率限制（同一密钥每分钟最多 3 次）。
+
+响应：
+
+```json
+{
+  "id": 1,
+  "name": "my-app",
+  "api_key": "sk-agw-xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx"
+}
+```
+
+---
+
+### 1.8 更新消费者状态
 
 **`PATCH /api/consumers/:id/status`**
 
@@ -295,6 +313,15 @@
   "extra_config": {}
 }
 ```
+
+`type` 枚举值：
+
+| 值 | 说明 |
+|---|------|
+| `openai` | OpenAI Chat Completions（兼容 Azure、DeepSeek、Moonshot、Groq 等） |
+| `openai-response` | OpenAI Responses API |
+| `anthropic` | Anthropic Claude Messages API |
+| `gemini` | Google Gemini API |
 
 响应（201）：
 
@@ -554,6 +581,24 @@
 ```
 
 > `status` 可选值：`active`（手动恢复）、`disabled`（手动禁用）。手动恢复时重置 `consecutive_failures` 为 0。
+
+---
+
+### 3.5 复制账号密钥
+
+**`POST /api/accounts/:id/reveal-key`**
+
+> **安全机制**：同消费者密钥复制。后端记录审计日志，频率限制同一密钥每分钟最多 3 次。
+
+响应：
+
+```json
+{
+  "id": 10,
+  "channel_id": 1,
+  "api_key": "sk-proj-xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx"
+}
+```
 
 ---
 

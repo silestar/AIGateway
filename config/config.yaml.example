@@ -1,0 +1,51 @@
+# AIGateway 配置文件
+# 非敏感默认值，敏感值放 .env
+
+server:
+  port: 7860
+  host: "0.0.0.0"
+  mode: "debug"  # debug / release
+  # api_token: ""  # 管理端认证令牌，留空则无需登录（不推荐生产环境留空）
+
+db:
+  type: "sqlite"
+  path: "data/agw.db"
+  # MySQL/PostgreSQL 配置（type 切换后生效）
+  # host: "127.0.0.1"
+  # port: 3306
+  # user: "agw"
+  # password: ""
+  # name: "aigateway"
+
+redis:
+  enabled: false
+  host: "127.0.0.1"
+  port: 6379
+  password: ""
+  db: 0
+  max_retries: 3
+
+account_manager:
+  affinity_ttl: 3600                           # 绑定有效期(秒)
+  consecutive_failure_threshold: 5             # 连续失败禁用阈值
+  min_disable_duration: 120                    # 账号禁用后最小冷却时间(秒)
+  probe_interval: 30                           # 按需探测周期(秒)
+  probe_active_ratio_threshold: 0.4            # 触发探测的低水位线
+  max_probe_failures: 10                       # 最大连续探测失败次数
+  max_probe_recover_per_cycle: 1               # 每次探测周期最大恢复账号数
+  probe_cooldown_duration: 7200                # 一级冷却时长(秒)
+  probe_cooldown_duration_l2: 86400            # 二级冷却时长(秒)
+  global_health_check_interval: 3600           # 全局健康巡检间隔(秒)
+  account_status_cache_ttl: 30                 # 状态缓存时间(秒)
+  account_key_cache_ttl: 60                    # Key解密缓存(秒)
+
+log:
+  level: "info"      # debug / info / warn / error
+  dir: "logs"
+  max_age_days: 30
+
+proxy:
+  connect_timeout: 5    # 连接超时(秒)
+  read_timeout: 60      # 读取超时(秒)
+  max_idle_conns: 100   # 最大空闲连接数
+  idle_conn_timeout: 90 # 空闲连接超时(秒)

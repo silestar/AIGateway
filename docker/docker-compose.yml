@@ -1,0 +1,30 @@
+version: '3.8'
+
+services:
+  agw:
+    build:
+      context: ..
+      dockerfile: docker/Dockerfile
+    container_name: aigateway
+    restart: unless-stopped
+    ports:
+      - "7860:7860"
+    volumes:
+      - agw-data:/app/data
+      - agw-plugins:/app/plugins
+      - agw-logs:/app/logs
+    environment:
+      - AGW_SERVER_PORT=7860
+      - AGW_SERVER_MODE=release
+      - AGW_DB_PATH=/app/data/agw.db
+      # SECRET_KEY 将在首次启动时自动生成并持久化到 .env 文件
+    healthcheck:
+      test: ["CMD", "wget", "--spider", "-q", "http://localhost:7860/health"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+
+volumes:
+  agw-data:
+  agw-plugins:
+  agw-logs:

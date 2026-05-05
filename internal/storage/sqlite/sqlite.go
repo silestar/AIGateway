@@ -1,0 +1,110 @@
+package sqlite
+
+import (
+	"fmt"
+	"os"
+	"path/filepath"
+
+	"gorm.io/driver/sqlite"
+	"gorm.io/gorm"
+	"gorm.io/gorm/logger"
+
+	"github.com/bokelife/aigateway/internal/config"
+	"github.com/bokelife/aigateway/internal/consumer"
+	"github.com/bokelife/aigateway/internal/channel"
+	"github.com/bokelife/aigateway/internal/account"
+	"github.com/bokelife/aigateway/internal/stats"
+	"github.com/bokelife/aigateway/internal/plugin"
+)
+
+type SQLiteStorage struct {
+	db *gorm.DB
+}
+
+// New 创建 SQLite 存储
+func New(cfg config.DBConfig) (*SQLiteStorage, error) {
+	// 确保数据库文件目录存在
+	dir := filepath.Dir(cfg.Path)
+	if err := os.MkdirAll(dir, 0755); err != nil {
+		return nil, fmt.Errorf("create db directory: %w", err)
+	}
+
+	gormConfig := &gorm.Config{}
+	if cfg.Path == "" {
+		cfg.Path = "data/agw.db"
+	}
+
+	db, err := gorm.Open(sqlite.Open(cfg.Path+"?_journal_mode=WAL"), gormConfig)
+	if err != nil {
+		return nil, fmt.Errorf("open sqlite: %w", err)
+	}
+
+	// SQLite 优化配置
+	sqlDB, _ := db.DB()
+	sqlDB.SetMaxOpenConns(1) // SQLite 单写
+	sqlDB.SetMaxIdleConns(1)
+
+	// AutoMigrate 所有模型
+	if err := autoMigrate(db); err != nil {
+		return nil, fmt.Errorf("auto migrate: %w", err)
+	}
+
+	return &SQLiteStorage{db: db}, nil
+}
+
+// NewWithLogger 创建带日志级别的 SQLite 存储
+func NewWithLogger(cfg config.DBConfig, logLevel logger.LogLevel) (*SQLiteStorage, error) {
+	dir := filepath.Dir(cfg.Path)
+	if err := os.MkdirAll(dir, 0755); err != nil {
+		return nil, fmt.Errorf("create db directory: %w", err)
+	}
+
+	gormConfig := &gorm.Config{
+		Logger: logger.Default.LogMode(logLevel),
+	}
+
+	db, err := gorm.Open(sqlite.Open(cfg.Path+"?_journal_mode=WAL"), gormConfig)
+	if err != nil {
+		return nil, fmt.Errorf("open sqlite: %w", err)
+	}
+
+	sqlDB, _ := db.DB()
+	sqlDB.SetMaxOpenConns(1)
+	sqlDB.SetMaxIdleConns(1)
+
+	if err := autoMigrate(db); err != nil {
+		return nil, fmt.Errorf("auto migrate: %w", err)
+	}
+
+	return &SQLiteStorage{db: db}, nil
+}
+
+func autoMigrate(db *gorm.DB) error {
+	return db.AutoMigrate(
+		&consumer.Consumer{},
+		&channel.Channel{},
+		&channel.ChannelModel{},
+		&account.Account{},
+		&channel.ChannelGroup{},
+		&channel.ChannelGroupMember{},
+		&consumer.ConsumerGroup{},
+		&consumer.ConsumerGroupMember{},
+		&stats.RequestLog{},
+		&stats.SystemDailyStats{},
+		&stats.ConsumerDailyStats{},
+		&stats.ChannelDailyStats{},
+		&plugin.Plugin{},
+	)
+}
+
+func (s *SQLiteStorage) GetDB() *gorm.DB {
+	return s.db
+}
+
+func (s *SQLiteStorage) Close() error {
+	sqlDB, err := s.db.DB()
+	if err != nil {
+		return err
+	}
+	return sqlDB.Close()
+}

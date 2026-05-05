@@ -1,0 +1,326 @@
+package plugin
+
+import (
+	"bytes"
+	"context"
+	"encoding/json"
+	"fmt"
+	"io"
+	"net/http"
+	"os"
+	"os/exec"
+	"path/filepath"
+	"time"
+	"archive/zip"
+
+	"go.uber.org/zap"
+	"gorm.io/gorm"
+)
+
+// Manager 插件管理器实现
+type Manager struct {
+	db        *gorm.DB
+	logger    *zap.Logger
+	pluginsDir string
+	client    *http.Client
+}
+
+// NewManager 创建插件管理器
+func NewManager(db *gorm.DB, logger *zap.Logger, pluginsDir string) *Manager {
+	if pluginsDir == "" {
+		pluginsDir = "plugins"
+	}
+	return &Manager{
+		db:         db,
+		logger:     logger,
+		pluginsDir: pluginsDir,
+		client: &http.Client{Timeout: 5 * time.Second},
+	}
+}
+
+// AutoMigrate 自动迁移
+func (m *Manager) AutoMigrate() error {
+	return m.db.AutoMigrate(&Plugin{})
+}
+
+// Install 安装插件
+func (m *Manager) Install(ctx context.Context, zipPath string) (*Plugin, error) {
+	// 1. 解压 ZIP
+	reader, err := zip.OpenReader(zipPath)
+	if err != nil {
+		return nil, fmt.Errorf("open zip: %w", err)
+	}
+	defer reader.Close()
+
+	// 2. 查找 manifest.json
+	var manifestData []byte
+	var binaryName string
+
+	for _, f := range reader.File {
+		rc, err := f.Open()
+		if err != nil {
+			continue
+		}
+
+		if filepath.Base(f.Name) == "manifest.json" {
+			manifestData, _ = io.ReadAll(rc)
+		}
+		rc.Close()
+	}
+
+	if manifestData == nil {
+		return nil, fmt.Errorf("manifest.json not found in zip")
+	}
+
+	var manifest Manifest
+	if err := json.Unmarshal(manifestData, &manifest); err != nil {
+		return nil, fmt.Errorf("parse manifest: %w", err)
+	}
+
+	// 3. 创建插件目录并解压
+	pluginDir := filepath.Join(m.pluginsDir, manifest.Name)
+	os.MkdirAll(pluginDir, 0755)
+
+	for _, f := range reader.File {
+		rc, err := f.Open()
+		if err != nil {
+			continue
+		}
+		outPath := filepath.Join(pluginDir, filepath.Base(f.Name))
+		outFile, err := os.Create(outPath)
+		if err != nil {
+			rc.Close()
+			continue
+		}
+		io.Copy(outFile, rc)
+		outFile.Chmod(0755) // 可执行
+		outFile.Close()
+		rc.Close()
+
+		if filepath.Base(f.Name) == manifest.Binary {
+			binaryName = manifest.Binary
+		}
+	}
+
+	if binaryName == "" {
+		return nil, fmt.Errorf("binary '%s' not found in zip", manifest.Binary)
+	}
+
+	// 4. 入库
+	hooksJSON, _ := json.Marshal(manifest.Hooks)
+	plugin := &Plugin{
+		Name:         manifest.Name,
+		Version:      manifest.Version,
+		Description:  manifest.Description,
+		Author:       manifest.Author,
+		Binary:       filepath.Join(pluginDir, binaryName),
+		Port:         manifest.Port,
+		Hooks:        string(hooksJSON),
+		ConfigSchema: string(manifest.ConfigSchema),
+		Status:       "installed",
+	}
+
+	if err := m.db.WithContext(ctx).Create(plugin).Error; err != nil {
+		return nil, fmt.Errorf("save plugin: %w", err)
+	}
+
+	m.logger.Info("plugin installed", zap.String("name", manifest.Name), zap.String("version", manifest.Version))
+	return plugin, nil
+}
+
+// Start 启动插件
+func (m *Manager) Start(ctx context.Context, pluginID uint) error {
+	var plugin Plugin
+	if err := m.db.WithContext(ctx).First(&plugin, pluginID).Error; err != nil {
+		return fmt.Errorf("find plugin: %w", err)
+	}
+
+	if plugin.Status == "running" {
+		return fmt.Errorf("plugin already running")
+	}
+
+	// 启动子进程
+	cmd := exec.CommandContext(ctx, plugin.Binary)
+	cmd.Env = append(os.Environ(),
+		"PLUGIN_AUTH_TOKEN="+plugin.AuthToken,
+		fmt.Sprintf("PLUGIN_PORT=%d", plugin.Port),
+		"PLUGIN_CONFIG="+plugin.Config,
+	)
+	cmd.Dir = filepath.Dir(plugin.Binary)
+
+	if err := cmd.Start(); err != nil {
+		return fmt.Errorf("start plugin process: %w", err)
+	}
+
+	// 更新状态
+	m.db.WithContext(ctx).Model(&plugin).Updates(map[string]interface{}{
+		"pid":    cmd.Process.Pid,
+		"status": "running",
+	})
+
+	m.logger.Info("plugin started", zap.String("name", plugin.Name), zap.Int("pid", cmd.Process.Pid))
+	return nil
+}
+
+// Stop 停止插件
+func (m *Manager) Stop(ctx context.Context, pluginID uint) error {
+	var plugin Plugin
+	if err := m.db.WithContext(ctx).First(&plugin, pluginID).Error; err != nil {
+		return fmt.Errorf("find plugin: %w", err)
+	}
+
+	// 尝试优雅关闭
+	url := fmt.Sprintf("http://127.0.0.1:%d/admin/shutdown", plugin.Port)
+	req, _ := http.NewRequestWithContext(ctx, http.MethodPost, url, nil)
+	req.Header.Set("Authorization", "Bearer "+plugin.AuthToken)
+	m.client.Do(req) // 忽略错误，进程可能已停止
+
+	// 等待 3 秒
+	time.Sleep(3 * time.Second)
+
+	// 如果进程还在，强制 kill
+	if plugin.Pid > 0 {
+		if proc, err := os.FindProcess(plugin.Pid); err == nil {
+			proc.Kill()
+		}
+	}
+
+	m.db.WithContext(ctx).Model(&plugin).Updates(map[string]interface{}{
+		"pid":    0,
+		"status": "stopped",
+	})
+
+	m.logger.Info("plugin stopped", zap.String("name", plugin.Name))
+	return nil
+}
+
+// Uninstall 卸载插件
+func (m *Manager) Uninstall(ctx context.Context, pluginID uint) error {
+	// 先停止
+	m.Stop(ctx, pluginID)
+
+	var plugin Plugin
+	if err := m.db.WithContext(ctx).First(&plugin, pluginID).Error; err != nil {
+		return fmt.Errorf("find plugin: %w", err)
+	}
+
+	// 删除目录
+	os.RemoveAll(filepath.Dir(plugin.Binary))
+
+	// 删除记录
+	m.db.WithContext(ctx).Delete(&plugin)
+
+	m.logger.Info("plugin uninstalled", zap.String("name", plugin.Name))
+	return nil
+}
+
+// TriggerHook 触发钩子
+func (m *Manager) TriggerHook(ctx context.Context, hook HookName, req *HookRequest) (*HookResponse, error) {
+	// 查找订阅该钩子的运行中插件
+	var plugins []Plugin
+	m.db.WithContext(ctx).Where("status = ?", "running").Find(&plugins)
+
+	for _, p := range plugins {
+		var hooks []string
+		json.Unmarshal([]byte(p.Hooks), &hooks)
+
+		subscribed := false
+		for _, h := range hooks {
+			if h == string(hook) {
+				subscribed = true
+				break
+			}
+		}
+		if !subscribed {
+			continue
+		}
+
+		// HTTP 调用插件
+		url := fmt.Sprintf("http://127.0.0.1:%d/hook/%s", p.Port, hook)
+		body, _ := json.Marshal(req)
+		httpReq, err := http.NewRequestWithContext(ctx, http.MethodPost, url, bytes.NewReader(body))
+		if err != nil {
+			m.logger.Warn("create hook request failed", zap.String("plugin", p.Name), zap.Error(err))
+			continue
+		}
+		httpReq.Header.Set("Content-Type", "application/json")
+		httpReq.Header.Set("Authorization", "Bearer "+p.AuthToken)
+
+		resp, err := m.client.Do(httpReq)
+		if err != nil {
+			m.logger.Warn("call plugin hook failed", zap.String("plugin", p.Name), zap.Error(err))
+			continue
+		}
+		defer resp.Body.Close()
+
+		if resp.StatusCode == http.StatusUnauthorized {
+			m.logger.Warn("plugin auth failed", zap.String("plugin", p.Name))
+			continue
+		}
+
+		var hookResp HookResponse
+		if err := json.NewDecoder(resp.Body).Decode(&hookResp); err != nil {
+			m.logger.Warn("decode hook response failed", zap.String("plugin", p.Name), zap.Error(err))
+			continue
+		}
+
+		// 如果插件拒绝，直接返回拒绝
+		if hookResp.Action == ActionReject {
+			return &hookResp, nil
+		}
+
+		// 对于 account_select，合并 exclude_ids
+		if hook == HookAccountSelect && hookResp.Action == ActionFilter {
+			return &hookResp, nil
+		}
+
+		// 对于 pre_request / post_response，如果修改了请求/响应，更新 req
+		if hookResp.ModifiedRequest != nil {
+			req.Request = hookResp.ModifiedRequest
+		}
+		if hookResp.ModifiedResponse != nil {
+			req.Response = hookResp.ModifiedResponse
+		}
+	}
+
+	return ContinueHook(), nil
+}
+
+// List 列出所有插件
+func (m *Manager) List(ctx context.Context) ([]Plugin, error) {
+	var plugins []Plugin
+	err := m.db.WithContext(ctx).Order("id ASC").Find(&plugins).Error
+	return plugins, err
+}
+
+// GetByID 获取单个插件
+func (m *Manager) GetByID(ctx context.Context, id uint) (*Plugin, error) {
+	var plugin Plugin
+	err := m.db.WithContext(ctx).First(&plugin, id).Error
+	return &plugin, err
+}
+
+// UpdateConfig 更新插件配置
+func (m *Manager) UpdateConfig(ctx context.Context, id uint, config string) error {
+	return m.db.WithContext(ctx).Model(&Plugin{}).Where("id = ?", id).
+		Update("config", config).Error
+}
+
+// HealthCheck 健康检查
+func (m *Manager) HealthCheck(ctx context.Context) {
+	var plugins []Plugin
+	m.db.WithContext(ctx).Where("status = ?", "running").Find(&plugins)
+
+	for _, p := range plugins {
+		url := fmt.Sprintf("http://127.0.0.1:%d/health", p.Port)
+		resp, err := m.client.Get(url)
+		if err != nil || resp.StatusCode != http.StatusOK {
+			// 连续失败标记 unhealthy
+			m.logger.Warn("plugin health check failed", zap.String("name", p.Name))
+			// 可扩展：连续失败计数，达到阈值后自动禁用
+		}
+		if resp != nil {
+			resp.Body.Close()
+		}
+	}
+}
