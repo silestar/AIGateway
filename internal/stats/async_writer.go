@@ -59,7 +59,7 @@ func (w *AsyncWriter) Record(log *RequestLog) bool {
 	default:
 		// channel 满了，丢弃并记录警告
 		w.logger.Warn("async writer buffer full, dropping log",
-			zap.Uint("consumer_id", log.ConsumerID),
+			zap.Uint("keys_id", log.KeysID),
 			zap.String("model", log.ModelName),
 		)
 		return false

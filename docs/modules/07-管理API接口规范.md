@@ -27,11 +27,11 @@
 
 ---
 
-## 1. 消费者管理
+## 1. 密钥管理
 
-### 1.1 消费者列表
+### 1.1 密钥列表
 
-**`GET /api/consumers`**
+**`GET /api/keys`**
 
 查询参数：
 
@@ -52,7 +52,7 @@
       "name": "my-app",
       "api_key_masked": "sk-...****",
       "status": "active",
-      "consumer_groups": ["基础用户组"],
+      "key_groups": ["基础用户组"],
       "today_requests": 1523,
       "created_at": "2026-05-01T08:00:00Z",
       "updated_at": "2026-05-04T10:30:00Z"
@@ -66,16 +66,16 @@
 
 ---
 
-### 1.2 创建消费者
+### 1.2 创建密钥
 
-**`POST /api/consumers`**
+**`POST /api/keys`**
 
 请求体：
 
 ```json
 {
   "name": "my-app",
-  "consumer_group_ids": [1, 2]
+  "key_group_ids": [1, 2]
 }
 ```
 
@@ -88,7 +88,7 @@
   "api_key": "sk-agw-xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx",
   "api_key_masked": "sk-...****",
   "status": "active",
-  "consumer_groups": ["基础用户组", "高级用户组"],
+  "key_groups": ["基础用户组", "高级用户组"],
   "created_at": "2026-05-04T15:00:00Z"
 }
 ```
@@ -97,9 +97,9 @@
 
 ---
 
-### 1.3 消费者详情
+### 1.3 密钥详情
 
-**`GET /api/consumers/:id`**
+**`GET /api/keys/:id`**
 
 响应：
 
@@ -109,7 +109,7 @@
   "name": "my-app",
   "api_key_masked": "sk-...****",
   "status": "active",
-  "consumer_groups": [
+  "key_groups": [
     {"id": 1, "name": "基础用户组", "quota_rpm": 60, "quota_tpm": 100000}
   ],
   "today_requests": 1523,
@@ -120,16 +120,16 @@
 
 ---
 
-### 1.4 更新消费者
+### 1.4 更新密钥
 
-**`PUT /api/consumers/:id`**
+**`PUT /api/keys/:id`**
 
 请求体：
 
 ```json
 {
   "name": "my-app-v2",
-  "consumer_group_ids": [1, 3]
+  "key_group_ids": [1, 3]
 }
 ```
 
@@ -140,30 +140,30 @@
   "id": 1,
   "name": "my-app-v2",
   "status": "active",
-  "consumer_groups": ["基础用户组", "新用户组"],
+  "key_groups": ["基础用户组", "新用户组"],
   "updated_at": "2026-05-04T15:30:00Z"
 }
 ```
 
 ---
 
-### 1.5 删除消费者
+### 1.5 删除密钥
 
-**`DELETE /api/consumers/:id`**
+**`DELETE /api/keys/:id`**
 
 响应（200）：
 
 ```json
 {
-  "message": "消费者已删除"
+  "message": "密钥已删除"
 }
 ```
 
 ---
 
-### 1.6 重置消费者密钥
+### 1.6 重置密钥密钥
 
-**`PUT /api/consumers/:id/reset-key`**
+**`PUT /api/keys/:id/reset-key`**
 
 > ⚠️ 需二次确认。重置后旧密钥立即失效。
 
@@ -181,9 +181,9 @@
 
 ---
 
-### 1.7 复制消费者密钥
+### 1.7 复制密钥密钥
 
-**`POST /api/consumers/:id/reveal-key`**
+**`POST /api/keys/:id/reveal-key`**
 
 > **安全机制**：该 API 返回明文密钥，仅用于直接写入剪贴板，前端不得将明文存入状态变量。后端记录审计日志（谁、何时、复制了哪个密钥），并设置频率限制（同一密钥每分钟最多 3 次）。
 
@@ -199,9 +199,9 @@
 
 ---
 
-### 1.8 更新消费者状态
+### 1.8 更新密钥状态
 
-**`PATCH /api/consumers/:id/status`**
+**`PATCH /api/keys/:id/status`**
 
 请求体：
 
@@ -223,9 +223,9 @@
 
 ---
 
-### 1.8 消费者使用统计
+### 1.8 密钥使用统计
 
-**`GET /api/consumers/:id/stats`**
+**`GET /api/keys/:id/stats`**
 
 查询参数：
 
@@ -240,7 +240,7 @@
 
 ```json
 {
-  "consumer_id": 1,
+  "key_id": 1,
   "consumer_name": "my-app",
   "data": [
     {
@@ -554,7 +554,7 @@
 }
 ```
 
-> 修改优先级后，系统自动清除该渠道下所有消费者的 Redis 粘性绑定，让新请求使用新优先级重新选择。
+> 修改优先级后，系统自动清除该渠道下所有密钥的 Redis 粘性绑定，让新请求使用新优先级重新选择。
 
 响应：
 
@@ -588,7 +588,7 @@
 
 **`POST /api/accounts/:id/reveal-key`**
 
-> **安全机制**：同消费者密钥复制。后端记录审计日志，频率限制同一密钥每分钟最多 3 次。
+> **安全机制**：同密钥密钥复制。后端记录审计日志，频率限制同一密钥每分钟最多 3 次。
 
 响应：
 
@@ -663,7 +663,7 @@
 
 ---
 
-### 4.5 消费者分组列表
+### 4.5 密钥分组列表
 
 **`GET /api/consumer-groups`**
 
@@ -677,7 +677,7 @@
       "name": "基础用户组",
       "description": "默认分组",
       "consumers": [
-        {"consumer_id": 1, "consumer_name": "my-app", "quota_rpm": 60, "quota_tpm": 100000}
+        {"key_id": 1, "consumer_name": "my-app", "quota_rpm": 60, "quota_tpm": 100000}
       ],
       "bound_channel_groups": [
         {"channel_group_id": 1, "channel_group_name": "GPT-4 高速组"}
@@ -691,7 +691,7 @@
 
 ---
 
-### 4.6 创建消费者分组
+### 4.6 创建密钥分组
 
 **`POST /api/consumer-groups`**
 
@@ -702,7 +702,7 @@
   "name": "基础用户组",
   "description": "默认分组",
   "consumers": [
-    {"consumer_id": 1, "quota_rpm": 60, "quota_tpm": 100000}
+    {"key_id": 1, "quota_rpm": 60, "quota_tpm": 100000}
   ],
   "channel_group_ids": [1, 2]
 }
@@ -710,7 +710,7 @@
 
 ---
 
-### 4.7 更新消费者分组
+### 4.7 更新密钥分组
 
 **`PUT /api/consumer-groups/:id`**
 
@@ -718,13 +718,13 @@
 
 ---
 
-### 4.8 删除消费者分组
+### 4.8 删除密钥分组
 
 **`DELETE /api/consumer-groups/:id`**
 
 ---
 
-### 4.9 绑定消费者分组到渠道分组
+### 4.9 绑定密钥分组到渠道分组
 
 **`PUT /api/consumer-groups/:id/bindings`**
 
@@ -800,7 +800,7 @@
 
 ---
 
-### 5.3 消费者分析
+### 5.3 密钥分析
 
 **`GET /api/stats/consumer`**
 
@@ -808,7 +808,7 @@
 
 | 参数 | 类型 | 必填 | 说明 |
 |------|------|:--:|------|
-| `consumer_id` | int | 否 | 不填则返回全部消费者汇总 |
+| `key_id` | int | 否 | 不填则返回全部密钥汇总 |
 | `start` | string | 是 | 起始日期 |
 | `end` | string | 是 | 结束日期 |
 | `granularity` | string | 否 | `daily`（默认）/ `weekly` |
@@ -818,7 +818,7 @@
 
 ```json
 {
-  "consumer_id": 5,
+  "key_id": 5,
   "consumer_name": "my-app",
   "data": [
     {
@@ -893,7 +893,7 @@
 
 | 参数 | 类型 | 必填 | 说明 |
 |------|------|:--:|------|
-| `consumer_id` | int | 否 | 按消费者筛选 |
+| `key_id` | int | 否 | 按密钥筛选 |
 | `model` | string | 否 | 按模型名筛选 |
 | `channel_id` | int | 否 | 按渠道筛选 |
 | `account_id` | int | 否 | 按账号筛选 |
@@ -912,7 +912,7 @@
     {
       "id": 12345,
       "timestamp": "2026-05-04T15:30:00Z",
-      "consumer_id": 5,
+      "key_id": 5,
       "consumer_name": "my-app",
       "model_name": "gpt-4o",
       "channel_id": 3,
@@ -945,7 +945,7 @@
 {
   "id": 12345,
   "timestamp": "2026-05-04T15:30:00Z",
-  "consumer_id": 5,
+  "key_id": 5,
   "consumer_name": "my-app",
   "model_name": "gpt-4o",
   "is_stream": true,
@@ -1152,7 +1152,7 @@
 {
   "error": {
     "code": "CONSUMER_NOT_FOUND",
-    "message": "消费者不存在",
+    "message": "密钥不存在",
     "details": {}
   }
 }
@@ -1167,7 +1167,7 @@
 | `FORBIDDEN` | 403 | 无操作权限 |
 | `NOT_FOUND` | 404 | 资源不存在 |
 | `CONFLICT` | 409 | 资源冲突（名称重复等） |
-| `QUOTA_EXCEEDED` | 429 | 消费者配额超限 |
+| `QUOTA_EXCEEDED` | 429 | 密钥配额超限 |
 | `INTERNAL_ERROR` | 500 | 服务器内部错误 |
 
 ---

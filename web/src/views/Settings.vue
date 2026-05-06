@@ -1,22 +1,124 @@
 <template>
-  <n-card :title="t('settings.title')">
-    <n-descriptions bordered :column="1">
-      <n-descriptions-item label="Version">0.1.0</n-descriptions-item>
-      <n-descriptions-item label="Port">{{ systemInfo.port || '-' }}</n-descriptions-item>
-      <n-descriptions-item label="DB Type">{{ systemInfo.db_type || '-' }}</n-descriptions-item>
-    </n-descriptions>
+  <div style="display:flex;flex-direction:column;gap:16px">
+    <!-- 服务器设置 -->
+    <n-card :title="t('settings.server')" size="small" :bordered="false" class="glass-card">
+      <n-form label-placement="left" label-width="180" :show-feedback="false">
+        <n-form-item :label="t('settings.serverMode')">
+          <n-select v-model:value="form.server.mode" :options="modeOptions" style="width:200px" />
+        </n-form-item>
+      </n-form>
+    </n-card>
 
-    <n-divider />
+    <!-- 日志设置 -->
+    <n-card :title="t('settings.log')" size="small" :bordered="false" class="glass-card">
+      <n-form label-placement="left" label-width="180" :show-feedback="false">
+        <n-form-item :label="t('settings.logLevel')">
+          <n-select v-model:value="form.log.level" :options="levelOptions" style="width:200px" />
+        </n-form-item>
+        <n-form-item :label="t('settings.logDir')">
+          <n-input v-model:value="form.log.dir" style="width:200px" />
+        </n-form-item>
+        <n-form-item :label="t('settings.logMaxAge')">
+          <n-input-number v-model:value="form.log.max_age_days" :min="1" :max="365" style="width:200px">
+            <template #suffix>{{ t('settings.days') }}</template>
+          </n-input-number>
+        </n-form-item>
+      </n-form>
+    </n-card>
 
-    <n-space>
+    <!-- 代理设置 -->
+    <n-card :title="t('settings.proxy')" size="small" :bordered="false" class="glass-card">
+      <n-form label-placement="left" label-width="180" :show-feedback="false">
+        <n-form-item :label="t('settings.connectTimeout')">
+          <n-input-number v-model:value="form.proxy.connect_timeout" :min="1" :max="300" style="width:200px">
+            <template #suffix>{{ t('settings.seconds') }}</template>
+          </n-input-number>
+        </n-form-item>
+        <n-form-item :label="t('settings.readTimeout')">
+          <n-input-number v-model:value="form.proxy.read_timeout" :min="1" :max="600" style="width:200px">
+            <template #suffix>{{ t('settings.seconds') }}</template>
+          </n-input-number>
+        </n-form-item>
+        <n-form-item :label="t('settings.maxIdleConns')">
+          <n-input-number v-model:value="form.proxy.max_idle_conns" :min="1" :max="10000" style="width:200px" />
+        </n-form-item>
+        <n-form-item :label="t('settings.idleConnTimeout')">
+          <n-input-number v-model:value="form.proxy.idle_conn_timeout" :min="1" :max="600" style="width:200px">
+            <template #suffix>{{ t('settings.seconds') }}</template>
+          </n-input-number>
+        </n-form-item>
+      </n-form>
+    </n-card>
+
+    <!-- 账号管理器设置 -->
+    <n-card :title="t('settings.accountManager')" size="small" :bordered="false" class="glass-card">
+      <n-form label-placement="left" label-width="180" :show-feedback="false">
+        <n-form-item :label="t('settings.affinityTTL')">
+          <n-input-number v-model:value="form.account_manager.affinity_ttl" :min="0" style="width:200px">
+            <template #suffix>{{ t('settings.seconds') }}</template>
+          </n-input-number>
+        </n-form-item>
+        <n-form-item :label="t('settings.consecutiveFailureThreshold')">
+          <n-input-number v-model:value="form.account_manager.consecutive_failure_threshold" :min="1" style="width:200px" />
+        </n-form-item>
+        <n-form-item :label="t('settings.minDisableDuration')">
+          <n-input-number v-model:value="form.account_manager.min_disable_duration" :min="0" style="width:200px">
+            <template #suffix>{{ t('settings.seconds') }}</template>
+          </n-input-number>
+        </n-form-item>
+        <n-form-item :label="t('settings.probeInterval')">
+          <n-input-number v-model:value="form.account_manager.probe_interval" :min="0" style="width:200px">
+            <template #suffix>{{ t('settings.seconds') }}</template>
+          </n-input-number>
+        </n-form-item>
+        <n-form-item :label="t('settings.probeActiveRatioThreshold')">
+          <n-input-number v-model:value="form.account_manager.probe_active_ratio_threshold" :min="0" :max="1" :step="0.05" style="width:200px" />
+        </n-form-item>
+        <n-form-item :label="t('settings.maxProbeFailures')">
+          <n-input-number v-model:value="form.account_manager.max_probe_failures" :min="1" style="width:200px" />
+        </n-form-item>
+        <n-form-item :label="t('settings.maxProbeRecoverPerCycle')">
+          <n-input-number v-model:value="form.account_manager.max_probe_recover_per_cycle" :min="1" style="width:200px" />
+        </n-form-item>
+        <n-form-item :label="t('settings.probeCooldownDuration')">
+          <n-input-number v-model:value="form.account_manager.probe_cooldown_duration" :min="0" style="width:200px">
+            <template #suffix>{{ t('settings.seconds') }}</template>
+          </n-input-number>
+        </n-form-item>
+        <n-form-item :label="t('settings.probeCooldownDurationL2')">
+          <n-input-number v-model:value="form.account_manager.probe_cooldown_duration_l2" :min="0" style="width:200px">
+            <template #suffix>{{ t('settings.seconds') }}</template>
+          </n-input-number>
+        </n-form-item>
+        <n-form-item :label="t('settings.globalHealthCheckInterval')">
+          <n-input-number v-model:value="form.account_manager.global_health_check_interval" :min="0" style="width:200px">
+            <template #suffix>{{ t('settings.seconds') }}</template>
+          </n-input-number>
+        </n-form-item>
+        <n-form-item :label="t('settings.accountStatusCacheTTL')">
+          <n-input-number v-model:value="form.account_manager.account_status_cache_ttl" :min="0" style="width:200px">
+            <template #suffix>{{ t('settings.seconds') }}</template>
+          </n-input-number>
+        </n-form-item>
+        <n-form-item :label="t('settings.accountKeyCacheTTL')">
+          <n-input-number v-model:value="form.account_manager.account_key_cache_ttl" :min="0" style="width:200px">
+            <template #suffix>{{ t('settings.seconds') }}</template>
+          </n-input-number>
+        </n-form-item>
+      </n-form>
+    </n-card>
+
+    <!-- 操作按钮 -->
+    <n-space justify="end">
       <n-button @click="loadConfig">{{ t('settings.loadConfig') }}</n-button>
-      <n-button type="primary" @click="handleDownloadLogs">{{ t('settings.downloadLogs') }}</n-button>
+      <n-button type="primary" @click="handleSave" :loading="saving">{{ t('common.save') }}</n-button>
+      <n-button @click="handleDownloadLogs">{{ t('settings.downloadLogs') }}</n-button>
     </n-space>
-  </n-card>
+  </div>
 </template>
 
 <script setup lang="ts">
-import { ref, onMounted } from 'vue'
+import { ref, reactive, onMounted } from 'vue'
 import { useI18n } from 'vue-i18n'
 import { useMessage } from 'naive-ui'
 import { systemApi } from '../api/system'
@@ -24,13 +126,63 @@ import { systemApi } from '../api/system'
 const { t } = useI18n()
 const message = useMessage()
 
-const systemInfo = ref<Record<string, unknown>>({})
+const saving = ref(false)
+
+const form = reactive({
+  server: { mode: 'debug' } as Record<string, any>,
+  log: { level: 'info', dir: 'logs', max_age_days: 30 } as Record<string, any>,
+  proxy: { connect_timeout: 5, read_timeout: 60, max_idle_conns: 100, idle_conn_timeout: 90 } as Record<string, any>,
+  account_manager: {
+    affinity_ttl: 3600, consecutive_failure_threshold: 5, min_disable_duration: 120,
+    probe_interval: 30, probe_active_ratio_threshold: 0.4, max_probe_failures: 10,
+    max_probe_recover_per_cycle: 1, probe_cooldown_duration: 7200,
+    probe_cooldown_duration_l2: 86400, global_health_check_interval: 3600,
+    account_status_cache_ttl: 30, account_key_cache_ttl: 60,
+  } as Record<string, any>,
+})
+
+const modeOptions = computed(() => [
+  { label: 'debug', value: 'debug' },
+  { label: 'release', value: 'release' },
+])
+
+const levelOptions = computed(() => [
+  { label: 'debug', value: 'debug' },
+  { label: 'info', value: 'info' },
+  { label: 'warn', value: 'warn' },
+  { label: 'error', value: 'error' },
+])
+
+import { computed } from 'vue'
 
 async function loadConfig() {
   try {
-    const res = await systemApi.info()
-    systemInfo.value = res.data.data
-  } catch { message.error('Failed to load config') }
+    const res = await systemApi.getConfig()
+    const data = res.data.data
+    if (data.server) Object.assign(form.server, data.server)
+    if (data.log) Object.assign(form.log, data.log)
+    if (data.proxy) Object.assign(form.proxy, data.proxy)
+    if (data.account_manager) Object.assign(form.account_manager, data.account_manager)
+  } catch {
+    message.error(t('common.operationFailed'))
+  }
+}
+
+async function handleSave() {
+  saving.value = true
+  try {
+    await systemApi.updateConfig({
+      server: form.server,
+      log: form.log,
+      proxy: form.proxy,
+      account_manager: form.account_manager,
+    })
+    message.success(t('common.success'))
+  } catch {
+    message.error(t('common.operationFailed'))
+  } finally {
+    saving.value = false
+  }
 }
 
 async function handleDownloadLogs() {
@@ -40,7 +192,9 @@ async function handleDownloadLogs() {
     const a = document.createElement('a')
     a.href = url; a.download = 'agw.log'; a.click()
     URL.revokeObjectURL(url)
-  } catch { message.error('Failed to download logs') }
+  } catch {
+    message.error(t('common.operationFailed'))
+  }
 }
 
 onMounted(() => loadConfig())

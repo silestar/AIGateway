@@ -80,7 +80,7 @@ const langOptions = [
 
 const menuOptions = computed(() => [
   { label: t('menu.dashboard'), key: '/' },
-  { label: t('menu.consumers'), key: '/consumers' },
+{ label: t('menu.keys'), key: '/keys' },
   { label: t('menu.channels'), key: '/channels' },
   { label: t('menu.groups'), key: '/groups' },
   { label: t('menu.stats'), key: '/stats' },

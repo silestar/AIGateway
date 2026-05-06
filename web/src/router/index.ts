@@ -15,9 +15,9 @@ const router = createRouter({
       component: () => import('../views/Dashboard.vue'),
     },
     {
-      path: '/consumers',
-      name: 'consumers',
-      component: () => import('../views/Consumers.vue'),
+      path: '/keys',
+      name: 'keys',
+      component: () => import('../views/KeysList.vue'),
     },
     {
       path: '/channels',

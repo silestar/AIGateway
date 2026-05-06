@@ -22,7 +22,7 @@
     
     - 仪表盘
         
-    - 消费者管理
+    - 密钥管理
         
     - 渠道管理
         
@@ -43,13 +43,13 @@
 |路径|组件|说明|
 |---|---|---|
 |`/`|Dashboard|仪表盘|
-|`/consumers`|ConsumerList|消费者列表|
-|`/consumers/:id`|ConsumerDetail|消费者详情（统计）|
+|`/keys`|KeyList|密钥列表|
+|`/keys/:id`|ConsumerDetail|密钥详情（统计）|
 |`/channels`|ChannelList|渠道列表|
 |`/channels/:id`|ChannelDetail|渠道详情（含账号、模型配置）|
-|`/groups`|GroupManagement|分组管理（渠道分组、消费者分组）|
+|`/groups`|GroupManagement|分组管理（渠道分组、密钥分组）|
 |`/stats/overview`|StatsOverview|统计系统总览|
-|`/stats/consumer`|StatsConsumer|用户分析（可选消费者ID参数）|
+|`/stats/consumer`|StatsConsumer|用户分析（可选密钥ID参数）|
 |`/stats/channel`|StatsChannel|渠道分析（可选渠道ID参数）|
 |`/logs/requests`|RequestLogs|请求日志查询|
 |`/plugins`|PluginMarket|插件管理|
@@ -65,7 +65,7 @@
 
 - **指标卡片行**（使用 Naive UI `n-grid`）：
     
-    - 今日总请求数、成功率、平均延迟、活跃消费者数、活跃渠道数。
+    - 今日总请求数、成功率、平均延迟、活跃密钥数、活跃渠道数。
         
     - 数据实时获取自 `/api/stats/realtime`。
         
@@ -82,11 +82,11 @@
 - **最近异常**（表格）：最近的失败请求记录简要列表，提供跳转到请求日志的链接。
     
 
-### 2.2 消费者管理
+### 2.2 密钥管理
 
-#### 2.2.1 消费者列表 (ConsumerList)
+#### 2.2.1 密钥列表 (KeyList)
 
-**功能**：查看、搜索、新建消费者，管理API密钥。
+**功能**：查看、搜索、新建密钥，管理API密钥。
 
 **组件**：
 
@@ -96,30 +96,30 @@
     
 - 列表表格：
     
-    - 列：名称、密钥（脱敏，如 `sk-...****`）、状态（active/disabled）、创建时间、所属消费者分组、今日请求数、操作（详情、复制密钥、重置密钥、禁用/启用）。
+    - 列：名称、密钥（脱敏，如 `sk-...****`）、状态（active/disabled）、创建时间、所属密钥分组、今日请求数、操作（详情、复制密钥、重置密钥、禁用/启用）。
         
-    - **密钥安全复制**：密钥列不渲染明文，显示脱敏标识 + "复制"按钮。点击"复制" → 弹出确认框 → 调用 `POST /api/consumers/:id/reveal-key` → 响应明文直接写入剪贴板（`navigator.clipboard.writeText()`），不进入前端状态变量 → 提示"已复制到剪贴板"。
+    - **密钥安全复制**：密钥列不渲染明文，显示脱敏标识 + "复制"按钮。点击"复制" → 弹出确认框 → 调用 `POST /api/keys/:id/reveal-key` → 响应明文直接写入剪贴板（`navigator.clipboard.writeText()`），不进入前端状态变量 → 提示"已复制到剪贴板"。
         
     - 操作菜单：详情跳转、复制密钥（同上流程）、重置密钥（需二次确认）、启用/禁用、删除。
         
 - API:
     
-    - `GET /api/consumers?search=&status=`
+    - `GET /api/keys?search=&status=`
         
-    - `POST /api/consumers` { name }
+    - `POST /api/keys` { name }
         
-    - `PUT /api/consumers/:id/reset-key`
+    - `PUT /api/keys/:id/reset-key`
         
-    - `PATCH /api/consumers/:id/status`
+    - `PATCH /api/keys/:id/status`
         
 
-#### 2.2.2 消费者详情 (ConsumerDetail)
+#### 2.2.2 密钥详情 (ConsumerDetail)
 
-**功能**：查看单个消费者的使用统计。
+**功能**：查看单个密钥的使用统计。
 
 **组件**：
 
-- 头部：消费者名称、密钥脱敏 + "复制密钥"按钮（调用 `POST /api/consumers/:id/reveal-key`，明文直接写剪贴板）、状态标签。
+- 头部：密钥名称、密钥脱敏 + "复制密钥"按钮（调用 `POST /api/keys/:id/reveal-key`，明文直接写剪贴板）、状态标签。
     
 - 日期选择器：预设最近7天/30天/自定义。
     
@@ -131,7 +131,7 @@
     
 - 峰值时段热力图：24小时×7天请求密度。
     
-- API: `/api/stats/consumer?consumer_id=id&start=&end=&granularity=daily`
+- API: `/api/stats/consumer?key_id=id&start=&end=&granularity=daily`
     
 
 ### 2.3 渠道管理
@@ -204,7 +204,7 @@
 
 ### 2.4 分组管理 (GroupManagement)
 
-**功能**：创建渠道分组和消费者分组，建立授权关系。
+**功能**：创建渠道分组和密钥分组，建立授权关系。
 
 **页面布局**：左右两栏或两个Tab。
 
@@ -214,15 +214,15 @@
         
     - 点击某个分组进入编辑：显示关联的渠道列表（已选渠道显示权重），可添加渠道并设置权重。
         
-- **消费者分组** Tab：
+- **密钥分组** Tab：
     
     - 分组列表（名称、描述）。
         
-    - 编辑界面：关联可访问的渠道分组（多选，并设置该消费者组的配额上限 RPM/TPM）。
+    - 编辑界面：关联可访问的渠道分组（多选，并设置该密钥组的配额上限 RPM/TPM）。
         
 - API:
     
-    - CRUD for `channel_groups` 和 `consumer_groups` 以及关联映射。
+    - CRUD for `channel_groups` 和 `key_groups` 以及关联映射。
         
 
 ### 2.5 统计分析
@@ -235,18 +235,18 @@
     
 - 系统级指标卡片（总量、成功、失败、延迟、Token消耗）。
     
-- 多图表组合：请求趋势、模型分布、渠道请求排行、消费者活跃度排行。
+- 多图表组合：请求趋势、模型分布、渠道请求排行、密钥活跃度排行。
     
 - 导出按钮：导出CSV。
     
 
 #### 2.5.2 用户分析 (StatsConsumer)
 
-- 消费者下拉搜索选择框（可清空看全部）。
+- 密钥下拉搜索选择框（可清空看全部）。
     
-- 选定消费者后，展示该用户的用量趋势、模型偏好、错误分布，与消费者详情页类似，但集成在统计模块中方便对比。
+- 选定密钥后，展示该用户的用量趋势、模型偏好、错误分布，与密钥详情页类似，但集成在统计模块中方便对比。
     
-- API: `/api/stats/consumer?consumer_id=...`
+- API: `/api/stats/consumer?key_id=...`
     
 
 #### 2.5.3 渠道分析 (StatsChannel)
@@ -264,11 +264,11 @@
 
 **组件**：
 
-- 筛选栏：消费者（搜索）、模型、渠道、账号、状态（成功/失败）、时间范围、关键词搜索。
+- 筛选栏：密钥（搜索）、模型、渠道、账号、状态（成功/失败）、时间范围、关键词搜索。
     
 - 日志表格：
     
-    - 列：时间、消费者名称、模型、渠道→账号（简要）、Token数、延迟、状态、操作（展开详情）。
+    - 列：时间、密钥名称、模型、渠道→账号（简要）、Token数、延迟、状态、操作（展开详情）。
         
     - 状态使用颜色标签。
         
@@ -284,7 +284,7 @@
     
 - API:
     
-    - `GET /api/logs/requests?consumer_id=&model=&channel_id=&account_id=&status=&start=&end=&page=&page_size=`
+    - `GET /api/logs/requests?key_id=&model=&channel_id=&account_id=&status=&start=&end=&page=&page_size=`
         
     - `GET /api/logs/requests/export?...`
         

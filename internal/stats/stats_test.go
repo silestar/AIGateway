@@ -16,7 +16,7 @@ func setupTestDB(t *testing.T) *gorm.DB {
 	if err != nil {
 		t.Fatalf("open test db: %v", err)
 	}
-	if err := db.AutoMigrate(&RequestLog{}, &SystemDailyStats{}, &ConsumerDailyStats{}, &ChannelDailyStats{}); err != nil {
+	if err := db.AutoMigrate(&RequestLog{}, &SystemDailyStats{}, &KeysDailyStats{}, &ChannelDailyStats{}); err != nil {
 		t.Fatalf("migrate: %v", err)
 	}
 	return db
@@ -33,7 +33,7 @@ func TestAsyncWriter_Record(t *testing.T) {
 	// 写入一条日志
 	log := &RequestLog{
 		Timestamp:   time.Now(),
-		ConsumerID:  1,
+		KeysID:  1,
 		ModelName:   "gpt-4",
 		ChannelID:   uintPtr(1),
 		AccountID:   uintPtr(1),
@@ -107,7 +107,7 @@ func TestManager_QueryRequestLogs(t *testing.T) {
 	// 插入测试数据
 	db.Create(&RequestLog{
 		Timestamp:  time.Now(),
-		ConsumerID: 1,
+		KeysID: 1,
 		ModelName:  "gpt-4",
 		ChannelID:  uintPtr(1),
 		StatusCode: 200,
@@ -115,7 +115,7 @@ func TestManager_QueryRequestLogs(t *testing.T) {
 	})
 	db.Create(&RequestLog{
 		Timestamp:  time.Now(),
-		ConsumerID: 2,
+		KeysID: 2,
 		ModelName:  "gpt-3.5",
 		ChannelID:  uintPtr(2),
 		StatusCode: 500,
@@ -162,7 +162,7 @@ func TestManager_Aggregation(t *testing.T) {
 	now := time.Now()
 	db.Create(&RequestLog{
 		Timestamp:        now,
-		ConsumerID:       1,
+		KeysID:       1,
 		ModelName:        "gpt-4",
 		ChannelID:        uintPtr(1),
 		AccountID:        uintPtr(1),
@@ -173,7 +173,7 @@ func TestManager_Aggregation(t *testing.T) {
 	})
 	db.Create(&RequestLog{
 		Timestamp:        now,
-		ConsumerID:       1,
+		KeysID:       1,
 		ModelName:        "gpt-4",
 		ChannelID:        uintPtr(1),
 		AccountID:        uintPtr(1),

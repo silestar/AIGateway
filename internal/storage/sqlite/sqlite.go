@@ -10,7 +10,7 @@ import (
 	"gorm.io/gorm/logger"
 
 	"github.com/bokelife/aigateway/internal/config"
-	"github.com/bokelife/aigateway/internal/consumer"
+	"github.com/bokelife/aigateway/internal/keys"
 	"github.com/bokelife/aigateway/internal/channel"
 	"github.com/bokelife/aigateway/internal/account"
 	"github.com/bokelife/aigateway/internal/stats"
@@ -23,7 +23,6 @@ type SQLiteStorage struct {
 
 // New 创建 SQLite 存储
 func New(cfg config.DBConfig) (*SQLiteStorage, error) {
-	// 确保数据库文件目录存在
 	dir := filepath.Dir(cfg.Path)
 	if err := os.MkdirAll(dir, 0755); err != nil {
 		return nil, fmt.Errorf("create db directory: %w", err)
@@ -39,12 +38,10 @@ func New(cfg config.DBConfig) (*SQLiteStorage, error) {
 		return nil, fmt.Errorf("open sqlite: %w", err)
 	}
 
-	// SQLite 优化配置
 	sqlDB, _ := db.DB()
-	sqlDB.SetMaxOpenConns(1) // SQLite 单写
+	sqlDB.SetMaxOpenConns(1)
 	sqlDB.SetMaxIdleConns(1)
 
-	// AutoMigrate 所有模型
 	if err := autoMigrate(db); err != nil {
 		return nil, fmt.Errorf("auto migrate: %w", err)
 	}
@@ -52,7 +49,6 @@ func New(cfg config.DBConfig) (*SQLiteStorage, error) {
 	return &SQLiteStorage{db: db}, nil
 }
 
-// NewWithLogger 创建带日志级别的 SQLite 存储
 func NewWithLogger(cfg config.DBConfig, logLevel logger.LogLevel) (*SQLiteStorage, error) {
 	dir := filepath.Dir(cfg.Path)
 	if err := os.MkdirAll(dir, 0755); err != nil {
@@ -81,17 +77,17 @@ func NewWithLogger(cfg config.DBConfig, logLevel logger.LogLevel) (*SQLiteStorag
 
 func autoMigrate(db *gorm.DB) error {
 	return db.AutoMigrate(
-		&consumer.Consumer{},
+		&keys.Keys{},
 		&channel.Channel{},
 		&channel.ChannelModel{},
 		&account.Account{},
 		&channel.ChannelGroup{},
 		&channel.ChannelGroupMember{},
-		&consumer.ConsumerGroup{},
-		&consumer.ConsumerGroupMember{},
+		&keys.KeysGroup{},
+		&keys.KeysGroupMember{},
 		&stats.RequestLog{},
 		&stats.SystemDailyStats{},
-		&stats.ConsumerDailyStats{},
+		&stats.KeysDailyStats{},
 		&stats.ChannelDailyStats{},
 		&plugin.Plugin{},
 	)

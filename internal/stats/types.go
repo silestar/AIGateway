@@ -10,7 +10,7 @@ import (
 type RequestLog struct {
 	ID               uint            `gorm:"primaryKey;autoIncrement" json:"id"`
 	Timestamp        time.Time       `gorm:"index;not null" json:"timestamp"`
-	ConsumerID       uint            `gorm:"index" json:"consumer_id"`
+	KeysID       uint            `gorm:"index" json:"keys_id"`
 	ModelName        string          `gorm:"size:100;index" json:"model_name"`
 	ChannelID        *uint           `gorm:"index" json:"channel_id"`
 	AccountID        *uint           `json:"account_id"`
@@ -43,11 +43,11 @@ type SystemDailyStats struct {
 
 func (SystemDailyStats) TableName() string { return "system_daily_stats" }
 
-// ConsumerDailyStats 消费者日统计
-type ConsumerDailyStats struct {
+// KeysDailyStats 密钥日统计
+type KeysDailyStats struct {
 	ID              uint   `gorm:"primaryKey;autoIncrement" json:"id"`
 	Date            string `gorm:"size:10;not null" json:"date"`
-	ConsumerID      uint   `gorm:"not null;index" json:"consumer_id"`
+	KeysID      uint   `gorm:"not null;index" json:"keys_id"`
 	ModelName       string `gorm:"size:100;not null" json:"model_name"`
 	TotalRequests   int    `json:"total_requests"`
 	SuccessRequests int    `json:"success_requests"`
@@ -57,7 +57,7 @@ type ConsumerDailyStats struct {
 	TotalCost       float64 `json:"total_cost"`
 }
 
-func (ConsumerDailyStats) TableName() string { return "consumer_daily_stats" }
+func (KeysDailyStats) TableName() string { return "keys_daily_stats" }
 
 // ChannelDailyStats 渠道日统计
 type ChannelDailyStats struct {
@@ -84,7 +84,7 @@ type RealtimeStats struct {
 	FailRequests    int64  `json:"fail_requests"`
 	AvgLatencyMs    int    `json:"avg_latency_ms"`
 	TotalTokens     int64  `json:"total_tokens"`
-	ActiveConsumers int64  `json:"active_consumers"`
+	ActiveKeys int64  `json:"active_keys"`
 	ActiveChannels  int64  `json:"active_channels"`
 }
 

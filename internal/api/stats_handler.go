@@ -25,7 +25,7 @@ func (h *StatsHandler) RegisterRoutes(rg *gin.RouterGroup) {
 	s.GET("/requests", h.Requests)
 	s.GET("/models", h.Models)
 	s.GET("/channels", h.Channels)
-	s.GET("/consumer/:id", h.ConsumerStats)
+	s.GET("/keys/:id", h.KeysStats)
 	s.GET("/channel/:id", h.ChannelStats)
 }
 
@@ -51,7 +51,7 @@ func (h *StatsHandler) Dashboard(c *gin.Context) {
 			"success_rate":         successRate,
 			"avg_latency_ms":      today.AvgLatencyMs,
 			"total_tokens":         today.TotalTokens,
-			"active_consumers":    today.ActiveConsumers,
+			"active_keys":    today.ActiveKeys,
 			"active_channels":     today.ActiveChannels,
 			"last_7_days":         overview.Last7Days,
 		},
@@ -99,7 +99,7 @@ func (h *StatsHandler) Models(c *gin.Context) {
 		TotalRequests int64  `json:"total_requests"`
 	}
 	h.statsMgr.DB().WithContext(c.Request.Context()).
-		Model(&stats.ConsumerDailyStats{}).
+		Model(&stats.KeysDailyStats{}).
 		Select("model_name, SUM(total_requests) as total_requests").
 		Group("model_name").
 		Order("total_requests DESC").
@@ -126,18 +126,18 @@ func (h *StatsHandler) Channels(c *gin.Context) {
 	c.JSON(http.StatusOK, gin.H{"data": channelStats})
 }
 
-// ConsumerStats 消费者统计详情
-func (h *StatsHandler) ConsumerStats(c *gin.Context) {
-	consumerID, err := parseID(c)
+// KeysStats 消费者统计详情
+func (h *StatsHandler) KeysStats(c *gin.Context) {
+	keysID, err := parseID(c)
 	if err != nil {
-		c.JSON(http.StatusBadRequest, errorResponse("invalid_consumer_id", "invalid consumer id"))
+		c.JSON(http.StatusBadRequest, errorResponse("invalid_keys_id", "invalid keys id"))
 		return
 	}
 
 	start := c.DefaultQuery("start", "")
 	end := c.DefaultQuery("end", "")
 
-	statsData, err := h.statsMgr.GetConsumerStats(c.Request.Context(), consumerID, start, end)
+	statsData, err := h.statsMgr.GetKeysStats(c.Request.Context(), keysID, start, end)
 	if err != nil {
 		c.JSON(http.StatusInternalServerError, errorResponse("internal_error", err.Error()))
 		return

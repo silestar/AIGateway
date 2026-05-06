@@ -25,16 +25,16 @@
 - 解密缓存
 - 18 个单元测试全部通过
 
-### 阶段四：路由与消费者模块
-- 消费者管理 + API Key 认证 + RPM/TPM 配额
-- 渠道分组 + 消费者分组管理
+### 阶段四：路由与密钥模块
+- 密钥管理 + API Key 认证 + RPM/TPM 配额
+- 渠道分组 + 密钥分组管理
 - 模型存在性过滤
 - 分层确定性路由引擎
 - 11 个分组路由单元测试
 
 ### 阶段五：管理 API 与 WebUI
 - 8 个 RESTful 管理 API Handler
-- Vue 前端 8 个页面（Dashboard/消费者/渠道/分组/统计/日志/插件/设置）
+- Vue 前端 8 个页面（Dashboard/密钥/渠道/分组/统计/日志/插件/设置）
 - 模型自动发现（FetchModels + SaveModels）
 - 中英文国际化（vue-i18n）
 - 前后端联调通过
@@ -42,7 +42,7 @@
 ### 阶段六：统计日志与可观测性
 - 异步日志写入器（channel 缓冲 10000 + 批量 INSERT + 优雅关闭）
 - 内存实时计数器（替代 Redis，单实例适用）
-- 日聚合调度器（5 分钟一次，系统/消费者/渠道三级统计）
+- 日聚合调度器（5 分钟一次，系统/密钥/渠道三级统计）
 - StatsHandler + LogHandler 真实实现
 - handleChatCompletions 集成日志记录
 - 前端 Dashboard/Stats/Logs 对接真实 API

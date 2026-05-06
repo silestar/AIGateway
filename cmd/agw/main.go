@@ -17,7 +17,7 @@ import (
 	"github.com/bokelife/aigateway/internal/account"
 	"github.com/bokelife/aigateway/internal/channel"
 	"github.com/bokelife/aigateway/internal/config"
-	"github.com/bokelife/aigateway/internal/consumer"
+	"github.com/bokelife/aigateway/internal/keys"
 	"github.com/bokelife/aigateway/internal/crypto"
 	"github.com/bokelife/aigateway/internal/group"
 	agwlog "github.com/bokelife/aigateway/internal/log"
@@ -67,11 +67,12 @@ func main() {
 
 	// 6. 初始化服务
 	cache := account.NewMemoryCache() // 内存缓存降级
-	consumerSvc := consumer.NewService(db)
-	consumerSvc.SetCache(cache)
+	keysSvc := keys.NewService(db)
+	keysSvc.SetCache(cache)
+	keysSvc.SetCrypto(cryptoService)
 	accountMgr := account.NewManager(db, cache, cryptoService, cfg.AccountManager, logger)
 	channelSvc := channel.NewService(db)
-	groupRouter := group.NewRouter(db, consumerSvc, accountMgr, logger)
+	groupRouter := group.NewRouter(db, keysSvc, accountMgr, logger)
 	proxyEngine := proxy.NewEngine(cfg.Proxy, accountMgr, logger)
 
 	// 统计管理器 + 异步日志写入器
@@ -99,7 +100,7 @@ func main() {
 	// 注入 db 到上下文
 	router.Use(func(c *gin.Context) {
 		c.Set("db", db)
-		c.Set("consumerSvc", consumerSvc)
+		c.Set("keysSvc", keysSvc)
 		c.Set("proxyEngine", proxyEngine)
 		c.Set("accountMgr", accountMgr)
 		c.Set("channelSvc", channelSvc)
@@ -130,7 +131,7 @@ func main() {
 	// 以下接口需要鉴权
 	protected := apiGroup.Group("")
 	protected.Use(authHandler.AuthMiddleware())
-	agwapi.NewConsumerHandler(consumerSvc).RegisterRoutes(protected)
+	agwapi.NewKeysHandler(keysSvc).RegisterRoutes(protected)
 	agwapi.NewChannelHandler(channelSvc).RegisterRoutes(protected)
 	agwapi.NewAccountHandler(accountMgr).RegisterRoutes(protected)
 	agwapi.NewGroupHandler(groupRouter).RegisterRoutes(protected)
@@ -203,7 +204,7 @@ func registerRoutes(r *gin.Engine, cfg *config.Config, logger *zap.Logger) {
 
 // handleChatCompletions 处理 Chat Completions 请求
 func handleChatCompletions(c *gin.Context) {
-	consumerSvc := c.MustGet("consumerSvc").(consumer.ConsumerService)
+	keysSvc := c.MustGet("keysSvc").(keys.KeysService)
 	proxyEngine := c.MustGet("proxyEngine").(*proxy.Engine)
 	groupRouter := c.MustGet("groupRouter").(*group.Router)
 	accountMgr := c.MustGet("accountMgr").(account.AccountManager)
@@ -222,7 +223,7 @@ func handleChatCompletions(c *gin.Context) {
 	}
 
 	// 2. 认证
-	cons, err := consumerSvc.Authenticate(c.Request.Context(), apiKey)
+	cons, err := keysSvc.Authenticate(c.Request.Context(), apiKey)
 	if err != nil {
 		c.JSON(http.StatusUnauthorized, gin.H{
 			"error": gin.H{"code": "unauthorized", "message": "Invalid API key"},
@@ -231,8 +232,8 @@ func handleChatCompletions(c *gin.Context) {
 	}
 
 	// 3. 配额检查
-	if err := consumerSvc.CheckQuota(c.Request.Context(), cons.ID, 0); err != nil {
-		if qe, ok := err.(*consumer.QuotaError); ok {
+	if err := keysSvc.CheckQuota(c.Request.Context(), cons.ID, 0); err != nil {
+		if qe, ok := err.(*keys.QuotaError); ok {
 			c.JSON(http.StatusTooManyRequests, gin.H{
 				"error": gin.H{"code": "quota_exceeded", "message": qe.Error()},
 			})
@@ -327,10 +328,10 @@ func handleChatCompletions(c *gin.Context) {
 }
 
 // buildRequestLog 构造请求日志
-func buildRequestLog(consumerID uint, modelName string, result *group.RouteResult, isStream bool, statusCode, latencyMs int, errMsg string) *stats.RequestLog {
+func buildRequestLog(keysID uint, modelName string, result *group.RouteResult, isStream bool, statusCode, latencyMs int, errMsg string) *stats.RequestLog {
 	log := &stats.RequestLog{
 		Timestamp:        time.Now(),
-		ConsumerID:       consumerID,
+		KeysID:       keysID,
 		ModelName:        modelName,
 		ChannelID:        &result.Channel.ID,
 		AccountID:        &result.Account.ID,

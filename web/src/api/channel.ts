@@ -1,5 +1,5 @@
 import api from './index'
-import type { ListResult } from './consumer'
+import type { ListResult } from './keys'
 
 export interface Channel {
   id: number

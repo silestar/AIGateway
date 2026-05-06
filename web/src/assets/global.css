@@ -1,0 +1,160 @@
+/* ============================================
+   AIGateway 管理面板 — 全局样式（赛博科技主题）
+   ============================================ */
+
+/* === Inter 字体 === */
+@import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap');
+
+/* === CSS 变量 === */
+:root {
+  /* 主题色 — 赛博青蓝 */
+  --primary: #00d2ff;
+  --primary-hover: #33ddff;
+  --primary-pressed: #00b8e6;
+  --primary-suppl: rgba(0, 210, 255, 0.12);
+  --primary-gradient: linear-gradient(135deg, #00d2ff 0%, #7b2fff 100%);
+
+  /* 背景色 */
+  --bg-outer: #0a0e1a;
+  --bg-card: rgba(12, 16, 30, 0.85);
+  --bg-input: rgba(16, 22, 42, 0.9);
+  --bg-hover: rgba(0, 210, 255, 0.06);
+
+  /* 文字色 */
+  --text-primary: #e8eaed;
+  --text-secondary: #8e94a0;
+  --text-tertiary: #5a6070;
+
+  /* 边框 */
+  --border: rgba(255, 255, 255, 0.06);
+  --border-light: rgba(0, 210, 255, 0.15);
+
+  /* 圆角 */
+  --radius-sm: 6px;
+  --radius-md: 10px;
+  --radius-lg: 14px;
+
+  /* 阴影 */
+  --shadow-card: 0 8px 32px rgba(0, 0, 0, 0.4);
+  --shadow-hover: 0 12px 40px rgba(0, 210, 255, 0.08);
+
+  /* 自定义框架色（导航、侧边栏等） */
+  --sider-bg: rgba(8, 12, 24, 0.95);
+  --header-bg: rgba(8, 12, 24, 0.9);
+  --footer-bg: rgba(8, 12, 24, 0.9);
+  --header-title-gradient: linear-gradient(135deg, #00d2ff 0%, #7b2fff 100%);
+}
+
+/* === 浅色模式覆盖 === */
+[data-theme="light"] {
+  --primary: #0099cc;
+  --primary-hover: #33bbee;
+  --primary-pressed: #007799;
+  --primary-suppl: rgba(0, 153, 204, 0.12);
+  --primary-gradient: linear-gradient(135deg, #0099cc 0%, #3366cc 100%);
+
+  --bg-outer: #f0f2f5;
+  --bg-card: #ffffff;
+  --bg-input: #f5f7fa;
+  --bg-hover: rgba(0, 153, 204, 0.06);
+
+  --text-primary: #1a1a2e;
+  --text-secondary: #555770;
+  --text-tertiary: #8889a0;
+
+  --border: rgba(0, 0, 0, 0.08);
+  --border-light: rgba(0, 153, 204, 0.12);
+
+  --shadow-card: 0 8px 32px rgba(0, 0, 0, 0.08);
+  --shadow-hover: 0 12px 40px rgba(0, 153, 204, 0.06);
+
+  --sider-bg: #ffffff;
+  --header-bg: rgba(255, 255, 255, 0.95);
+  --footer-bg: rgba(255, 255, 255, 0.95);
+  --header-title-gradient: linear-gradient(135deg, #0099cc 0%, #3366cc 100%);
+}
+
+/* === 全局重置 === */
+* {
+  margin: 0;
+  padding: 0;
+  box-sizing: border-box;
+}
+
+html, body {
+  font-family: 'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+  background: var(--bg-outer);
+  color: var(--text-primary);
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+}
+
+/* === 数字等宽 === */
+.n-statistic__content,
+.n-data-table {
+  font-feature-settings: "tnum";
+}
+
+/* === 自定义滚动条 === */
+::-webkit-scrollbar {
+  width: 6px;
+  height: 6px;
+}
+::-webkit-scrollbar-track {
+  background: rgba(0, 0, 0, 0.2);
+  border-radius: 3px;
+}
+::-webkit-scrollbar-thumb {
+  background: rgba(0, 210, 255, 0.2);
+  border-radius: 3px;
+  transition: background 0.2s;
+}
+::-webkit-scrollbar-thumb:hover {
+  background: rgba(0, 210, 255, 0.35);
+}
+
+/* === 通用玻璃卡片 === */
+.glass-card {
+  background: var(--bg-card) !important;
+  backdrop-filter: blur(16px);
+  border: 1px solid var(--border) !important;
+  border-radius: var(--radius-lg) !important;
+  box-shadow: var(--shadow-card) !important;
+  transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
+}
+.glass-card:hover {
+  box-shadow: var(--shadow-hover);
+  border-color: var(--border-light) !important;
+}
+
+/* === 页面标题 === */
+.page-title {
+  font-size: 24px;
+  font-weight: 600;
+  margin-bottom: 20px;
+  background: var(--primary-gradient);
+  -webkit-background-clip: text;
+  -webkit-text-fill-color: transparent;
+  background-clip: text;
+}
+
+/* === 页面过渡动画 === */
+.fade-enter-active,
+.fade-leave-active {
+  transition: opacity 0.25s ease;
+}
+.fade-enter-from,
+.fade-leave-to {
+  opacity: 0;
+}
+
+/* === 隐藏 n-layout 默认滚动容器溢出 === */
+.n-layout-scroll-container {
+  overflow: visible !important;
+}
+
+/* === 选中文本样式 === */
+::selection {
+  background: rgba(0, 210, 255, 0.25);
+  color: #fff;
+}

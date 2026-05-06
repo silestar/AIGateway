@@ -27,7 +27,7 @@ func (h *LogHandler) RegisterRoutes(rg *gin.RouterGroup) {
 // List 请求日志列表
 func (h *LogHandler) List(c *gin.Context) {
 	filter := stats.LogFilter{
-		ConsumerID: uint(intQuery(c, "consumer_id", 0)),
+		KeysID: uint(intQuery(c, "keys_id", 0)),
 		ChannelID:  uint(intQuery(c, "channel_id", 0)),
 		ModelName:  c.Query("model_name"),
 		Status:     c.Query("status"),

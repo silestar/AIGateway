@@ -49,8 +49,8 @@ func (Plugin) TableName() string { return "plugins" }
 
 // HookRequest 钩子请求（主系统 → 插件）
 type HookRequest struct {
-	ConsumerID        uint                   `json:"consumer_id"`
-	ConsumerName      string                 `json:"consumer_name,omitempty"`
+	KeysID        uint                   `json:"keys_id"`
+	KeysName      string                 `json:"keys_name,omitempty"`
 	Model             string                 `json:"model"`
 	Request           *HookRequestBody       `json:"request,omitempty"`
 	Response          *HookResponseBody      `json:"response,omitempty"`

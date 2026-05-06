@@ -15,8 +15,8 @@ type Manager struct {
 	logger    *zap.Logger
 	counters  *TodayCounters
 	mu        sync.RWMutex
-	// 消费者级实时计数
-	consumerCounters map[uint]*TodayCounters
+	// 密钥级实时计数
+	keysCounters map[uint]*TodayCounters
 	// 渠道级实时计数
 	channelCounters  map[uint]*TodayCounters
 	// 聚合调度器
@@ -29,7 +29,7 @@ func NewManager(db *gorm.DB, logger *zap.Logger) *Manager {
 		db:               db,
 		logger:           logger,
 		counters:         NewTodayCounters(),
-		consumerCounters: make(map[uint]*TodayCounters),
+		keysCounters: make(map[uint]*TodayCounters),
 		channelCounters:  make(map[uint]*TodayCounters),
 	}
 }
@@ -78,12 +78,12 @@ func (m *Manager) IncrementCounters(log *RequestLog) {
 	tokens := log.PromptTokens + log.CompletionTokens
 	m.counters.Increment(success, log.LatencyMs, tokens)
 
-	// 消费者级计数
+	// 密钥级计数
 	m.mu.Lock()
-	cc, ok := m.consumerCounters[log.ConsumerID]
+	cc, ok := m.keysCounters[log.KeysID]
 	if !ok {
 		cc = NewTodayCounters()
-		m.consumerCounters[log.ConsumerID] = cc
+		m.keysCounters[log.KeysID] = cc
 	}
 	m.mu.Unlock()
 	cc.Increment(success, log.LatencyMs, tokens)
@@ -105,9 +105,9 @@ func (m *Manager) IncrementCounters(log *RequestLog) {
 func (m *Manager) GetRealtime(ctx context.Context) (*RealtimeStats, error) {
 	date, total, success, fail, avgLatency, tokens := m.counters.Snapshot()
 
-	// 活跃消费者和渠道数量
+	// 活跃密钥和渠道数量
 	m.mu.RLock()
-	activeConsumers := int64(len(m.consumerCounters))
+	activeKeys := int64(len(m.keysCounters))
 	activeChannels := int64(len(m.channelCounters))
 	m.mu.RUnlock()
 
@@ -117,7 +117,7 @@ func (m *Manager) GetRealtime(ctx context.Context) (*RealtimeStats, error) {
 		FailRequests:    fail,
 		AvgLatencyMs:    avgLatency,
 		TotalTokens:     tokens,
-		ActiveConsumers: activeConsumers,
+		ActiveKeys: activeKeys,
 		ActiveChannels:  activeChannels,
 		Date:            date,
 	}, nil
@@ -162,9 +162,9 @@ func (m *Manager) GetOverview(ctx context.Context, days int) (*OverviewStats, er
 	}, nil
 }
 
-// GetConsumerStats 获取消费者统计
-func (m *Manager) GetConsumerStats(ctx context.Context, consumerID uint, start, end string) ([]ConsumerDailyStats, error) {
-	query := m.db.WithContext(ctx).Model(&ConsumerDailyStats{}).Where("consumer_id = ?", consumerID)
+// GetKeysStats 获取密钥统计
+func (m *Manager) GetKeysStats(ctx context.Context, keysID uint, start, end string) ([]KeysDailyStats, error) {
+	query := m.db.WithContext(ctx).Model(&KeysDailyStats{}).Where("keys_id = ?", keysID)
 	if start != "" {
 		query = query.Where("date >= ?", start)
 	}
@@ -172,7 +172,7 @@ func (m *Manager) GetConsumerStats(ctx context.Context, consumerID uint, start, 
 		query = query.Where("date <= ?", end)
 	}
 
-	var stats []ConsumerDailyStats
+	var stats []KeysDailyStats
 	err := query.Order("date ASC").Find(&stats).Error
 	return stats, err
 }
@@ -196,8 +196,8 @@ func (m *Manager) GetChannelStats(ctx context.Context, channelID uint, start, en
 func (m *Manager) QueryRequestLogs(ctx context.Context, filter LogFilter) ([]RequestLog, int64, error) {
 	query := m.db.WithContext(ctx).Model(&RequestLog{})
 
-	if filter.ConsumerID > 0 {
-		query = query.Where("consumer_id = ?", filter.ConsumerID)
+	if filter.KeysID > 0 {
+		query = query.Where("keys_id = ?", filter.KeysID)
 	}
 	if filter.ChannelID > 0 {
 		query = query.Where("channel_id = ?", filter.ChannelID)
@@ -241,7 +241,7 @@ func (m *Manager) GetRequestLogByID(ctx context.Context, id uint) (*RequestLog, 
 
 // LogFilter 日志查询筛选条件
 type LogFilter struct {
-	ConsumerID uint   `form:"consumer_id"`
+	KeysID uint   `form:"keys_id"`
 	ChannelID  uint   `form:"channel_id"`
 	ModelName  string `form:"model_name"`
 	Status     string `form:"status"` // success / failed
@@ -260,8 +260,8 @@ func (m *Manager) runAggregation(ctx context.Context) {
 	// 1. 系统日统计
 	m.aggregateSystemDaily(ctx, today)
 
-	// 2. 消费者日统计
-	m.aggregateConsumerDaily(ctx, today)
+	// 2. 密钥日统计
+	m.aggregateKeysDaily(ctx, today)
 
 	// 3. 渠道日统计
 	m.aggregateChannelDaily(ctx, today)
@@ -296,10 +296,10 @@ func (m *Manager) aggregateSystemDaily(ctx context.Context, date string) {
 		FirstOrCreate(&SystemDailyStats{Date: date})
 }
 
-// aggregateConsumerDaily 聚合消费者日统计
-func (m *Manager) aggregateConsumerDaily(ctx context.Context, date string) {
+// aggregateKeysDaily 聚合密钥日统计
+func (m *Manager) aggregateKeysDaily(ctx context.Context, date string) {
 	type row struct {
-		ConsumerID uint
+		KeysID uint
 		ModelName  string
 		Total      int
 		Success    int
@@ -311,13 +311,13 @@ func (m *Manager) aggregateConsumerDaily(ctx context.Context, date string) {
 	var rows []row
 	m.db.WithContext(ctx).Model(&RequestLog{}).
 		Where("timestamp >= ? AND timestamp < ?", date+" 00:00:00", date+" 23:59:59").
-		Select("consumer_id, model_name, COUNT(*) as total, SUM(CASE WHEN status_code >= 200 AND status_code < 300 THEN 1 ELSE 0 END) as success, SUM(CASE WHEN status_code < 200 OR status_code >= 300 THEN 1 ELSE 0 END) as fail, COALESCE(SUM(prompt_tokens + completion_tokens), 0) as tokens, COALESCE(AVG(latency_ms), 0) as avg_ms").
-		Group("consumer_id, model_name").
+		Select("keys_id, model_name, COUNT(*) as total, SUM(CASE WHEN status_code >= 200 AND status_code < 300 THEN 1 ELSE 0 END) as success, SUM(CASE WHEN status_code < 200 OR status_code >= 300 THEN 1 ELSE 0 END) as fail, COALESCE(SUM(prompt_tokens + completion_tokens), 0) as tokens, COALESCE(AVG(latency_ms), 0) as avg_ms").
+		Group("keys_id, model_name").
 		Scan(&rows)
 
 	for _, r := range rows {
 		m.db.WithContext(ctx).
-			Where("date = ? AND consumer_id = ? AND model_name = ?", date, r.ConsumerID, r.ModelName).
+			Where("date = ? AND keys_id = ? AND model_name = ?", date, r.KeysID, r.ModelName).
 			Assign(map[string]interface{}{
 				"total_requests":   r.Total,
 				"success_requests": r.Success,
@@ -325,7 +325,7 @@ func (m *Manager) aggregateConsumerDaily(ctx context.Context, date string) {
 				"total_tokens":      r.Tokens,
 				"avg_latency_ms":    r.AvgMs,
 			}).
-			FirstOrCreate(&ConsumerDailyStats{Date: date, ConsumerID: r.ConsumerID, ModelName: r.ModelName})
+			FirstOrCreate(&KeysDailyStats{Date: date, KeysID: r.KeysID, ModelName: r.ModelName})
 	}
 }
 

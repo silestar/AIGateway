@@ -4,7 +4,7 @@
   },
   "menu": {
     "dashboard": "仪表盘",
-    "consumers": "消费者",
+    "keys": "密钥",
     "channels": "渠道",
     "groups": "分组",
     "stats": "统计",
@@ -47,15 +47,18 @@
     "back": "返回",
     "createdAt": "创建时间"
   },
-  "consumers": {
-    "title": "消费者管理",
-    "create": "新建消费者",
-    "name": "消费者名称",
-    "namePlaceholder": "输入消费者名称",
-    "searchName": "搜索消费者名称",
+  "keys": {
+    "title": "密钥管理",
+    "create": "新建密钥",
+    "name": "密钥名称",
+    "namePlaceholder": "输入密钥名称",
+    "searchName": "搜索密钥名称",
+    "apiKey": "API Key",
+    "prefix": "前缀",
     "resetKey": "重置密钥",
     "keyCreated": "密钥已创建",
-    "keyWarning": "此密钥仅显示一次，请立即复制保存！"
+    "keyWarning": "此密钥仅显示一次，请立即复制保存！",
+    "clickToCopy": "点击复制密钥"
   },
   "channels": {
     "title": "渠道管理",
@@ -75,18 +78,18 @@
   },
   "groups": {
     "channelGroups": "渠道分组",
-    "consumerGroups": "消费者分组",
+    "keyGroups": "密钥分组",
     "name": "分组名称",
     "description": "描述",
     "weight": "权重",
     "createChannelGroup": "新建渠道分组",
-    "createConsumerGroup": "新建消费者分组"
+    "createKeyGroup": "新建密钥分组"
   },
   "dashboard": {
     "todayRequests": "今日请求数",
     "successRate": "成功率",
     "avgLatency": "平均延迟",
-    "activeConsumers": "活跃消费者",
+    "activeKeys": "活跃密钥",
     "requestTrend": "请求趋势",
     "modelDistribution": "模型请求分布",
     "noData": "暂无数据"
@@ -113,7 +116,7 @@
     "success": "成功",
     "failed": "失败",
     "timestamp": "时间",
-    "consumer": "消费者ID",
+    "keys": "密钥ID",
     "model": "模型",
     "channel": "渠道ID",
     "account": "账号ID",
@@ -132,7 +135,33 @@
   "settings": {
     "title": "系统设置",
     "loadConfig": "刷新配置",
-    "downloadLogs": "下载日志"
+    "downloadLogs": "下载日志",
+    "server": "服务器",
+    "serverMode": "运行模式",
+    "log": "日志",
+    "logLevel": "日志级别",
+    "logDir": "日志目录",
+    "logMaxAge": "日志保留天数",
+    "proxy": "代理",
+    "connectTimeout": "连接超时",
+    "readTimeout": "读取超时",
+    "maxIdleConns": "最大空闲连接数",
+    "idleConnTimeout": "空闲连接超时",
+    "accountManager": "账号管理器",
+    "affinityTTL": "绑定有效期",
+    "consecutiveFailureThreshold": "连续失败禁用阈值",
+    "minDisableDuration": "最小冷却时间",
+    "probeInterval": "探测周期",
+    "probeActiveRatioThreshold": "探测低水位线",
+    "maxProbeFailures": "最大连续探测失败次数",
+    "maxProbeRecoverPerCycle": "每周期最大恢复数",
+    "probeCooldownDuration": "一级冷却时长",
+    "probeCooldownDurationL2": "二级冷却时长",
+    "globalHealthCheckInterval": "全局健康巡检间隔",
+    "accountStatusCacheTTL": "状态缓存时间",
+    "accountKeyCacheTTL": "Key解密缓存时间",
+    "days": "天",
+    "seconds": "秒"
   },
   "login": {
     "title": "AIGateway 管理登录",

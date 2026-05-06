@@ -4,7 +4,7 @@
   },
   "menu": {
     "dashboard": "Dashboard",
-    "consumers": "Consumers",
+    "keys": "Keys",
     "channels": "Channels",
     "groups": "Groups",
     "stats": "Statistics",
@@ -47,15 +47,18 @@
     "back": "Back",
     "createdAt": "Created At"
   },
-  "consumers": {
-    "title": "Consumer Management",
-    "create": "Create Consumer",
-    "name": "Consumer Name",
-    "namePlaceholder": "Enter consumer name",
-    "searchName": "Search consumer name",
+  "keys": {
+    "title": "Key Management",
+    "create": "Create Key",
+    "name": "Key Name",
+    "namePlaceholder": "Enter key name",
+    "searchName": "Search key name",
+    "apiKey": "API Key",
+    "prefix": "Prefix",
     "resetKey": "Reset Key",
     "keyCreated": "Key Created",
-    "keyWarning": "This key is shown only once. Copy it now!"
+    "keyWarning": "This key is shown only once. Copy it now!",
+    "clickToCopy": "Click to copy key"
   },
   "channels": {
     "title": "Channel Management",
@@ -75,18 +78,18 @@
   },
   "groups": {
     "channelGroups": "Channel Groups",
-    "consumerGroups": "Consumer Groups",
+    "keyGroups": "Key Groups",
     "name": "Group Name",
     "description": "Description",
     "weight": "Weight",
     "createChannelGroup": "Create Channel Group",
-    "createConsumerGroup": "Create Consumer Group"
+    "createKeyGroup": "Create Key Group"
   },
   "dashboard": {
     "todayRequests": "Today's Requests",
     "successRate": "Success Rate",
     "avgLatency": "Avg Latency",
-    "activeConsumers": "Active Consumers",
+    "activeKeys": "Active Keys",
     "requestTrend": "Request Trend",
     "modelDistribution": "Model Distribution",
     "noData": "No data yet"
@@ -113,7 +116,7 @@
     "success": "Success",
     "failed": "Failed",
     "timestamp": "Timestamp",
-    "consumer": "Consumer ID",
+    "keys": "Keys ID",
     "model": "Model",
     "channel": "Channel ID",
     "account": "Account ID",
@@ -132,7 +135,33 @@
   "settings": {
     "title": "System Settings",
     "loadConfig": "Refresh Config",
-    "downloadLogs": "Download Logs"
+    "downloadLogs": "Download Logs",
+    "server": "Server",
+    "serverMode": "Run Mode",
+    "log": "Logging",
+    "logLevel": "Log Level",
+    "logDir": "Log Directory",
+    "logMaxAge": "Log Retention Days",
+    "proxy": "Proxy",
+    "connectTimeout": "Connect Timeout",
+    "readTimeout": "Read Timeout",
+    "maxIdleConns": "Max Idle Connections",
+    "idleConnTimeout": "Idle Connection Timeout",
+    "accountManager": "Account Manager",
+    "affinityTTL": "Affinity TTL",
+    "consecutiveFailureThreshold": "Consecutive Failure Threshold",
+    "minDisableDuration": "Min Disable Duration",
+    "probeInterval": "Probe Interval",
+    "probeActiveRatioThreshold": "Probe Active Ratio Threshold",
+    "maxProbeFailures": "Max Probe Failures",
+    "maxProbeRecoverPerCycle": "Max Recover Per Cycle",
+    "probeCooldownDuration": "Probe Cooldown Duration",
+    "probeCooldownDurationL2": "Probe Cooldown Duration L2",
+    "globalHealthCheckInterval": "Global Health Check Interval",
+    "accountStatusCacheTTL": "Status Cache TTL",
+    "accountKeyCacheTTL": "Key Cache TTL",
+    "days": "days",
+    "seconds": "sec"
   },
   "login": {
     "title": "AIGateway Admin Login",

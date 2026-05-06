@@ -25,7 +25,7 @@ func (Account) TableName() string { return "channel_accounts" }
 // AccountManager 账号管理接口
 type AccountManager interface {
 	// 核心路由用
-	SelectAccount(ctx context.Context, consumerID, channelID uint) (*Account, error)
+	SelectAccount(ctx context.Context, keysID, channelID uint) (*Account, error)
 	GetDecryptedAPIKey(ctx context.Context, accountID uint) (string, error)
 	ReportResult(ctx context.Context, accountID uint, success bool, statusCode int) error
 

@@ -38,9 +38,9 @@ func NewManager(db *gorm.DB, cache Cache, cryptoSvc *crypto.CryptoService, cfg c
 // ========== 核心路由方法 ==========
 
 // SelectAccount 选择账号（粘性→优先级→降级）
-func (m *Manager) SelectAccount(ctx context.Context, consumerID, channelID uint) (*Account, error) {
+func (m *Manager) SelectAccount(ctx context.Context, keysID, channelID uint) (*Account, error) {
 	// 1. 检查粘性绑定
-	affinityKey := fmt.Sprintf("consumer_account_affinity:%d:%d", consumerID, channelID)
+	affinityKey := fmt.Sprintf("keys_account_affinity:%d:%d", keysID, channelID)
 	if accountIDStr, err := m.cache.Get(affinityKey); err == nil && accountIDStr != "" {
 		var acc Account
 		if err := m.db.WithContext(ctx).Where("id = ? AND status = ?", accountIDStr, "active").First(&acc).Error; err == nil {
@@ -256,7 +256,7 @@ func (m *Manager) clearAccountBindings(ctx context.Context, acc *Account) {
 // 简化实现：由于内存缓存没有 scan 能力，这里只能清除已知的绑定
 func (m *Manager) clearChannelAffinities(channelID uint) {
 	// 内存缓存下无法遍历所有 key，跳过
-	// Redis 实现下可用 SCAN consumer_account_affinity:*:channelID
+	// Redis 实现下可用 SCAN keys_account_affinity:*:channelID
 	m.logger.Debug("clear channel affinities", zap.Uint("channel_id", channelID))
 }
 

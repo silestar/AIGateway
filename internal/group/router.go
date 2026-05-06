@@ -9,25 +9,25 @@ import (
 
 	"github.com/bokelife/aigateway/internal/account"
 	"github.com/bokelife/aigateway/internal/channel"
-	"github.com/bokelife/aigateway/internal/consumer"
+	"github.com/bokelife/aigateway/internal/keys"
 	"github.com/bokelife/aigateway/internal/proxy"
 )
 
 // Router 分组路由实现
 type Router struct {
-	db          *gorm.DB
-	consumerSvc consumer.ConsumerService
-	accountMgr  account.AccountManager
-	logger      *zap.Logger
+	db         *gorm.DB
+	keysSvc    keys.KeysService
+	accountMgr account.AccountManager
+	logger     *zap.Logger
 }
 
 // NewRouter 创建路由引擎
-func NewRouter(db *gorm.DB, consumerSvc consumer.ConsumerService, accountMgr account.AccountManager, logger *zap.Logger) *Router {
+func NewRouter(db *gorm.DB, keysSvc keys.KeysService, accountMgr account.AccountManager, logger *zap.Logger) *Router {
 	return &Router{
-		db:          db,
-		consumerSvc: consumerSvc,
-		accountMgr:  accountMgr,
-		logger:      logger,
+		db:         db,
+		keysSvc:    keysSvc,
+		accountMgr: accountMgr,
+		logger:     logger,
 	}
 }
 
@@ -38,43 +38,41 @@ type RouteResult struct {
 	RetryChain *proxy.RetryChain
 }
 
-// Route 核心路由：消费者+模型名 → 渠道+账号
-func (r *Router) Route(ctx context.Context, consumerID uint, modelName string) (*RouteResult, error) {
+// Route 核心路由：密钥+模型名 → 渠道+账号
+func (r *Router) Route(ctx context.Context, keysID uint, modelName string) (*RouteResult, error) {
 	retryChain := proxy.NewRetryChain()
 
-	// 1. 获取消费者有权访问的渠道分组
-	var memberRows []consumer.ConsumerGroupMember
-	if err := r.db.WithContext(ctx).Where("consumer_id = ?", consumerID).Find(&memberRows).Error; err != nil {
-		return nil, fmt.Errorf("query consumer groups: %w", err)
+	// 1. 获取密钥有权访问的渠道分组
+	var memberRows []keys.KeysGroupMember
+	if err := r.db.WithContext(ctx).Where("keys_id = ?", keysID).Find(&memberRows).Error; err != nil {
+		return nil, fmt.Errorf("query keys groups: %w", err)
 	}
 
 	if len(memberRows) == 0 {
-		return nil, fmt.Errorf("consumer %d has no group assignment", consumerID)
+		return nil, fmt.Errorf("keys %d has no group assignment", keysID)
 	}
 
-	// 收集所有消费者分组ID
-	consumerGroupIDs := make([]uint, 0, len(memberRows))
+	keysGroupIDs := make([]uint, 0, len(memberRows))
 	for _, m := range memberRows {
-		consumerGroupIDs = append(consumerGroupIDs, m.GroupID)
+		keysGroupIDs = append(keysGroupIDs, m.GroupID)
 	}
 
-	// 2. 查询消费者分组关联的渠道分组
+	// 2. 查询密钥分组关联的渠道分组
 	type channelGroupBinding struct {
-		ConsumerGroupID uint
-		ChannelGroupID  uint
+		KeysGroupID    uint
+		ChannelGroupID uint
 	}
 	var bindings []channelGroupBinding
-	if err := r.db.WithContext(ctx).Table("consumer_group_channel_groups").
-		Where("consumer_group_id IN ?", consumerGroupIDs).
+	if err := r.db.WithContext(ctx).Table("keys_group_channel_groups").
+		Where("keys_group_id IN ?", keysGroupIDs).
 		Find(&bindings).Error; err != nil {
 		return nil, fmt.Errorf("query channel group bindings: %w", err)
 	}
 
 	if len(bindings) == 0 {
-		return nil, fmt.Errorf("no channel group bound to consumer groups")
+		return nil, fmt.Errorf("no channel group bound to keys groups")
 	}
 
-	// 收集渠道分组ID（去重）
 	channelGroupIDSet := make(map[uint]bool)
 	for _, b := range bindings {
 		channelGroupIDSet[b.ChannelGroupID] = true
@@ -84,16 +82,13 @@ func (r *Router) Route(ctx context.Context, consumerID uint, modelName string) (
 		channelGroupIDs = append(channelGroupIDs, id)
 	}
 
-	// 3. 查询渠道分组，按权重降序排序
 	var channelGroups []channel.ChannelGroup
 	if err := r.db.WithContext(ctx).Where("id IN ?", channelGroupIDs).
 		Order("weight DESC, id ASC").Find(&channelGroups).Error; err != nil {
 		return nil, fmt.Errorf("query channel groups: %w", err)
 	}
 
-	// 4. 遍历每个渠道分组
 	for _, cg := range channelGroups {
-		// 获取分组内的渠道（含权重）
 		var groupMembers []channel.ChannelGroupMember
 		if err := r.db.WithContext(ctx).Where("group_id = ?", cg.ID).
 			Order("weight DESC, channel_id ASC").Find(&groupMembers).Error; err != nil {
@@ -105,7 +100,6 @@ func (r *Router) Route(ctx context.Context, consumerID uint, modelName string) (
 			channelIDs = append(channelIDs, gm.ChannelID)
 		}
 
-		// 5. 模型存在性过滤：查询有该模型的渠道
 		var channelsWithModel []uint
 		if err := r.db.WithContext(ctx).Model(&channel.ChannelModel{}).
 			Where("channel_id IN ? AND display_model_name = ? AND status = 'enabled'", channelIDs, modelName).
@@ -114,30 +108,24 @@ func (r *Router) Route(ctx context.Context, consumerID uint, modelName string) (
 		}
 
 		if len(channelsWithModel) == 0 {
-			continue // 该分组无此模型
+			continue
 		}
 
-		// 查询渠道详情
 		var channels []channel.Channel
 		if err := r.db.WithContext(ctx).Where("id IN ? AND status = 'active'", channelsWithModel).
 			Order("weight DESC, id ASC").Find(&channels).Error; err != nil {
 			continue
 		}
 
-		// 6. 遍历渠道
 		for _, ch := range channels {
-			// 6a. 选择账号
-			acc, err := r.accountMgr.SelectAccount(ctx, consumerID, ch.ID)
+			acc, err := r.accountMgr.SelectAccount(ctx, keysID, ch.ID)
 			if err != nil {
 				retryChain.AddAttempt(ch.ID, 0)
 				retryChain.MarkError("no available account")
 				continue
 			}
 
-			entry := retryChain.AddAttempt(ch.ID, acc.ID)
-
-			// 6b. 尝试转发（实际转发在 handler 层执行，这里只做选择）
-			_ = entry
+			_ = retryChain.AddAttempt(ch.ID, acc.ID)
 			retryChain.MarkSuccess()
 
 			return &RouteResult{
@@ -151,7 +139,7 @@ func (r *Router) Route(ctx context.Context, consumerID uint, modelName string) (
 	return nil, fmt.Errorf("no available channel for model %s", modelName)
 }
 
-// ========== 分组 CRUD ==========
+// ========== 渠道分组 CRUD ==========
 
 func (r *Router) CreateChannelGroup(ctx context.Context, name, description string, weight int) (*channel.ChannelGroup, error) {
 	cg := &channel.ChannelGroup{Name: name, Description: description, Weight: weight}
@@ -189,53 +177,54 @@ func (r *Router) RemoveChannelFromGroup(ctx context.Context, groupID, channelID 
 		Delete(&channel.ChannelGroupMember{}).Error
 }
 
-func (r *Router) CreateConsumerGroup(ctx context.Context, name, description string) (*consumer.ConsumerGroup, error) {
-	cg := &consumer.ConsumerGroup{Name: name, Description: description}
+// ========== 密钥分组 CRUD ==========
+
+func (r *Router) CreateKeysGroup(ctx context.Context, name, description string) (*keys.KeysGroup, error) {
+	cg := &keys.KeysGroup{Name: name, Description: description}
 	if err := r.db.WithContext(ctx).Create(cg).Error; err != nil {
 		return nil, err
 	}
 	return cg, nil
 }
 
-func (r *Router) UpdateConsumerGroup(ctx context.Context, id uint, name, description string) error {
-	return r.db.WithContext(ctx).Model(&consumer.ConsumerGroup{}).Where("id = ?", id).
+func (r *Router) UpdateKeysGroup(ctx context.Context, id uint, name, description string) error {
+	return r.db.WithContext(ctx).Model(&keys.KeysGroup{}).Where("id = ?", id).
 		Updates(map[string]interface{}{"name": name, "description": description}).Error
 }
 
-func (r *Router) DeleteConsumerGroup(ctx context.Context, id uint) error {
+func (r *Router) DeleteKeysGroup(ctx context.Context, id uint) error {
 	tx := r.db.WithContext(ctx).Begin()
-	if err := tx.Where("group_id = ?", id).Delete(&consumer.ConsumerGroupMember{}).Error; err != nil {
+	if err := tx.Where("group_id = ?", id).Delete(&keys.KeysGroupMember{}).Error; err != nil {
 		tx.Rollback()
 		return err
 	}
-	if err := tx.Delete(&consumer.ConsumerGroup{}, id).Error; err != nil {
+	if err := tx.Delete(&keys.KeysGroup{}, id).Error; err != nil {
 		tx.Rollback()
 		return err
 	}
 	return tx.Commit().Error
 }
 
-func (r *Router) AddConsumerToGroup(ctx context.Context, groupID, consumerID uint, quotaRPM, quotaTPM int) error {
-	member := &consumer.ConsumerGroupMember{
-		GroupID: groupID, ConsumerID: consumerID, QuotaRPM: quotaRPM, QuotaTPM: quotaTPM,
+func (r *Router) AddKeysToGroup(ctx context.Context, groupID, keysID uint, quotaRPM, quotaTPM int) error {
+	member := &keys.KeysGroupMember{
+		GroupID: groupID, KeysID: keysID, QuotaRPM: quotaRPM, QuotaTPM: quotaTPM,
 	}
 	return r.db.WithContext(ctx).Create(member).Error
 }
 
-func (r *Router) RemoveConsumerFromGroup(ctx context.Context, groupID, consumerID uint) error {
-	return r.db.WithContext(ctx).Where("group_id = ? AND consumer_id = ?", groupID, consumerID).
-		Delete(&consumer.ConsumerGroupMember{}).Error
+func (r *Router) RemoveKeysFromGroup(ctx context.Context, groupID, keysID uint) error {
+	return r.db.WithContext(ctx).Where("group_id = ? AND keys_id = ?", groupID, keysID).
+		Delete(&keys.KeysGroupMember{}).Error
 }
 
-func (r *Router) BindChannelGroup(ctx context.Context, consumerGroupID, channelGroupID uint) error {
-	// 使用关联表 consumer_group_channel_groups
-	return r.db.WithContext(ctx).Table("consumer_group_channel_groups").
-		Create(map[string]interface{}{"consumer_group_id": consumerGroupID, "channel_group_id": channelGroupID}).Error
+func (r *Router) BindChannelGroup(ctx context.Context, keysGroupID, channelGroupID uint) error {
+	return r.db.WithContext(ctx).Table("keys_group_channel_groups").
+		Create(map[string]interface{}{"keys_group_id": keysGroupID, "channel_group_id": channelGroupID}).Error
 }
 
-func (r *Router) UnbindChannelGroup(ctx context.Context, consumerGroupID, channelGroupID uint) error {
-	return r.db.WithContext(ctx).Table("consumer_group_channel_groups").
-		Where("consumer_group_id = ? AND channel_group_id = ?", consumerGroupID, channelGroupID).
+func (r *Router) UnbindChannelGroup(ctx context.Context, keysGroupID, channelGroupID uint) error {
+	return r.db.WithContext(ctx).Table("keys_group_channel_groups").
+		Where("keys_group_id = ? AND channel_group_id = ?", keysGroupID, channelGroupID).
 		Delete(nil).Error
 }
 
@@ -248,9 +237,9 @@ func (r *Router) ListChannelGroups(ctx context.Context) ([]channel.ChannelGroup,
 	return groups, nil
 }
 
-// ListConsumerGroups 查询所有消费者分组
-func (r *Router) ListConsumerGroups(ctx context.Context) ([]consumer.ConsumerGroup, error) {
-	var groups []consumer.ConsumerGroup
+// ListKeysGroups 查询所有密钥分组
+func (r *Router) ListKeysGroups(ctx context.Context) ([]keys.KeysGroup, error) {
+	var groups []keys.KeysGroup
 	if err := r.db.WithContext(ctx).Order("id ASC").Find(&groups).Error; err != nil {
 		return nil, err
 	}

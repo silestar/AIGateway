@@ -39,38 +39,29 @@ func (h *SystemHandler) Info(c *gin.Context) {
 	})
 }
 
-// GetConfig 获取配置
+// GetConfig 获取所有可热加载的配置项
 func (h *SystemHandler) GetConfig(c *gin.Context) {
 	c.JSON(http.StatusOK, gin.H{
-		"data": gin.H{
-			"server": gin.H{
-				"port": h.cfg.Server.Port,
-			},
-			"database": gin.H{
-				"type": h.cfg.DB.Type,
-				"path": h.cfg.DB.Path,
-			},
-			"proxy": gin.H{
-				"connect_timeout":   h.cfg.Proxy.ConnectTimeout,
-				"read_timeout":       h.cfg.Proxy.ReadTimeout,
-				"max_idle_conns":     h.cfg.Proxy.MaxIdleConns,
-				"idle_conn_timeout":  h.cfg.Proxy.IdleConnTimeout,
-			},
-			"account_manager": gin.H{
-				"affinity_ttl":                  h.cfg.AccountManager.AffinityTTL,
-				"consecutive_failure_threshold":  h.cfg.AccountManager.ConsecutiveFailureThreshold,
-				"probe_cooldown_duration":        h.cfg.AccountManager.ProbeCooldownDuration,
-				"probe_cooldown_duration_l2":     h.cfg.AccountManager.ProbeCooldownDurationL2,
-				"global_health_check_interval":   h.cfg.AccountManager.GlobalHealthCheckInterval,
-			},
-		},
+		"data": h.cfg.GetHotReloadableConfig(),
 	})
 }
 
-// UpdateConfig 更新配置
+// UpdateConfig 热更新配置（修改内存 + 写回 config.yaml）
 func (h *SystemHandler) UpdateConfig(c *gin.Context) {
-	// 配置热更新比较复杂，此阶段仅返回成功
-	c.JSON(http.StatusOK, gin.H{"data": gin.H{"message": "config update is not yet supported in this version"}})
+	var updates map[string]interface{}
+	if err := c.ShouldBindJSON(&updates); err != nil {
+		c.JSON(http.StatusBadRequest, errorResponse("invalid_request", err.Error()))
+		return
+	}
+
+	if err := h.cfg.UpdateHotReloadableConfig(updates); err != nil {
+		c.JSON(http.StatusInternalServerError, errorResponse("update_failed", err.Error()))
+		return
+	}
+
+	c.JSON(http.StatusOK, gin.H{
+		"data": gin.H{"message": "config updated successfully"},
+	})
 }
 
 // DownloadLogs 下载日志文件
