@@ -52,7 +52,7 @@ func (m *Manager) SelectAccount(ctx context.Context, keysID, channelID uint) (*A
 
 	// 2. 按优先级选择 active 账号
 	var accounts []Account
-	if err := m.db.WithContext(ctx).Where("channel_id = ? AND status = ?", channelID, "active").Order("priority ASC").Find(&accounts).Error; err != nil {
+	if err := m.db.WithContext(ctx).Where("channel_id = ? AND status = ?", channelID, "active").Order("priority DESC").Find(&accounts).Error; err != nil {
 		return nil, fmt.Errorf("query accounts: %w", err)
 	}
 	if len(accounts) == 0 {
@@ -189,7 +189,7 @@ func (m *Manager) GetById(ctx context.Context, id uint) (*Account, error) {
 
 func (m *Manager) ListByChannel(ctx context.Context, channelID uint) ([]Account, error) {
 	var accounts []Account
-	if err := m.db.WithContext(ctx).Where("channel_id = ?", channelID).Order("priority ASC").Find(&accounts).Error; err != nil {
+	if err := m.db.WithContext(ctx).Where("channel_id = ?", channelID).Order("priority DESC").Find(&accounts).Error; err != nil {
 		return nil, err
 	}
 	return accounts, nil

@@ -11,7 +11,7 @@ type Account struct {
 	ChannelID           uint       `gorm:"not null;index" json:"channel_id"`
 	APIKeyEncrypted     string     `gorm:"type:text;not null;column:api_key_encrypted" json:"-"`
 	APIKeyPrefix        string     `gorm:"size:12;not null;default:'';column:api_key_prefix" json:"api_key_prefix"` // sk-...前几位，用于脱敏展示
-	Priority            int        `gorm:"not null;default:0" json:"priority"` // 越小越优先
+	Priority            int        `gorm:"not null;default:0" json:"priority"` // 越大越优先
 	Remark              string     `gorm:"size:200;not null;default:''" json:"remark"` // 备注信息
 	Status              string     `gorm:"size:20;not null;default:'active'" json:"status"` // active / disabled / cooling
 	ConsecutiveFailures int        `gorm:"not null;default:0" json:"consecutive_failures"`
