@@ -33,9 +33,10 @@ func NewRouter(db *gorm.DB, keysSvc keys.KeysService, accountMgr account.Account
 
 // RouteResult 路由结果
 type RouteResult struct {
-	Channel    *channel.Channel
-	Account    *account.Account
-	RetryChain *proxy.RetryChain
+	Channel         *channel.Channel
+	Account         *account.Account
+	RetryChain      *proxy.RetryChain
+	ActualModelName string // 映射后的实际上游模型名（与请求中的 model 不同时表示有别名映射）
 }
 
 // Route 核心路由：密钥+模型名 → 渠道+账号
@@ -100,19 +101,33 @@ func (r *Router) Route(ctx context.Context, keysID uint, modelName string) (*Rou
 			channelIDs = append(channelIDs, gm.ChannelID)
 		}
 
-		var channelsWithModel []uint
+		// 查询匹配模型的渠道及对应的 actual_model_name（用于模型映射替换）
+		type modelMatch struct {
+			ChannelID       uint
+			ActualModelName string
+		}
+		var matches []modelMatch
 		if err := r.db.WithContext(ctx).Model(&channel.ChannelModel{}).
+			Select("channel_id, actual_model_name").
 			Where("channel_id IN ? AND display_model_name = ? AND status = 'enabled'", channelIDs, modelName).
-			Distinct("channel_id").Pluck("channel_id", &channelsWithModel).Error; err != nil {
+			Scan(&matches).Error; err != nil {
 			continue
 		}
 
-		if len(channelsWithModel) == 0 {
+		if len(matches) == 0 {
 			continue
+		}
+
+		// 构建 channel_id -> actual_model_name 映射
+		actualModelMap := make(map[uint]string)
+		chIDs := make([]uint, 0, len(matches))
+		for _, m := range matches {
+			actualModelMap[m.ChannelID] = m.ActualModelName
+			chIDs = append(chIDs, m.ChannelID)
 		}
 
 		var channels []channel.Channel
-		if err := r.db.WithContext(ctx).Where("id IN ? AND status = 'active'", channelsWithModel).
+		if err := r.db.WithContext(ctx).Where("id IN ? AND status = 'active'", chIDs).
 			Order("weight DESC, id ASC").Find(&channels).Error; err != nil {
 			continue
 		}
@@ -128,10 +143,16 @@ func (r *Router) Route(ctx context.Context, keysID uint, modelName string) (*Rou
 			_ = retryChain.AddAttempt(ch.ID, acc.ID)
 			retryChain.MarkSuccess()
 
+			actualName := actualModelMap[ch.ID]
+			if actualName == "" {
+				actualName = modelName
+			}
+
 			return &RouteResult{
-				Channel:    &ch,
-				Account:    acc,
-				RetryChain: retryChain,
+				Channel:         &ch,
+				Account:         acc,
+				RetryChain:      retryChain,
+				ActualModelName: actualName,
 			}, nil
 		}
 	}

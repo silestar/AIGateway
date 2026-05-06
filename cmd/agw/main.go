@@ -1,7 +1,9 @@
 package main
 
 import (
+	"bytes"
 	"context"
+	"encoding/json"
 	"fmt"
 	"io"
 	"net/http"
@@ -253,6 +255,18 @@ func handleChatCompletions(c *gin.Context) {
 		return
 	}
 
+	// 5.5 模型映射替换：如果路由返回的 ActualModelName 与请求不同，替换请求体中的 model
+	if result.ActualModelName != "" && result.ActualModelName != modelName {
+		if parsedBody, exists := c.Get("parsedBody"); exists {
+			reqBody := parsedBody.(map[string]interface{})
+			reqBody["model"] = result.ActualModelName
+			if newBody, err := json.Marshal(reqBody); err == nil {
+				c.Request.Body = io.NopCloser(bytes.NewReader(newBody))
+				c.Request.ContentLength = int64(len(newBody))
+			}
+		}
+	}
+
 	// 6. 判断是否流式
 	isStream := c.GetHeader("Accept") == "text/event-stream"
 
@@ -346,15 +360,33 @@ func buildRequestLog(keysID uint, modelName string, result *group.RouteResult, i
 	return log
 }
 
-// extractModelName 从请求体提取 model 名称
+// extractModelName 从请求体 JSON 提取 model 字段，同时缓存 body 供后续转发使用
 func extractModelName(c *gin.Context) string {
-	// 尝试从 URL query 读取
-	if m := c.Query("model"); m != "" {
-		return m
+	// 读取请求体
+	bodyBytes, err := io.ReadAll(c.Request.Body)
+	if err != nil {
+		return ""
 	}
-	// TODO: 从请求体 JSON 解析 model 字段
-	// 目前用 query 参数或默认值
-	return ""
+	c.Request.Body.Close()
+
+	// 解析 JSON 提取 model
+	var reqBody map[string]interface{}
+	if err := json.Unmarshal(bodyBytes, &reqBody); err != nil {
+		// 非 JSON 格式，恢复 body 并尝试从 query 读取
+		c.Request.Body = io.NopCloser(bytes.NewReader(bodyBytes))
+		return c.Query("model")
+	}
+
+	modelName, _ := reqBody["model"].(string)
+
+	// 将解析后的 body 缓存到 gin context，后续模型替换时复用
+	c.Set("cachedBody", bodyBytes)
+	c.Set("parsedBody", reqBody)
+
+	// 恢复 body 供后续读取
+	c.Request.Body = io.NopCloser(bytes.NewReader(bodyBytes))
+
+	return modelName
 }
 
 func extractAPIKey(c *gin.Context) string {
