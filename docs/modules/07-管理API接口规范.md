@@ -445,6 +445,10 @@
 {
   "name": "OpenAI 高速通道 v2",
   "base_url": "https://api.openai.com/v2",
+  "weight": 10,
+  "max_rpm": 60,
+  "max_tpm": 100000,
+  "max_daily_requests": 1000,
   "extra_config": {"timeout": 30}
 }
 ```

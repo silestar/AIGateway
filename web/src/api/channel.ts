@@ -8,6 +8,9 @@ export interface Channel {
   base_url: string
   status: string
   weight: number
+  max_rpm: number
+  max_tpm: number
+  max_daily_requests: number
   created_at: string
   updated_at: string
 }

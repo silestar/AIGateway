@@ -13,6 +13,9 @@ type Channel struct {
 	BaseURL   string    `gorm:"size:500;not null" json:"base_url"`
 	Status    string    `gorm:"size:20;not null;default:'active'" json:"status"` // active / disabled
 	Weight    int       `gorm:"not null;default:0" json:"weight"` // 越大越优先
+	MaxRPM             int       `gorm:"not null;default:0" json:"max_rpm"`             // 每分钟最大请求数，0 不限制
+	MaxTPM             int       `gorm:"not null;default:0" json:"max_tpm"`             // 每分钟最大 Token 数，0 不限制
+	MaxDailyRequests   int       `gorm:"not null;default:0" json:"max_daily_requests"`  // 每日最大请求数（每个账号），0 不限制
 	CreatedAt time.Time `gorm:"autoCreateTime" json:"created_at"`
 	UpdatedAt time.Time `gorm:"autoUpdateTime" json:"updated_at"`
 }
@@ -71,7 +74,7 @@ type ChannelService interface {
 	Create(ctx context.Context, name, channelType, baseURL string) (*Channel, error)
 	GetById(ctx context.Context, id uint) (*Channel, error)
 	List(ctx context.Context, filter ListFilter) ([]Channel, int64, error)
-	Update(ctx context.Context, id uint, name, baseURL string, weight int) error
+	Update(ctx context.Context, id uint, name, baseURL string, weight, maxRPM, maxTPM, maxDailyRequests int) error
 	Delete(ctx context.Context, id uint) error
 	UpdateStatus(ctx context.Context, id uint, status string) error
 	UpdateWeight(ctx context.Context, id uint, weight int) error

@@ -74,7 +74,7 @@ func main() {
 	keysSvc.SetCrypto(cryptoService)
 	accountMgr := account.NewManager(db, cache, cryptoService, cfg.AccountManager, logger)
 	channelSvc := channel.NewService(db)
-	groupRouter := group.NewRouter(db, keysSvc, accountMgr, logger)
+	groupRouter := group.NewRouter(db, keysSvc, accountMgr, logger, cache)
 	proxyEngine := proxy.NewEngine(cfg.Proxy, accountMgr, logger)
 
 	// 统计管理器 + 异步日志写入器
@@ -110,6 +110,7 @@ func main() {
 		c.Set("statsMgr", statsMgr)
 		c.Set("asyncWriter", asyncWriter)
 		c.Set("logger", logger)
+		c.Set("cache", cache)
 		c.Next()
 	})
 
@@ -337,6 +338,10 @@ func handleChatCompletions(c *gin.Context) {
 		io.Copy(c.Writer, resp.Body)
 	}
 
+	// 更新速率/配额计数器
+	cache := c.MustGet("cache").(account.Cache)
+	updateRateLimitCounters(cache, result.Channel.ID, result.Account.ID)
+
 	// 记录成功日志
 	asyncWriter.Record(buildRequestLog(cons.ID, modelName, result, isStream, statusCode, latencyMs, ""))
 }
@@ -404,4 +409,23 @@ func notImplemented(c *gin.Context) {
 			"message": "This endpoint is not implemented yet",
 		},
 	})
+}
+
+// updateRateLimitCounters 更新账号级 RPM/TPM/每日请求计数器
+func updateRateLimitCounters(cache account.Cache, channelID, accountID uint) {
+	now := time.Now()
+	minuteKey := now.Format("2006-01-02-15:04")
+	todayKey := now.Format("2006-01-02")
+
+	// 账号 RPM 计数器
+	rpmKey := fmt.Sprintf("stats:account:%d:rpm:%s", accountID, minuteKey)
+	cache.Incr(rpmKey)
+
+	// 账号 TPM 计数器（暂时只计数请求，Token 计数需解析响应体）
+	tpmKey := fmt.Sprintf("stats:account:%d:tpm:%s", accountID, minuteKey)
+	cache.Incr(tpmKey)
+
+	// 账号每日请求计数器
+	dailyKey := fmt.Sprintf("stats:account:%d:daily_requests:%s", accountID, todayKey)
+	cache.Incr(dailyKey)
 }

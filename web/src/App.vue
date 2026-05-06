@@ -96,7 +96,7 @@
               <div class="content-inner">
                 <router-view v-slot="{ Component }">
                   <transition name="fade" mode="out-in">
-                    <component :is="Component" />
+                    <component :is="Component" :key="route.path + '-' + viewKey" />
                   </transition>
                 </router-view>
               </div>
@@ -154,6 +154,9 @@ const currentRoute = computed(() => route.path)
 const isLoginPage = computed(() => route.path === '/login')
 const collapsed = computed(() => false)
 const naiveLocale = computed(() => currentLang.value === 'zh-CN' ? zhCN : enUS)
+
+// 页面刷新 key：菜单点击同路由时递增，强制子组件重新挂载
+const viewKey = ref(0)
 
 // === 页面标题（从 i18n 读取，跟随语言切换） ===
 const pageTitle = computed(() => {
@@ -372,7 +375,13 @@ onMounted(async () => {
 })
 
 // === 方法 ===
-function handleMenuClick(key: string) { router.push(key) }
+function handleMenuClick(key: string) {
+  if (route.path === key) {
+    // 点击当前已激活的菜单 → 强制刷新页面状态
+    viewKey.value++
+  }
+  router.push(key)
+}
 function handleLogout() { localStorage.removeItem('agw_token'); router.push('/login') }
 
 const menuOptions = computed(() => [

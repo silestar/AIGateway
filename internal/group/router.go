@@ -19,15 +19,17 @@ type Router struct {
 	keysSvc    keys.KeysService
 	accountMgr account.AccountManager
 	logger     *zap.Logger
+	cache      account.Cache
 }
 
 // NewRouter 创建路由引擎
-func NewRouter(db *gorm.DB, keysSvc keys.KeysService, accountMgr account.AccountManager, logger *zap.Logger) *Router {
+func NewRouter(db *gorm.DB, keysSvc keys.KeysService, accountMgr account.AccountManager, logger *zap.Logger, cache account.Cache) *Router {
 	return &Router{
 		db:         db,
 		keysSvc:    keysSvc,
 		accountMgr: accountMgr,
 		logger:     logger,
+		cache:      cache,
 	}
 }
 
@@ -137,6 +139,17 @@ func (r *Router) Route(ctx context.Context, keysID uint, modelName string) (*Rou
 			if err != nil {
 				retryChain.AddAttempt(ch.ID, 0)
 				retryChain.MarkError("no available account")
+				continue
+			}
+
+			// 账号级速率检查：限制值来自渠道配置，计数器按账号维度统计
+			if limitType, limited := r.accountMgr.IsAccountRateLimited(acc.ID, ch.MaxRPM, ch.MaxTPM, ch.MaxDailyRequests); limited {
+				r.logger.Debug("account rate limit exceeded, skipping",
+					zap.Uint("channel_id", ch.ID),
+					zap.Uint("account_id", acc.ID),
+					zap.String("limit_type", limitType))
+				retryChain.AddAttempt(ch.ID, acc.ID)
+				retryChain.MarkError("account rate limit exceeded: " + limitType)
 				continue
 			}
 

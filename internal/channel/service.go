@@ -77,9 +77,9 @@ func (s *service) List(ctx context.Context, filter ListFilter) ([]Channel, int64
 	return channels, total, nil
 }
 
-func (s *service) Update(ctx context.Context, id uint, name, baseURL string, weight int) error {
+func (s *service) Update(ctx context.Context, id uint, name, baseURL string, weight, maxRPM, maxTPM, maxDailyRequests int) error {
 	return s.db.WithContext(ctx).Model(&Channel{}).Where("id = ?", id).
-		Updates(map[string]interface{}{"name": name, "base_url": baseURL, "weight": weight}).Error
+		Updates(map[string]interface{}{"name": name, "base_url": baseURL, "weight": weight, "max_rpm": maxRPM, "max_tpm": maxTPM, "max_daily_requests": maxDailyRequests}).Error
 }
 
 func (s *service) UpdateStatus(ctx context.Context, id uint, status string) error {

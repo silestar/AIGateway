@@ -71,6 +71,52 @@ func (m *Manager) SelectAccount(ctx context.Context, keysID, channelID uint) (*A
 	return &acc, nil
 }
 
+// IsAccountRateLimited 检查账号是否达到渠道级速率限制（RPM/TPM/每日请求）
+// limit 值来自渠道配置，计数器按账号维度统计
+func (m *Manager) IsAccountRateLimited(accountID uint, maxRPM, maxTPM, maxDailyRequests int) (string, bool) {
+	now := time.Now()
+	minuteKey := now.Format("2006-01-02-15:04")
+	todayKey := now.Format("2006-01-02")
+
+	// RPM 检查
+	if maxRPM > 0 {
+		rpmKey := fmt.Sprintf("stats:account:%d:rpm:%s", accountID, minuteKey)
+		if countStr, err := m.cache.Get(rpmKey); err == nil {
+			count := 0
+			fmt.Sscanf(countStr, "%d", &count)
+			if count >= maxRPM {
+				return "rpm", true
+			}
+		}
+	}
+
+	// TPM 检查
+	if maxTPM > 0 {
+		tpmKey := fmt.Sprintf("stats:account:%d:tpm:%s", accountID, minuteKey)
+		if countStr, err := m.cache.Get(tpmKey); err == nil {
+			count := 0
+			fmt.Sscanf(countStr, "%d", &count)
+			if count >= maxTPM {
+				return "tpm", true
+			}
+		}
+	}
+
+	// 每日请求配额检查
+	if maxDailyRequests > 0 {
+		dailyKey := fmt.Sprintf("stats:account:%d:daily_requests:%s", accountID, todayKey)
+		if countStr, err := m.cache.Get(dailyKey); err == nil {
+			count := 0
+			fmt.Sscanf(countStr, "%d", &count)
+			if count >= maxDailyRequests {
+				return "daily", true
+			}
+		}
+	}
+
+	return "", false
+}
+
 // GetDecryptedAPIKey 获取解密后的 API Key（带缓存）
 func (m *Manager) GetDecryptedAPIKey(ctx context.Context, accountID uint) (string, error) {
 	// 检查缓存
@@ -97,7 +143,7 @@ func (m *Manager) GetDecryptedAPIKey(ctx context.Context, accountID uint) (strin
 	return plainKey, nil
 }
 
-// ReportResult 报告请求结果（故障降级逻辑）
+// ReportResult 报告请求结果（故障降级 + 429 被动熔断）
 func (m *Manager) ReportResult(ctx context.Context, accountID uint, success bool, statusCode int) error {
 	var acc Account
 	if err := m.db.WithContext(ctx).First(&acc, accountID).Error; err != nil {
@@ -111,6 +157,24 @@ func (m *Manager) ReportResult(ctx context.Context, accountID uint, success bool
 				Updates(map[string]interface{}{"consecutive_failures": 0}).Error
 		}
 		return nil
+	}
+
+	// ===== 429 被动熔断：上游返回 429 时直接禁用到次日 =====
+	if statusCode == 429 {
+		tomorrow := time.Now().AddDate(0, 0, 1)
+		nextMidnight := time.Date(tomorrow.Year(), tomorrow.Month(), tomorrow.Day(), 0, 0, 0, 0, tomorrow.Location())
+		updates := map[string]interface{}{
+			"status":               "disabled",
+			"probe_cooldown_until": nextMidnight,
+			"consecutive_failures": acc.ConsecutiveFailures + 1,
+		}
+		m.logger.Warn("account disabled due to upstream 429 rate limit",
+			zap.Uint("account_id", accountID),
+			zap.Uint("channel_id", acc.ChannelID),
+			zap.Time("cooldown_until", nextMidnight),
+		)
+		m.clearAccountBindings(ctx, &acc)
+		return m.db.WithContext(ctx).Model(&Account{}).Where("id = ?", accountID).Updates(updates).Error
 	}
 
 	// 判断是否计入失败

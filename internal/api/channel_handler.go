@@ -133,16 +133,19 @@ func (h *ChannelHandler) Update(c *gin.Context) {
 	}
 
 	var req struct {
-		Name    string `json:"name"`
-		BaseURL string `json:"base_url"`
-		Weight  int    `json:"weight"`
+		Name             string `json:"name"`
+		BaseURL          string `json:"base_url"`
+		Weight           int    `json:"weight"`
+		MaxRPM           int    `json:"max_rpm"`
+		MaxTPM           int    `json:"max_tpm"`
+		MaxDailyRequests int    `json:"max_daily_requests"`
 	}
 	if err := c.ShouldBindJSON(&req); err != nil {
 		c.JSON(http.StatusBadRequest, errorResponse("invalid_request", err.Error()))
 		return
 	}
 
-	if err := h.svc.Update(c.Request.Context(), id, req.Name, req.BaseURL, req.Weight); err != nil {
+	if err := h.svc.Update(c.Request.Context(), id, req.Name, req.BaseURL, req.Weight, req.MaxRPM, req.MaxTPM, req.MaxDailyRequests); err != nil {
 		c.JSON(http.StatusInternalServerError, errorResponse("internal_error", err.Error()))
 		return
 	}

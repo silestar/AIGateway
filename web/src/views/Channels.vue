@@ -34,6 +34,15 @@
             </n-form-item>
             <n-form-item :label="t('common.type')"><n-input :value="selectedChannel.type" disabled /></n-form-item>
             <n-form-item :label="t('common.weight')"><n-input-number v-model:value="editForm.weight" :min="0" /></n-form-item>
+            <n-form-item :label="t('channels.maxRPM')">
+              <n-input-number v-model:value="editForm.max_rpm" :min="0" :placeholder="t('channels.noLimit')" />
+            </n-form-item>
+            <n-form-item :label="t('channels.maxTPM')">
+              <n-input-number v-model:value="editForm.max_tpm" :min="0" :placeholder="t('channels.noLimit')" />
+            </n-form-item>
+            <n-form-item :label="t('channels.maxDailyRequests')">
+              <n-input-number v-model:value="editForm.max_daily_requests" :min="0" :placeholder="t('channels.noLimit')" />
+            </n-form-item>
             <n-form-item>
               <n-space>
                 <n-button type="primary" @click="handleUpdateChannel">{{ t('common.save') }}</n-button>
@@ -181,7 +190,7 @@ const pagination = reactive({ page: 1, pageSize: 20, itemCount: 0 })
 const filterType = ref<string | null>(null)
 
 const createForm = reactive({ name: '', type: 'openai', base_url: '', api_key: '' })
-const editForm = reactive({ name: '', base_url: '', weight: 0 })
+const editForm = reactive({ name: '', base_url: '', weight: 0, max_rpm: 0, max_tpm: 0, max_daily_requests: 0 })
 const accountForm = reactive({ api_key: '', remark: '' })
 
 const channelTypeOptions = [
@@ -317,6 +326,9 @@ async function selectChannel(ch: Channel) {
   editForm.name = ch.name
   editForm.base_url = ch.base_url
   editForm.weight = ch.weight
+  editForm.max_rpm = ch.max_rpm ?? 0
+  editForm.max_tpm = ch.max_tpm ?? 0
+  editForm.max_daily_requests = ch.max_daily_requests ?? 0
   // 加载账号
   await loadAccounts(ch.id)
   // 加载已配置模型
