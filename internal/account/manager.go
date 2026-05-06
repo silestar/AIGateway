@@ -222,6 +222,11 @@ func (m *Manager) UpdateStatus(ctx context.Context, id uint, status string) erro
 	return m.db.WithContext(ctx).Model(&Account{}).Where("id = ?", id).Updates(updates).Error
 }
 
+func (m *Manager) UpdateRemark(ctx context.Context, id uint, remark string) error {
+	return m.db.WithContext(ctx).Model(&Account{}).Where("id = ?", id).
+		Update("remark", remark).Error
+}
+
 func (m *Manager) RevealKey(ctx context.Context, id uint) (string, error) {
 	var acc Account
 	if err := m.db.WithContext(ctx).First(&acc, id).Error; err != nil {

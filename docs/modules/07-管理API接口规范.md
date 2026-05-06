@@ -1,7 +1,7 @@
 # 管理 API 接口规范
 
-> 版本：1.0  
-> 最后更新：2026-05-04  
+> 版本：1.1  
+> 最后更新：2026-05-08  
 > 本文档集中定义 AIGateway 所有管理 API 端点，作为前后端开发的单一真相来源。
 
 ---
@@ -310,9 +310,11 @@
   "name": "OpenAI 高速通道",
   "type": "openai",
   "base_url": "https://api.openai.com",
-  "extra_config": {}
+  "api_key": "sk-proj-xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx"
 }
 ```
+
+> `api_key` 为必填项。创建渠道时会自动创建第一个账号。
 
 `type` 枚举值：
 
@@ -323,22 +325,93 @@
 | `anthropic` | Anthropic Claude Messages API |
 | `gemini` | Google Gemini API |
 
-响应（201）：
+响应（200）：
 
 ```json
 {
-  "id": 9,
-  "name": "OpenAI 高速通道",
-  "type": "openai",
-  "base_url": "https://api.openai.com",
-  "status": "active",
-  "created_at": "2026-05-04T15:00:00Z"
+  "data": {
+    "id": 9,
+    "name": "OpenAI 高速通道",
+    "type": "openai",
+    "base_url": "https://api.openai.com",
+    "status": "active",
+    "created_at": "2026-05-04T15:00:00Z"
+  },
+  "account_id": 11
 }
 ```
 
 ---
 
-### 2.3 渠道详情
+### 2.3 测试渠道连接
+
+**`POST /api/channels/test-connection`**
+
+> 在创建渠道前测试 Base URL 和 API Key 是否有效。
+
+请求体：
+
+```json
+{
+  "type": "openai",
+  "base_url": "https://api.openai.com",
+  "api_key": "sk-proj-xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx"
+}
+```
+
+响应（200）：
+
+```json
+{
+  "success": true
+}
+```
+
+失败响应（200）：
+
+```json
+{
+  "success": false,
+  "error": "fetch models status 401: ..."
+}
+```
+
+---
+
+### 2.5 获取渠道已配置模型
+
+**`GET /api/channels/:id/models`**
+
+> 获取指定渠道已保存的模型配置列表（含模型映射）。
+
+响应（200）：
+
+```json
+{
+  "data": [
+    {
+      "id": 1,
+      "channel_id": 9,
+      "display_model_name": "deepseek-ai/deepseek-v4-flash",
+      "actual_model_name": "deepseek-ai/deepseek-v4-flash",
+      "status": "enabled"
+    },
+    {
+      "id": 2,
+      "channel_id": 9,
+      "display_model_name": "deepseep-preview",
+      "actual_model_name": "deepseek-ai/deepseek-v4-pro",
+      "status": "enabled"
+    }
+  ]
+}
+```
+
+> `display_model_name === actual_model_name` 表示直连上游模型；不等表示自定义映射别名。
+
+---
+
+### 2.6 渠道详情
 
 **`GET /api/channels/:id`**
 
@@ -398,9 +471,47 @@
 }
 ```
 
+响应（200）：
+
+```json
+{
+  "data": {
+    "id": 1,
+    "status": "disabled"
+  }
+}
+```
+
 ---
 
-### 2.7 获取上游模型列表
+### 2.7 更新渠道权重
+
+**`PATCH /api/channels/:id/weight`**
+
+> 在渠道列表页直接调整权重值，失焦或回车后提交。权重值越高优先级越高。
+
+请求体：
+
+```json
+{
+  "weight": 100
+}
+```
+
+响应（200）：
+
+```json
+{
+  "data": {
+    "id": 1,
+    "weight": 100
+  }
+}
+```
+
+---
+
+### 2.8 获取上游模型列表
 
 **`POST /api/channels/:id/fetch-models`**
 
@@ -408,38 +519,38 @@
 
 ```json
 {
-  "test_key": "sk-xxx"
+  "test_key": ""
 }
 ```
 
 > `test_key` 可选；若不填，系统使用该渠道下优先级最高的 active 账号解密后的 Key。
 
-响应：
+响应（200）：
 
 ```json
 {
-  "models": [
+  "data": [
     {
-      "upstream_id": "gpt-4o",
-      "display_name": "",
-      "already_configured": false,
-      "existing_display_name": "",
-      "enabled": true
+      "id": "gpt-4o",
+      "owned_by": "openai"
     },
     {
-      "upstream_id": "gpt-4o-mini",
-      "display_name": "my-fast-model",
-      "already_configured": true,
-      "existing_display_name": "my-fast-model",
-      "enabled": true
+      "id": "gpt-4o-mini",
+      "owned_by": "openai"
+    },
+    {
+      "id": "claude-3-opus",
+      "owned_by": "anthropic"
     }
   ]
 }
 ```
 
+> 按模型 `id` 去重（同一模型在多个账号下只返回一次）。`owned_by` 用于前端按供应商分组展示。
+
 ---
 
-### 2.8 保存模型映射
+### 2.9 保存模型配置
 
 **`PUT /api/channels/:id/models`**
 
@@ -448,73 +559,82 @@
 ```json
 {
   "models": [
-    {"upstream_id": "gpt-4o", "enabled": true, "display_name": ""},
-    {"upstream_id": "gpt-4o-mini", "enabled": true, "display_name": "my-fast-model"}
+    {"channel_id": 1, "display_model_name": "gpt-4o", "actual_model_name": "gpt-4o", "status": "enabled"},
+    {"channel_id": 1, "display_model_name": "my-fast-model", "actual_model_name": "gpt-4o-mini", "status": "enabled"}
   ]
 }
 ```
 
-响应：
+> `display_model_name === actual_model_name` 表示直连上游模型；不等表示自定义映射别名。
+> 保存时校验：映射的目标模型必须在已选模型中，否则前端提示用户「返回修改」或「自动补齐」。
+
+响应（200）：
 
 ```json
 {
-  "message": "模型映射已保存",
+  "message": "模型配置已保存",
   "configured_count": 2
 }
 ```
 
 ---
 
-### 2.9 渠道账号列表
+### 2.10 渠道账号列表
 
-**`GET /api/channels/:id/accounts`**
+**`GET /api/accounts/channel/:channel_id`**
 
-响应：
+> 注意：实际路由为 `/api/accounts/channel/:channel_id`，非 `/api/channels/:id/accounts`。
+
+响应（200）：
 
 ```json
 {
-  "channel_id": 1,
   "data": [
     {
       "id": 10,
+      "channel_id": 1,
       "api_key_masked": "sk-...****",
+      "remark": "主账号",
       "priority": 1,
       "status": "active",
-      "consecutive_failures": 0,
-      "last_failed_at": null,
-      "probe_cooldown_until": null,
-      "today_requests": 3200,
-      "created_at": "2026-05-01T08:00:00Z"
+      "created_at": "2026-05-01T08:00:00Z",
+      "updated_at": "2026-05-04T10:30:00Z"
     }
-  ],
-  "total": 5
+  ]
 }
 ```
 
 ---
 
-### 2.10 创建渠道账号
+### 2.11 创建渠道账号
 
-**`POST /api/channels/:id/accounts`**
+**`POST /api/accounts`**
 
 请求体：
 
 ```json
 {
-  "api_key": "sk-proj-xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx"
+  "channel_id": 1,
+  "api_key": "sk-proj-xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx",
+  "remark": "主账号"
 }
 ```
 
-响应（201）：
+> `remark` 可选。
+
+响应（200）：
 
 ```json
 {
-  "id": 11,
-  "channel_id": 1,
-  "api_key_masked": "sk-...****",
-  "priority": 6,
-  "status": "active",
-  "created_at": "2026-05-04T15:30:00Z"
+  "data": {
+    "id": 11,
+    "channel_id": 1,
+    "api_key_masked": "sk-...****",
+    "priority": 6,
+    "status": "active",
+    "remark": "主账号",
+    "created_at": "2026-05-04T15:30:00Z"
+  }
 }
 ```
 
@@ -544,7 +664,7 @@
 
 ### 3.3 调整账号优先级
 
-**`PATCH /api/accounts/:id/priority`**
+**`PUT /api/accounts/:id/priority`**
 
 请求体：
 
@@ -584,7 +704,32 @@
 
 ---
 
-### 3.5 复制账号密钥
+### 3.5 更新账号备注
+
+**`PATCH /api/accounts/:id/remark`**
+
+请求体：
+
+```json
+{
+  "remark": "新备注内容"
+}
+```
+
+响应：
+
+```json
+{
+  "id": 10,
+  "remark": "新备注内容"
+}
+```
+
+> 备注用于标识账号用途（如"主账号"、"备用账号"等），支持双击列表直接编辑。
+
+---
+
+### 3.6 复制账号密钥
 
 **`POST /api/accounts/:id/reveal-key`**
 

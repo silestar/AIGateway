@@ -183,23 +183,25 @@
 
 **Tab 3: 账号管理**
 
-- 列表：账号优先级（可拖拽行排序，使用`vuedraggable`）、密钥（脱敏 `sk-...****` + "复制"按钮）、状态标签（active/disabled/cooling）、失败次数/上次失败时间、创建时间。列表仅显示脱敏版本（如 `sk-...****`）。**密钥安全复制**：点击"复制" → 确认框 → `POST /api/accounts/:id/reveal-key` → 写入剪贴板 → 不进入前端状态。
+- 列表：账号优先级（可拖拽行排序，使用`vuedraggable`）、密钥（脱敏 `sk-...****` + "复制"按钮）、备注（双击可直接编辑）、状态标签（active/disabled/cooling）、失败次数/上次失败时间、创建时间。列表仅显示脱敏版本（如 `sk-...****`）。**密钥安全复制**：点击"复制" → 确认框 → `POST /api/accounts/:id/reveal-key` → 写入剪贴板 → 不进入前端状态。
     
-- 新建账号按钮：弹出表单，输入API Key（明文，提交后后端加密存储），自动分配优先级（最大+1）。列表仅显示脱敏版本（如 `sk-...****`）。
+- 新建账号按钮：弹出表单，输入API Key（明文，提交后后端加密存储）、备注（可选），自动分配优先级（最大+1）。列表仅显示脱敏版本（如 `sk-...****`）。
     
-- 操作：编辑（重新输入Key）、删除、手动启用/禁用。
+- 操作：编辑（重新输入Key）、双击备注直接编辑、删除、手动启用/禁用。
     
 - API:
     
     - `GET /api/channels/:id/accounts`
         
-    - `POST /api/channels/:id/accounts` { api_key }
-        
-    - `PUT /api/accounts/:id` (更新key或优先级)
-        
-    - `PATCH /api/accounts/:id/priority` { priority }
-        
-    - `PATCH /api/accounts/:id/status` { status }
+- `POST /api/channels/:id/accounts` { api_key, remark }
+
+- `PUT /api/accounts/:id` (更新key或优先级)
+
+- `PATCH /api/accounts/:id/priority` { priority }
+
+- `PATCH /api/accounts/:id/status` { status }
+
+- `PATCH /api/accounts/:id/remark` { remark }
         
 
 ### 2.4 分组管理 (GroupManagement)

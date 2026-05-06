@@ -73,6 +73,10 @@ type ChannelService interface {
 	List(ctx context.Context, filter ListFilter) ([]Channel, int64, error)
 	Update(ctx context.Context, id uint, name, baseURL string, weight int) error
 	Delete(ctx context.Context, id uint) error
+	UpdateStatus(ctx context.Context, id uint, status string) error
+	UpdateWeight(ctx context.Context, id uint, weight int) error
+	TestConnection(ctx context.Context, channelType, baseURL, apiKey string) error
 	FetchModels(ctx context.Context, id uint, testKey string) ([]ModelInfo, error)
+	GetModelsByChannel(ctx context.Context, id uint) ([]ChannelModel, error)
 	SaveModels(ctx context.Context, id uint, models []ChannelModel) error
 }

@@ -132,7 +132,7 @@ func main() {
 	protected := apiGroup.Group("")
 	protected.Use(authHandler.AuthMiddleware())
 	agwapi.NewKeysHandler(keysSvc).RegisterRoutes(protected)
-	agwapi.NewChannelHandler(channelSvc).RegisterRoutes(protected)
+	agwapi.NewChannelHandler(channelSvc, accountMgr).RegisterRoutes(protected)
 	agwapi.NewAccountHandler(accountMgr).RegisterRoutes(protected)
 	agwapi.NewGroupHandler(groupRouter).RegisterRoutes(protected)
 	agwapi.NewStatsHandler(statsMgr).RegisterRoutes(protected)

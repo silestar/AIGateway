@@ -117,7 +117,7 @@ const columns = computed(() => [
   },
   {
     title: t('common.status'), key: 'status', width: 80,
-    render: (row: Keys) => h(NTag, { type: row.status === 'active' ? 'success' : 'error', size: 'small' }, () => row.status),
+    render: (row: Keys) => h(NTag, { type: row.status === 'active' ? 'success' : 'error', size: 'small' }, () => row.status === 'active' ? t('common.active') : t('common.disabled')),
   },
   {
     title: t('common.createdAt'), key: 'created_at', width: 180,
@@ -219,6 +219,7 @@ async function handleToggleStatus(row: Keys) {
 }
 
 async function handleSaveName(id: number) {
+  if (editingId.value === null) return // 防止 Enter + onBlur 重复提交
   const newName = editingName.value.trim()
   editingId.value = null
   if (!newName) return

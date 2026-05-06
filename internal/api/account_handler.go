@@ -23,6 +23,7 @@ func (h *AccountHandler) RegisterRoutes(rg *gin.RouterGroup) {
 	accounts.GET("/channel/:channel_id", h.ListByChannel)
 	accounts.PUT("/:id/priority", h.UpdatePriority)
 	accounts.PUT("/:id/status", h.UpdateStatus)
+	accounts.PATCH("/:id/remark", h.UpdateRemark)
 	accounts.POST("/:id/reveal-key", h.RevealKey)
 	accounts.DELETE("/:id", h.Delete)
 }
@@ -32,6 +33,7 @@ func (h *AccountHandler) Create(c *gin.Context) {
 	var req struct {
 		ChannelID uint   `json:"channel_id" binding:"required"`
 		APIKey    string `json:"api_key" binding:"required"`
+		Remark    string `json:"remark"`
 	}
 	if err := c.ShouldBindJSON(&req); err != nil {
 		c.JSON(http.StatusBadRequest, errorResponse("invalid_request", err.Error()))
@@ -44,11 +46,18 @@ func (h *AccountHandler) Create(c *gin.Context) {
 		return
 	}
 
+	// 更新备注
+	if req.Remark != "" {
+		_ = h.svc.UpdateRemark(c.Request.Context(), acc.ID, req.Remark)
+		acc.Remark = req.Remark
+	}
+
 	c.JSON(http.StatusOK, gin.H{"data": gin.H{
-		"id":        acc.ID,
+		"id":         acc.ID,
 		"channel_id": acc.ChannelID,
-		"status":    acc.Status,
-		"priority":  acc.Priority,
+		"status":     acc.Status,
+		"priority":   acc.Priority,
+		"remark":     acc.Remark,
 	}})
 }
 
@@ -103,6 +112,7 @@ func (h *AccountHandler) ListByChannel(c *gin.Context) {
 			"status":       acc.Status,
 			"priority":     acc.Priority,
 			"api_key_mask": maskKey(acc.APIKeyPrefix),
+			"remark":       acc.Remark,
 		}
 	}
 
@@ -155,6 +165,30 @@ func (h *AccountHandler) UpdateStatus(c *gin.Context) {
 	}
 
 	c.JSON(http.StatusOK, gin.H{"data": gin.H{"id": id, "status": req.Status}})
+}
+
+// UpdateRemark 更新账号备注
+func (h *AccountHandler) UpdateRemark(c *gin.Context) {
+	id, err := parseID(c)
+	if err != nil {
+		c.JSON(http.StatusBadRequest, errorResponse("invalid_id", err.Error()))
+		return
+	}
+
+	var req struct {
+		Remark string `json:"remark"`
+	}
+	if err := c.ShouldBindJSON(&req); err != nil {
+		c.JSON(http.StatusBadRequest, errorResponse("invalid_request", err.Error()))
+		return
+	}
+
+	if err := h.svc.UpdateRemark(c.Request.Context(), id, req.Remark); err != nil {
+		c.JSON(http.StatusInternalServerError, errorResponse("internal_error", err.Error()))
+		return
+	}
+
+	c.JSON(http.StatusOK, gin.H{"data": gin.H{"id": id, "remark": req.Remark}})
 }
 
 // RevealKey 查看账号密钥（审计）

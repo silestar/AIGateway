@@ -82,6 +82,25 @@ func (s *service) Update(ctx context.Context, id uint, name, baseURL string, wei
 		Updates(map[string]interface{}{"name": name, "base_url": baseURL, "weight": weight}).Error
 }
 
+func (s *service) UpdateStatus(ctx context.Context, id uint, status string) error {
+	return s.db.WithContext(ctx).Model(&Channel{}).Where("id = ?", id).
+		Update("status", status).Error
+}
+
+func (s *service) UpdateWeight(ctx context.Context, id uint, weight int) error {
+	return s.db.WithContext(ctx).Model(&Channel{}).Where("id = ?", id).
+		Update("weight", weight).Error
+}
+
+func (s *service) TestConnection(ctx context.Context, channelType, baseURL, apiKey string) error {
+	adp, err := adapterregistry.GetAdapter(channelType)
+	if err != nil {
+		return fmt.Errorf("unsupported channel type: %s", channelType)
+	}
+	_, err = adp.FetchModels(ctx, baseURL, apiKey)
+	return err
+}
+
 func (s *service) Delete(ctx context.Context, id uint) error {
 	tx := s.db.WithContext(ctx).Begin()
 	// 删除关联的模型映射
@@ -109,24 +128,7 @@ func (s *service) FetchModels(ctx context.Context, id uint, testKey string) ([]M
 		return nil, err
 	}
 
-	// 使用测试 Key 或渠道账号的 Key
-	apiKey := testKey
-	if apiKey == "" {
-		// 从第一个 active 账号获取
-		var acc struct {
-			APIKeyEncrypted string
-		}
-		if err := s.db.WithContext(ctx).Table("channel_accounts").
-			Where("channel_id = ? AND status = ?", id, "active").
-			Select("api_key_encrypted").Order("priority ASC").First(&acc).Error; err != nil {
-			return nil, fmt.Errorf("no active account for channel %d: %w", id, err)
-		}
-		// 需要解密，但 channel service 不应直接依赖 crypto
-		// 这里通过 testKey 参数由 handler 层解密后传入
-		return nil, fmt.Errorf("no test key provided, please provide via test_key parameter")
-	}
-
-	adapterModels, err := adp.FetchModels(ctx, ch.BaseURL, apiKey)
+	adapterModels, err := adp.FetchModels(ctx, ch.BaseURL, testKey)
 	if err != nil {
 		return nil, err
 	}
@@ -136,6 +138,14 @@ func (s *service) FetchModels(ctx context.Context, id uint, testKey string) ([]M
 		result[i] = ModelInfo{ID: m.ID, OwnedBy: m.OwnedBy}
 	}
 	return result, nil
+}
+
+func (s *service) GetModelsByChannel(ctx context.Context, id uint) ([]ChannelModel, error) {
+	var models []ChannelModel
+	if err := s.db.WithContext(ctx).Where("channel_id = ?", id).Order("display_model_name").Find(&models).Error; err != nil {
+		return nil, err
+	}
+	return models, nil
 }
 
 func (s *service) SaveModels(ctx context.Context, id uint, models []ChannelModel) error {
