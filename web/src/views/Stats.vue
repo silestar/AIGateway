@@ -1,5 +1,8 @@
 <template>
-  <n-card :title="t('stats.title')">
+  <n-card :bordered="false" class="glass-card">
+    <template #header>
+      <h2 class="page-title" style="margin:0">{{ t('stats.title') }}</h2>
+    </template>
     <n-tabs type="line" animated>
       <n-tab-pane name="requests" :tab="t('stats.requests')">
         <n-data-table :columns="requestColumns" :data="requestData" :pagination="requestPagination" :loading="loading" />

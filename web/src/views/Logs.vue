@@ -1,5 +1,8 @@
 <template>
-  <n-card :title="t('logs.title')">
+  <n-card :bordered="false" class="glass-card">
+    <template #header>
+      <h2 class="page-title" style="margin:0">{{ t('logs.title') }}</h2>
+    </template>
     <n-space vertical>
       <!-- 筛选区 -->
       <n-space align="center">

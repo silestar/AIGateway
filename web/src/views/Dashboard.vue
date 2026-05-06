@@ -1,20 +1,20 @@
 <template>
-  <div>
+  <n-card :bordered="false" class="glass-card">
     <n-grid :cols="4" :x-gap="16" :y-gap="16">
       <n-gi>
-        <n-card>
+        <n-card :bordered="false" size="small" class="stat-card">
           <n-statistic :label="t('dashboard.todayRequests')" :value="stats.total_requests_today" />
         </n-card>
       </n-gi>
       <n-gi>
-        <n-card>
+        <n-card :bordered="false" size="small" class="stat-card">
           <n-statistic :label="t('dashboard.successRate')" :value="stats.success_rate.toFixed(1)">
             <template #suffix>%</template>
           </n-statistic>
         </n-card>
       </n-gi>
       <n-gi>
-        <n-card>
+        <n-card :bordered="false" size="small" class="stat-card">
           <n-statistic :label="t('dashboard.avgLatency')">
             <template #default>{{ stats.avg_latency_ms }}</template>
             <template #suffix>ms</template>
@@ -22,66 +22,33 @@
         </n-card>
       </n-gi>
       <n-gi>
-        <n-card>
-          <n-statistic :label="t('dashboard.activeConsumers')" :value="stats.active_consumers" />
+        <n-card :bordered="false" size="small" class="stat-card">
+          <n-statistic :label="t('dashboard.activeKeys')" :value="stats.active_keys" />
         </n-card>
       </n-gi>
     </n-grid>
 
-    <n-grid :cols="2" :x-gap="16" :y-gap="16" style="margin-top: 16px">
+    <n-grid :cols="2" :x-gap="16" :y-gap="16" style="margin-top: 20px">
       <n-gi>
-        <n-card :title="t('dashboard.requestTrend')">
-          <div v-if="trend.length > 0">
-            <n-table :bordered="false" :single-line="false" size="small">
-              <thead>
-                <tr>
-                  <th>{{ t('stats.date') }}</th>
-                  <th>{{ t('stats.total') }}</th>
-                  <th>{{ t('stats.success') }}</th>
-                  <th>{{ t('stats.failed') }}</th>
-                </tr>
-              </thead>
-              <tbody>
-                <tr v-for="item in trend" :key="item.date">
-                  <td>{{ item.date }}</td>
-                  <td>{{ item.total_requests }}</td>
-                  <td>{{ item.success_requests }}</td>
-                  <td>{{ item.fail_requests }}</td>
-                </tr>
-              </tbody>
-            </n-table>
-          </div>
-          <n-empty v-else :description="t('dashboard.noData')" />
+        <n-card :bordered="false" :title="t('dashboard.requestTrend')" size="small" class="glass-card">
+          <n-data-table v-if="trend.length > 0" :columns="trendColumns" :data="trend" :bordered="false" size="small" />
+          <n-empty v-else :description="t('common.noData')" />
         </n-card>
       </n-gi>
       <n-gi>
-        <n-card :title="t('dashboard.modelDistribution')">
-          <div v-if="models.length > 0">
-            <n-table :bordered="false" :single-line="false" size="small">
-              <thead>
-                <tr>
-                  <th>{{ t('stats.model') }}</th>
-                  <th>{{ t('stats.total') }}</th>
-                </tr>
-              </thead>
-              <tbody>
-                <tr v-for="item in models" :key="item.model_name">
-                  <td>{{ item.model_name }}</td>
-                  <td>{{ item.total_requests }}</td>
-                </tr>
-              </tbody>
-            </n-table>
-          </div>
-          <n-empty v-else :description="t('dashboard.noData')" />
+        <n-card :bordered="false" :title="t('dashboard.modelDistribution')" size="small" class="glass-card">
+          <n-data-table v-if="models.length > 0" :columns="modelColumns" :data="models" :bordered="false" size="small" />
+          <n-empty v-else :description="t('common.noData')" />
         </n-card>
       </n-gi>
     </n-grid>
-  </div>
+  </n-card>
 </template>
 
 <script setup lang="ts">
 import { ref, onMounted } from 'vue'
 import { useI18n } from 'vue-i18n'
+import { NCard, NGrid, NGi, NStatistic, NDataTable, NEmpty } from 'naive-ui'
 import { statsApi } from '../api/stats'
 
 const { t } = useI18n()
@@ -90,31 +57,63 @@ const stats = ref({
   total_requests_today: 0,
   success_rate: 0,
   avg_latency_ms: 0,
-  total_tokens: 0,
-  active_consumers: 0,
-  active_channels: 0,
+  active_keys: 0,
 })
+
 const trend = ref<any[]>([])
 const models = ref<any[]>([])
 
+const trendColumns = [
+  { title: '日期', key: 'date' },
+  { title: '总请求', key: 'total_requests' },
+  { title: '成功', key: 'success_requests' },
+  { title: '失败', key: 'fail_requests' },
+]
+
+const modelColumns = [
+  { title: '模型', key: 'model_name' },
+  { title: '请求数', key: 'total_requests' },
+]
+
 onMounted(async () => {
   try {
-    const res = await statsApi.dashboard()
-    const data = res.data.data
-    stats.value = {
-      total_requests_today: data.total_requests_today || 0,
-      success_rate: data.success_rate || 0,
-      avg_latency_ms: data.avg_latency_ms || 0,
-      total_tokens: data.total_tokens || 0,
-      active_consumers: data.active_consumers || 0,
-      active_channels: data.active_channels || 0,
+    const [dashRes, modelRes] = await Promise.all([
+      statsApi.dashboard(),
+      statsApi.models(),
+    ])
+    if (dashRes.data?.data) {
+      const d = dashRes.data.data
+      stats.value = {
+        total_requests_today: d.total_requests_today || 0,
+        success_rate: d.success_rate || 0,
+        avg_latency_ms: d.avg_latency_ms || 0,
+        active_keys: d.active_keys || 0,
+      }
+      trend.value = d.daily_trend || []
     }
-    trend.value = data.last_7_days || []
-  } catch { /* 使用默认值 */ }
-
-  try {
-    const res = await statsApi.models()
-    models.value = res.data.data || []
+    if (modelRes.data?.data) models.value = modelRes.data.data
   } catch { /* ignore */ }
 })
 </script>
+
+<style scoped>
+.stat-card {
+  background: rgba(12, 16, 30, 0.6) !important;
+  border: 1px solid rgba(255, 255, 255, 0.05) !important;
+  border-radius: 12px !important;
+  transition: all 0.25s ease;
+}
+.stat-card:hover {
+  border-color: rgba(0, 210, 255, 0.2) !important;
+  box-shadow: 0 4px 20px rgba(0, 210, 255, 0.06);
+}
+:deep(.n-statistic__label) {
+  color: #8e94a0 !important;
+  font-size: 13px;
+}
+:deep(.n-statistic__content) {
+  color: #e8eaed !important;
+  font-size: 28px;
+  font-weight: 700;
+}
+</style>

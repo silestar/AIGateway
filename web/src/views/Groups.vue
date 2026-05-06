@@ -1,11 +1,13 @@
 <template>
   <div>
     <n-tabs type="line" animated>
-      <!-- 渠道分组 -->
       <n-tab-pane name="channel" :tab="t('groups.channelGroups')">
-        <n-card :title="t('groups.channelGroups')">
+        <n-card :bordered="false" class="glass-card">
+          <template #header>
+            <h2 class="page-title" style="margin:0">{{ t('groups.channelGroups') }}</h2>
+          </template>
           <template #header-extra>
-            <n-button type="primary" @click="showCreateCG = true">{{ t('common.create') }}</n-button>
+            <n-button type="primary" @click="showCreateCG = true">+ {{ t('common.create') }}</n-button>
           </template>
           <n-data-table :columns="cgColumns" :data="channelGroups" :loading="cgLoading" />
         </n-card>
@@ -13,9 +15,12 @@
 
       <!-- 消费者分组 -->
       <n-tab-pane name="consumer" :tab="t('groups.consumerGroups')">
-        <n-card :title="t('groups.consumerGroups')">
+        <n-card :bordered="false" class="glass-card">
+          <template #header>
+            <h2 class="page-title" style="margin:0">{{ t('groups.consumerGroups') }}</h2>
+          </template>
           <template #header-extra>
-            <n-button type="primary" @click="showCreateConG = true">{{ t('common.create') }}</n-button>
+            <n-button type="primary" @click="showCreateConG = true">+ {{ t('common.create') }}</n-button>
           </template>
           <n-data-table :columns="conGColumns" :data="consumerGroups" :loading="conGLoading" />
         </n-card>

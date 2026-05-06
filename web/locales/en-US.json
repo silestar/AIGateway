@@ -53,7 +53,7 @@
     "name": "Key Name",
     "namePlaceholder": "Enter key name",
     "searchName": "Search key name",
-    "apiKey": "API Key",
+    "keyLabel": "Key",
     "prefix": "Prefix",
     "resetKey": "Reset Key",
     "keyCreated": "Key Created",

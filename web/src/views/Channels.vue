@@ -1,9 +1,12 @@
 <template>
   <div>
     <!-- 列表视图 -->
-    <n-card v-if="!selectedChannel" :title="t('channels.title')">
+    <n-card v-if="!selectedChannel" :bordered="false" class="glass-card">
+      <template #header>
+        <h2 class="page-title" style="margin:0">{{ t('channels.title') }}</h2>
+      </template>
       <template #header-extra>
-        <n-button type="primary" @click="showCreateModal = true">{{ t('common.create') }}</n-button>
+        <n-button type="primary" @click="showCreateModal = true">+ {{ t('common.create') }}</n-button>
       </template>
 
       <n-space vertical size="large">
