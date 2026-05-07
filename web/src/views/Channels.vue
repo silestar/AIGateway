@@ -318,11 +318,48 @@ const columns = computed(() => [
   },
   {
     title: t('common.weight'), key: 'weight', width: 110,
-    render: (row: ChannelListItem) => h(NInputNumber, {
-      value: editingWeightMap[row.id] ?? row.weight, size: 'small', min: 0, style: { width: '80px' },
-      'onUpdate:value': (val: number | null) => { if (val !== null) editingWeightMap[row.id] = val },
-      onBlur: () => handleUpdateWeight(row),
-    }),
+    render: (row: ChannelListItem) => {
+      const currentWeight = editingWeightMap[row.id] ?? row.weight
+      // 编辑模式：点击数字时显示输入框
+      if (editingWeightRowId.value === row.id) {
+        return h('div', { style: 'display: inline-flex; align-items: center; height: 28px' }, [
+          h('input', {
+            value: currentWeight,
+            type: 'number',
+            min: '0',
+            autofocus: true,
+            style: 'width: 50px; height: 28px; text-align: center; font-family: monospace; font-size: 13px; background: var(--n-color, rgba(255,255,255,0.08)); color: var(--n-text-color); border: 1px solid var(--n-primary-color, #00d2ff); border-radius: 4px; outline: none; padding: 0 4px',
+            onFocus: (e: FocusEvent) => { (e.target as HTMLInputElement).select() },
+            onBlur: (e: FocusEvent) => { finishEditWeight(row, (e.target as HTMLInputElement).value) },
+            onKeyup: (e: KeyboardEvent) => {
+              if (e.key === 'Enter') (e.target as HTMLInputElement).blur()
+              if (e.key === 'Escape') { editingWeightRowId.value = null; delete editingWeightMap[row.id] }
+            },
+          }),
+        ])
+      }
+      // 正常模式：悬停显示加减按钮
+      return h('div', {
+        class: 'weight-spinner',
+        style: 'display: inline-flex; align-items: center; height: 28px; border-radius: 6px; transition: background 0.15s; cursor: default',
+      }, [
+        h('button', {
+          class: 'weight-spinner-btn',
+          style: 'display: flex; align-items: center; justify-content: center; width: 22px; height: 28px; border: none; background: transparent; cursor: pointer; opacity: 0; transition: opacity 0.15s, color 0.15s; color: var(--n-text-color-3, rgba(255,255,255,0.4)); border-radius: 6px 0 0 6px; font-size: 14px; line-height: 1',
+          onClick: (e: Event) => { e.stopPropagation(); adjustWeight(row, -1) },
+        }, '−'),
+        h('span', {
+          class: 'weight-spinner-value',
+          style: 'display: flex; align-items: center; justify-content: center; min-width: 28px; height: 28px; font-family: monospace; font-size: 13px; padding: 0 2px; user-select: none; cursor: pointer',
+          onClick: (e: Event) => { e.stopPropagation(); startEditWeight(row) },
+        }, String(currentWeight)),
+        h('button', {
+          class: 'weight-spinner-btn',
+          style: 'display: flex; align-items: center; justify-content: center; width: 22px; height: 28px; border: none; background: transparent; cursor: pointer; opacity: 0; transition: opacity 0.15s, color 0.15s; color: var(--n-text-color-3, rgba(255,255,255,0.4)); border-radius: 0 6px 6px 0; font-size: 14px; line-height: 1',
+          onClick: (e: Event) => { e.stopPropagation(); adjustWeight(row, 1) },
+        }, '+'),
+      ])
+    },
   },
   {
     title: t('channels.responseTime'), key: 'latency', width: 120,
@@ -463,6 +500,7 @@ const editingRemarkId = ref<number | null>(null)
 const editingRemark = ref('')
 const editingPriorityMap = reactive<Record<number, number>>({})
 const editingWeightMap = reactive<Record<number, number>>({})
+const editingWeightRowId = ref<number | null>(null)
 
 // 批量测试
 const batchTesting = ref(false)
@@ -841,12 +879,15 @@ async function handleUpdatePriority(row: Account) {
   }
 }
 
-async function handleUpdateWeight(row: ChannelListItem) {
-  const newWeight = editingWeightMap[row.id]
-  if (newWeight === undefined || newWeight === row.weight) {
-    delete editingWeightMap[row.id]
-    return
-  }
+function startEditWeight(row: ChannelListItem) {
+  editingWeightRowId.value = row.id
+  editingWeightMap[row.id] = row.weight
+}
+
+async function finishEditWeight(row: ChannelListItem, value: string) {
+  const newWeight = Math.max(0, parseInt(value) || 0)
+  editingWeightRowId.value = null
+  if (newWeight === row.weight) { delete editingWeightMap[row.id]; return }
   try {
     await channelApi.updateWeight(row.id, newWeight)
     row.weight = newWeight
@@ -856,6 +897,16 @@ async function handleUpdateWeight(row: ChannelListItem) {
     message.error(t('common.operationFailed'))
     delete editingWeightMap[row.id]
   }
+}
+
+async function adjustWeight(row: ChannelListItem, delta: number) {
+  const newWeight = Math.max(0, row.weight + delta)
+  if (newWeight === row.weight) return
+  try {
+    await channelApi.updateWeight(row.id, newWeight)
+    row.weight = newWeight
+    message.success(t('common.success'))
+  } catch { message.error(t('common.operationFailed')) }
 }
 
 async function copyModelName(name: string) {
@@ -925,5 +976,19 @@ onMounted(() => loadChannels())
 @keyframes spin {
   from { transform: rotate(0deg) }
   to { transform: rotate(360deg) }
+}
+.weight-spinner:hover {
+  background: var(--n-color-hover, rgba(255,255,255,0.06));
+}
+.weight-spinner:hover .weight-spinner-btn {
+  opacity: 0.5 !important;
+}
+.weight-spinner .weight-spinner-btn:hover {
+  opacity: 1 !important;
+  color: var(--n-text-color, #fff) !important;
+  background: var(--n-color-hover, rgba(255,255,255,0.1));
+}
+.weight-spinner .weight-spinner-value:hover {
+  color: var(--n-primary-color, #00d2ff);
 }
 </style>
