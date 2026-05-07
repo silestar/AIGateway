@@ -148,9 +148,14 @@ html, body {
   opacity: 0;
 }
 
-/* === 隐藏 n-layout 默认滚动容器溢出 === */
+/* === n-layout 默认滚动容器 === */
+/* 全局设 visible 避免弹窗被裁切，但内容区需要滚动 */
 .n-layout-scroll-container {
   overflow: visible !important;
+}
+/* app-main 下的 scroll-container 需要滚动，内容超出时出滚动条 */
+.app-main > .n-layout-scroll-container {
+  overflow: auto !important;
 }
 
 /* === 选中文本样式 === */

@@ -93,3 +93,80 @@ func NewLogger(cfg config.LogConfig) (*zap.Logger, error) {
 
 	return logger, nil
 }
+
+// StartLogCleaner 启动日志自动清理定时任务
+func StartLogCleaner(cfg config.LogConfig, logger *zap.Logger) {
+	if cfg.MaxAgeDays <= 0 {
+		return // 0 表示不清理
+	}
+	go func() {
+		ticker := time.NewTicker(1 * time.Hour) // 每小时检查一次
+		defer ticker.Stop()
+		for range ticker.C {
+			cleanOldLogs(cfg.Dir, cfg.MaxAgeDays, logger)
+		}
+	}()
+	logger.Info("log cleaner started", zap.Int("max_age_days", cfg.MaxAgeDays))
+}
+
+// cleanOldLogs 删除超过保留天数的旧日志目录
+func cleanOldLogs(logDir string, maxAgeDays int, logger *zap.Logger) {
+	cutoff := time.Now().AddDate(0, 0, -maxAgeDays)
+
+	// 遍历年份目录：logs/2026/
+	yearDirs, err := os.ReadDir(logDir)
+	if err != nil {
+		return
+	}
+	for _, yearDir := range yearDirs {
+		if !yearDir.IsDir() {
+			continue
+		}
+		yearPath := filepath.Join(logDir, yearDir.Name())
+
+		// 遍历月份目录：logs/2026/05/
+		monthDirs, err := os.ReadDir(yearPath)
+		if err != nil {
+			continue
+		}
+		for _, monthDir := range monthDirs {
+			if !monthDir.IsDir() {
+				continue
+			}
+			monthPath := filepath.Join(yearPath, monthDir.Name())
+
+			// 遍历日志文件：logs/2026/05/04.log
+			logFiles, err := os.ReadDir(monthPath)
+			if err != nil {
+				continue
+			}
+			for _, logFile := range logFiles {
+				if logFile.IsDir() {
+					continue
+				}
+				info, err := logFile.Info()
+				if err != nil {
+					continue
+				}
+				if info.ModTime().Before(cutoff) {
+					filePath := filepath.Join(monthPath, logFile.Name())
+					if err := os.Remove(filePath); err == nil {
+						logger.Info("cleaned old log file", zap.String("file", filePath))
+					}
+				}
+			}
+
+			// 清理空月份目录
+			entries, _ := os.ReadDir(monthPath)
+			if len(entries) == 0 {
+				os.Remove(monthPath)
+			}
+		}
+
+		// 清理空年份目录
+		entries, _ := os.ReadDir(yearPath)
+		if len(entries) == 0 {
+			os.Remove(yearPath)
+		}
+	}
+}

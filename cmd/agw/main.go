@@ -47,6 +47,9 @@ func main() {
 	}
 	defer logger.Sync()
 
+	// 启动日志自动清理
+	agwlog.StartLogCleaner(cfg.Log, logger)
+
 	// 3. 确保加密密钥
 	secretKey, err := crypto.EnsureSecretKey("./config/.env")
 	if err != nil {

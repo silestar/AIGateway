@@ -75,11 +75,12 @@ func (m *Manager) probeChannel(ctx context.Context, ch *channel.Channel) {
 	}
 	defer m.cache.Del(lockKey)
 
-	// 3. 获取 disabled 账号（排除 cooling）
+	// 3. 获取 disabled 账号（排除冷却中的）
 	var disabledAccounts []Account
 	if err := m.db.WithContext(ctx).
 		Where("channel_id = ? AND status IN ?", ch.ID, []string{"disabled"}).
 		Where("probe_cooldown_until IS NULL OR probe_cooldown_until < ?", time.Now()).
+		Where("probe_failures < ?", m.cfg.MaxProbeFailures). // 未达探测失败上限
 		Order("last_failed_at ASC").
 		Find(&disabledAccounts).Error; err != nil {
 		m.logger.Error("probe: query disabled accounts", zap.Error(err))
@@ -106,6 +107,25 @@ func (m *Manager) probeChannel(ctx context.Context, ch *channel.Channel) {
 			// 恢复账号
 			m.recoverAccount(ctx, &acc)
 			recovered++
+		} else {
+			// 探测失败 → 增加探测失败计数
+			newProbeFailures := acc.ProbeFailures + 1
+			updates := map[string]interface{}{
+				"probe_failures": newProbeFailures,
+			}
+			// 达到探测失败上限 → 设置冷却，停止后续探测
+			if newProbeFailures >= m.cfg.MaxProbeFailures {
+				cooldownDuration := m.getCooldownDuration(1) // 使用一级冷却时长
+				cooldownUntil := time.Now().Add(cooldownDuration)
+				updates["probe_cooldown_until"] = cooldownUntil
+				m.logger.Warn("account probe failures reached limit, entering cooldown",
+					zap.Uint("account_id", acc.ID),
+					zap.Uint("channel_id", ch.ID),
+					zap.Int("probe_failures", newProbeFailures),
+					zap.Time("cooldown_until", cooldownUntil),
+				)
+			}
+			m.db.WithContext(ctx).Model(&Account{}).Where("id = ?", acc.ID).Updates(updates)
 		}
 	}
 
@@ -206,6 +226,7 @@ func (m *Manager) recoverAccount(ctx context.Context, acc *Account) {
 	m.db.WithContext(ctx).Model(&Account{}).Where("id = ?", acc.ID).Updates(map[string]interface{}{
 		"status":                "active",
 		"consecutive_failures": 0,
+		"probe_failures":       0,
 		"probe_cooldown_until": nil,
 		"last_failed_at":       nil,
 	})

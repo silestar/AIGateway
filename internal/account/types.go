@@ -15,6 +15,7 @@ type Account struct {
 	Remark              string     `gorm:"size:200;not null;default:''" json:"remark"` // 备注信息
 	Status              string     `gorm:"size:20;not null;default:'active'" json:"status"` // active / disabled / cooling
 	ConsecutiveFailures int        `gorm:"not null;default:0" json:"consecutive_failures"`
+	ProbeFailures      int        `gorm:"not null;default:0" json:"probe_failures"` // 连续探测失败次数，达 MaxProbeFailures 后停止探测
 	LastFailedAt        *time.Time `json:"last_failed_at"`
 	ProbeCooldownUntil  *time.Time `json:"probe_cooldown_until"`
 	CreatedAt           time.Time  `gorm:"autoCreateTime" json:"created_at"`

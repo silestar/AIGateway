@@ -42,9 +42,13 @@ func (m *Manager) SelectAccount(ctx context.Context, keysID, channelID uint) (*A
 	// 1. 检查粘性绑定
 	affinityKey := fmt.Sprintf("keys_account_affinity:%d:%d", keysID, channelID)
 	if accountIDStr, err := m.cache.Get(affinityKey); err == nil && accountIDStr != "" {
-		var acc Account
-		if err := m.db.WithContext(ctx).Where("id = ? AND status = ?", accountIDStr, "active").First(&acc).Error; err == nil {
-			return &acc, nil
+		// 粘性绑定命中，验证账号状态缓存是否仍然 active
+		statusCacheKey := fmt.Sprintf("account_status:%s", accountIDStr)
+		if status, err := m.cache.Get(statusCacheKey); err == nil && status == "active" {
+			var acc Account
+			if err := m.db.WithContext(ctx).First(&acc, accountIDStr).Error; err == nil {
+				return &acc, nil
+			}
 		}
 		// 绑定的账号不可用，清除绑定
 		_ = m.cache.Del(affinityKey)
@@ -59,10 +63,17 @@ func (m *Manager) SelectAccount(ctx context.Context, keysID, channelID uint) (*A
 		return nil, fmt.Errorf("no active account for channel %d", channelID)
 	}
 
+	// 更新账号状态缓存
+	statusTTL := time.Duration(m.cfg.AccountStatusCacheTTL) * time.Second
+	for _, a := range accounts {
+		statusKey := fmt.Sprintf("account_status:%d", a.ID)
+		_ = m.cache.Set(statusKey, "active", statusTTL)
+	}
+
 	// 3. 选择第一个，设置粘性绑定
 	acc := accounts[0]
-	ttl := time.Duration(m.cfg.AffinityTTL) * time.Second
-	_ = m.cache.Set(affinityKey, fmt.Sprintf("%d", acc.ID), ttl)
+	affinityTTL := time.Duration(m.cfg.AffinityTTL) * time.Second
+	_ = m.cache.Set(affinityKey, fmt.Sprintf("%d", acc.ID), affinityTTL)
 
 	// 4. 更新活跃计数
 	countKey := fmt.Sprintf("channel_active_count:%d", channelID)
@@ -315,6 +326,10 @@ func (m *Manager) clearAccountBindings(ctx context.Context, acc *Account) {
 	// 清除 key 缓存
 	keyCacheKey := fmt.Sprintf("account_key_cache:%d", acc.ID)
 	_ = m.cache.Del(keyCacheKey)
+
+	// 清除状态缓存
+	statusKey := fmt.Sprintf("account_status:%d", acc.ID)
+	_ = m.cache.Del(statusKey)
 
 	// 减少活跃计数
 	countKey := fmt.Sprintf("channel_active_count:%d", acc.ChannelID)
