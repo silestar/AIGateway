@@ -273,7 +273,10 @@
 | 参数 | 类型 | 必填 | 说明 |
 |------|------|:--:|------|
 | `status` | string | 否 | `active` / `disabled` |
-| `type` | string | 否 | 渠道类型：`openai` / `claude` / `gemini` |
+| `type` | string | 否 | 渠道类型：`openai` / `openai-response` / `anthropic` / `gemini` |
+| `search` | string | 否 | 按名称、ID、类型或模型名称模糊搜索 |
+| `sort_by` | string | 否 | 排序字段：`weight`（默认）/ `id` / `latency` |
+| `sort_order` | string | 否 | `desc`（默认）/ `asc` |
 
 响应：
 
@@ -286,16 +289,28 @@
       "type": "openai",
       "base_url": "https://api.openai.com",
       "status": "active",
+      "weight": 100,
+      "max_rpm": 60,
+      "max_tpm": 100000,
+      "max_daily_requests": 1000,
+      "test_model": "gpt-4o-mini",
+      "last_test_latency": 268,
+      "last_tested_at": "2026-05-07T10:30:00Z",
+      "active_account_count": 3,
+      "total_account_count": 5,
+      "groups": [
+        {"id": 1, "name": "默认分组"}
+      ],
       "model_count": 15,
-      "active_accounts": 3,
-      "total_accounts": 5,
-      "today_requests": 8500,
       "created_at": "2026-05-01T08:00:00Z"
     }
   ],
   "total": 8
 }
 ```
+
+> `last_test_latency` 单位为毫秒，0 表示未测试。`last_tested_at` 为 null 表示未测试。
+> `groups` 为该渠道所属的渠道分组列表。`search` 参数搜索模型时，模糊匹配 `channel_models` 表的 `display_model_name` 或 `upstream_model_name`。
 
 ---
 
@@ -583,7 +598,127 @@
 
 ---
 
-### 2.10 渠道账号列表
+### 2.10 测试渠道可用性
+
+**`POST /api/channels/:id/test`**
+
+> 使用该渠道下优先级最高的 active 账号，调用指定测试模型（`test_model` 字段，为空时取第一个已配置模型）发送一次轻量请求。
+
+响应（200）：
+
+```json
+{
+  "data": {
+    "success": true,
+    "latency": 268,
+    "model": "gpt-4o-mini",
+    "error": ""
+  }
+}
+```
+
+> 测试完成后自动更新渠道的 `last_test_latency` 和 `last_tested_at` 字段。
+> 如果渠道下没有 active 账号或没有配置模型，返回 400 错误。
+
+---
+
+### 2.11 批量测试渠道模型
+
+**`POST /api/channels/:id/test-models`**
+
+请求体：
+
+```json
+{
+  "models": ["gpt-4o", "gpt-4o-mini", "claude-3-opus"]
+}
+```
+
+> 逐个测试指定模型，每个模型使用渠道下优先级最高的 active 账号。
+
+响应（200）：
+
+```json
+{
+  "data": [
+    {
+      "model": "gpt-4o",
+      "success": true,
+      "latency": 320,
+      "status": 200,
+      "error": ""
+    },
+    {
+      "model": "gpt-4o-mini",
+      "success": true,
+      "latency": 180,
+      "status": 200,
+      "error": ""
+    },
+    {
+      "model": "claude-3-opus",
+      "success": false,
+      "latency": 5000,
+      "status": 404,
+      "error": "model not found"
+    }
+  ]
+}
+```
+
+> 失败项的 `error` 包含上游返回的错误信息，`status` 为 HTTP 状态码。
+
+---
+
+### 2.12 设置测试模型
+
+**`PUT /api/channels/:id/test-model`**
+
+请求体：
+
+```json
+{
+  "test_model": "gpt-4o-mini"
+}
+```
+
+> 设置渠道的指定测试模型。留空字符串表示使用第一个已配置模型。
+
+响应（200）：
+
+```json
+{
+  "data": {
+    "id": 1,
+    "test_model": "gpt-4o-mini"
+  }
+}
+```
+
+---
+
+### 2.13 复制渠道
+
+**`POST /api/channels/:id/copy`**
+
+> 复制渠道基本信息和模型映射，生成新渠道草稿。新渠道名称为"原渠道名称 - 复制"，默认禁用状态。不复制账号列表。
+
+响应（200）：
+
+```json
+{
+  "data": {
+    "id": 10,
+    "name": "OpenAI 高速通道 - 复制",
+    "status": "disabled",
+    "copied_models": 15
+  }
+}
+```
+
+---
+
+### 2.14 渠道账号列表
 
 **`GET /api/accounts/channel/:channel_id`**
 

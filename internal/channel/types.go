@@ -16,6 +16,9 @@ type Channel struct {
 	MaxRPM             int       `gorm:"not null;default:0" json:"max_rpm"`             // 每分钟最大请求数，0 不限制
 	MaxTPM             int       `gorm:"not null;default:0" json:"max_tpm"`             // 每分钟最大 Token 数，0 不限制
 	MaxDailyRequests   int       `gorm:"not null;default:0" json:"max_daily_requests"`  // 每日最大请求数（每个账号），0 不限制
+	TestModel          string    `gorm:"size:100;not null;default:''" json:"test_model"`           // 指定测试模型，为空时取第一个已配置模型
+	LastTestLatency    int       `gorm:"not null;default:0" json:"last_test_latency"`              // 最近测试响应延迟（毫秒），0=未测试
+	LastTestedAt       *time.Time `json:"last_tested_at"`                                          // 最近测试时间
 	CreatedAt time.Time `gorm:"autoCreateTime" json:"created_at"`
 	UpdatedAt time.Time `gorm:"autoUpdateTime" json:"updated_at"`
 }
@@ -67,13 +70,47 @@ type ListFilter struct {
 	PageSize int    `form:"page_size"`
 	Status   string `form:"status"`
 	Type     string `form:"type"`
+	Search   string `form:"search"` // 按名称/ID/类型/模型名模糊搜索
+	SortBy   string `form:"sort_by"` // weight / id / latency
+	SortOrder string `form:"sort_order"` // asc / desc
+}
+
+// ChannelListItem 渠道列表项（含聚合信息）
+type ChannelListItem struct {
+	Channel
+	ActiveAccountCount int      `json:"active_account_count"`
+	TotalAccountCount  int      `json:"total_account_count"`
+	Groups             []GroupInfo `json:"groups"`
+}
+
+// GroupInfo 渠道分组简要信息
+type GroupInfo struct {
+	ID   uint   `json:"id"`
+	Name string `json:"name"`
+}
+
+// TestResult 单次测试结果
+type TestResult struct {
+	Success  bool   `json:"success"`
+	Latency  int    `json:"latency"`  // 毫秒
+	Error    string `json:"error,omitempty"`
+	Model    string `json:"model"`
+}
+
+// BatchTestResult 批量测试结果项
+type BatchTestResultItem struct {
+	Model   string `json:"model"`
+	Success bool   `json:"success"`
+	Latency int    `json:"latency"` // 毫秒
+	Error   string `json:"error,omitempty"`
+	Status  int    `json:"status,omitempty"` // HTTP 状态码（失败时）
 }
 
 // ChannelService 渠道服务接口
 type ChannelService interface {
 	Create(ctx context.Context, name, channelType, baseURL string) (*Channel, error)
 	GetById(ctx context.Context, id uint) (*Channel, error)
-	List(ctx context.Context, filter ListFilter) ([]Channel, int64, error)
+	List(ctx context.Context, filter ListFilter) ([]ChannelListItem, int64, error)
 	Update(ctx context.Context, id uint, name, baseURL string, weight, maxRPM, maxTPM, maxDailyRequests int) error
 	Delete(ctx context.Context, id uint) error
 	UpdateStatus(ctx context.Context, id uint, status string) error
@@ -82,4 +119,9 @@ type ChannelService interface {
 	FetchModels(ctx context.Context, id uint, testKey string) ([]ModelInfo, error)
 	GetModelsByChannel(ctx context.Context, id uint) ([]ChannelModel, error)
 	SaveModels(ctx context.Context, id uint, models []ChannelModel) error
+	// 新增方法
+	TestChannel(ctx context.Context, id uint, apiKey string) (*TestResult, error)
+	BatchTestModels(ctx context.Context, id uint, modelNames []string, apiKey string) ([]BatchTestResultItem, error)
+	UpdateTestModel(ctx context.Context, id uint, testModel string) error
+	CopyChannel(ctx context.Context, id uint) (*Channel, error)
 }

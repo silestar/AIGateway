@@ -10,18 +10,34 @@
       </template>
 
       <n-space vertical size="large">
-        <n-space>
-          <n-select v-model:value="filterType" :options="channelTypeOptions" :placeholder="t('channels.type')" clearable style="width: 140px" />
+        <!-- 顶部操作栏 -->
+        <n-space align="center">
+          <n-input v-model:value="searchText" :placeholder="t('channels.searchPlaceholder')" clearable style="width: 280px" @keyup.enter="loadChannels">
+            <template #prefix>🔍</template>
+          </n-input>
           <n-button @click="loadChannels">{{ t('common.search') }}</n-button>
+          <n-select v-model:value="filterType" :options="channelTypeOptions" :placeholder="t('channels.type')" clearable style="width: 150px" @update:value="loadChannels" />
+          <n-select v-model:value="sortBy" :options="sortOptions" :placeholder="t('channels.sortBy')" style="width: 140px" @update:value="loadChannels" />
         </n-space>
-        <n-data-table :columns="columns" :data="channels" :loading="loading" :pagination="pagination" remote @update:page="handlePageChange" />
+
+        <n-data-table
+          :columns="columns"
+          :data="channels"
+          :loading="loading"
+          :pagination="pagination"
+          remote
+          :row-props="rowProps"
+          @update:page="handlePageChange"
+        />
       </n-space>
     </n-card>
 
     <!-- 详情视图 -->
     <n-card v-else :title="selectedChannel.name">
-
-      <n-tabs type="line" animated>
+      <template #header-extra>
+        <n-button @click="selectedChannel = null">{{ t('common.back') }}</n-button>
+      </template>
+      <n-tabs v-model:value="activeDetailTab" type="line" animated>
         <!-- 基本信息 -->
         <n-tab-pane name="info" :tab="t('channels.basicInfo')">
           <n-form :model="editForm" label-placement="left" label-width="100">
@@ -34,6 +50,12 @@
             </n-form-item>
             <n-form-item :label="t('common.type')"><n-input :value="selectedChannel.type" disabled /></n-form-item>
             <n-form-item :label="t('common.weight')"><n-input-number v-model:value="editForm.weight" :min="0" /></n-form-item>
+            <n-form-item :label="t('channels.testModel')">
+              <n-input v-model:value="editForm.test_model" :placeholder="t('channels.testModelPlaceholder')" />
+              <template #feedback>
+                <n-text depth="3" style="font-size: 12px">{{ t('channels.testModelHint') }}</n-text>
+              </template>
+            </n-form-item>
             <n-form-item :label="t('channels.maxRPM')">
               <n-input-number v-model:value="editForm.max_rpm" :min="0" :placeholder="t('channels.noLimit')" />
             </n-form-item>
@@ -56,24 +78,13 @@
         <n-tab-pane name="models" :tab="t('channels.models')">
           <n-space vertical>
             <n-button type="primary" @click="showModelModal = true">{{ t('channels.fetchModels') }}</n-button>
-            <!-- 已选上游模型标签区 -->
             <div v-if="upstreamModels.length > 0" class="model-tag-area">
               <n-text depth="3" style="font-size: 13px; margin-bottom: 8px; display: block">{{ t('channels.upstreamModels') }}（{{ upstreamModels.length }}）</n-text>
               <n-space size="small">
-                <n-tag
-                  v-for="name in upstreamModels"
-                  :key="name"
-                  size="small"
-                  @click="copyModelName(name)"
-                  style="cursor: pointer; font-family: 'Menlo', 'Consolas', monospace"
-                  :title="t('channels.clickToCopyModel')"
-                >
-                  {{ name }}
-                </n-tag>
+                <n-tag v-for="name in upstreamModels" :key="name" size="small" @click="copyModelName(name)" style="cursor: pointer; font-family: 'Menlo', 'Consolas', monospace" :title="t('channels.clickToCopyModel')">{{ name }}</n-tag>
               </n-space>
             </div>
             <n-empty v-else :description="t('channels.noModelsConfigured')" style="padding: 20px 0" />
-            <!-- 映射列表 -->
             <div v-if="modelMappings.length > 0" style="margin-top: 12px; padding-top: 12px; border-top: 1px solid var(--n-border-color, rgba(255,255,255,0.1))">
               <n-text depth="3" style="font-size: 13px; margin-bottom: 8px; display: block">{{ t('channels.modelMapping') }}（{{ modelMappings.length }}）</n-text>
               <div v-for="m in modelMappings" :key="m.display_model_name" style="display: flex; align-items: center; gap: 8px; margin-bottom: 6px; padding: 4px 8px; background: rgba(255,255,255,0.03); border-radius: 4px">
@@ -127,21 +138,66 @@
     </n-modal>
 
     <!-- 模型选择弹窗 -->
-    <ModelSelectModal
-      v-model:show="showModelModal"
-      :channel-id="selectedChannel?.id ?? 0"
-      :channel-name="selectedChannel?.name ?? ''"
-      :existing-models="channelModels"
-      @save="handleModelSave"
-    />
+    <ModelSelectModal v-model:show="showModelModal" :channel-id="selectedChannel?.id ?? 0" :channel-name="selectedChannel?.name ?? ''" :existing-models="channelModels" @save="handleModelSave" />
+
+    <!-- 测试结果弹窗 -->
+    <n-modal v-model:show="showTestResult" preset="dialog" :title="t('channels.testResult')" :show-icon="false" style="width: 400px">
+      <template v-if="testResult">
+        <n-descriptions label-placement="left" :column="1" bordered size="small">
+          <n-descriptions-item :label="t('channels.testModel')">{{ testResult.model }}</n-descriptions-item>
+          <n-descriptions-item :label="t('channels.testLatency')">
+            <span :style="{ color: latencyColor(testResult.latency) }">{{ testResult.latency }}ms</span>
+          </n-descriptions-item>
+          <n-descriptions-item :label="t('common.status')">
+            <n-tag :type="testResult.success ? 'success' : 'error'" size="small">{{ testResult.success ? t('common.success') : t('common.failed') }}</n-tag>
+          </n-descriptions-item>
+          <n-descriptions-item v-if="testResult.error" :label="t('channels.testError')">
+            <n-text type="error" style="word-break: break-all; font-size: 12px">{{ testResult.error }}</n-text>
+          </n-descriptions-item>
+        </n-descriptions>
+      </template>
+    </n-modal>
+
+    <!-- 批量测试弹窗 -->
+    <n-modal v-model:show="showBatchTest" preset="card" style="width: 650px" :title="t('channels.batchTest')">
+      <n-space vertical>
+        <n-button type="primary" :loading="batchTesting" @click="handleBatchTest" :disabled="batchTestModels.length === 0">{{ t('channels.startBatchTest') }}</n-button>
+        <n-checkbox-group v-model:value="batchTestModels">
+          <n-space vertical>
+            <n-checkbox v-for="m in channelModels.filter(m => m.status === 'enabled')" :key="m.actual_model_name" :value="m.actual_model_name" :label="m.display_model_name === m.actual_model_name ? m.display_model_name : `${m.display_model_name} → ${m.actual_model_name}`" />
+          </n-space>
+        </n-checkbox-group>
+        <div v-if="batchTestResults.length > 0">
+          <n-data-table :columns="batchTestColumns" :data="batchTestResults" size="small" />
+        </div>
+      </n-space>
+    </n-modal>
+
+    <!-- 上游更新弹窗 -->
+    <n-modal v-model:show="showUpstreamUpdate" preset="card" style="width: 600px" :title="t('channels.upstreamUpdate')">
+      <n-space vertical>
+        <n-button type="primary" :loading="fetchingUpstream" @click="handleFetchUpstream">{{ t('channels.checkUpstream') }}</n-button>
+        <div v-if="upstreamRemovedModels.length > 0">
+          <n-alert type="warning" style="margin-bottom: 12px">{{ t('channels.upstreamRemovedTip', { count: upstreamRemovedModels.length }) }}</n-alert>
+          <n-space vertical>
+            <div v-for="m in upstreamRemovedModels" :key="m.display_model_name" style="display: flex; align-items: center; gap: 8px; padding: 6px 10px; background: rgba(255,80,80,0.08); border-radius: 4px">
+              <n-tag type="error" size="small" style="text-decoration: line-through">{{ m.display_model_name }}</n-tag>
+              <span style="color: var(--text-tertiary); font-size: 12px">→ {{ m.actual_model_name }}</span>
+            </div>
+          </n-space>
+          <n-button type="error" style="margin-top: 12px" @click="handleRemoveUpstreamRemoved">{{ t('channels.removeRemovedModels') }}</n-button>
+        </div>
+        <n-text v-else-if="upstreamChecked" depth="3">{{ t('channels.noRemovedModels') }}</n-text>
+      </n-space>
+    </n-modal>
   </div>
 </template>
 
 <script setup lang="ts">
 import { ref, reactive, computed, h, onMounted, watch } from 'vue'
 import { useI18n } from 'vue-i18n'
-import { useMessage, useDialog, NButton, NSpace, NTag, NInput, NAlert, NInputNumber } from 'naive-ui'
-import { channelApi, type Channel, type ChannelModel } from '../api/channel'
+import { useMessage, useDialog, NButton, NSpace, NTag, NInput, NAlert, NInputNumber, NTooltip, NDropdown, NCheckbox, NCheckboxGroup, NDescriptions, NDescriptionsItem } from 'naive-ui'
+import { channelApi, type ChannelListItem, type ChannelModel, type TestResult, type BatchTestResultItem } from '../api/channel'
 import { accountApi, type Account } from '../api/account'
 import ModelSelectModal from '../components/ModelSelectModal.vue'
 
@@ -149,49 +205,17 @@ const { t } = useI18n()
 const message = useMessage()
 const dialog = useDialog()
 
+// ========== 列表相关 ==========
 const loading = ref(false)
-const channels = ref<Channel[]>([])
-const selectedChannel = ref<Channel | null>(null)
+const channels = ref<ChannelListItem[]>([])
+const selectedChannel = ref<ChannelListItem | null>(null)
 const channelModels = ref<ChannelModel[]>([])
-
-// 已选上游模型：所有 unique 的 actual_model_name（去重）
-const upstreamModels = computed(() => {
-  const names = new Set<string>()
-  channelModels.value
-    .filter(m => m.status === 'enabled')
-    .forEach(m => names.add(m.actual_model_name))
-  return Array.from(names)
-})
-
-// 映射关系：display !== actual（有自定义别名）
-const modelMappings = computed(() =>
-  channelModels.value.filter(m => m.display_model_name !== m.actual_model_name && m.status === 'enabled')
-)
-
-const accounts = ref<Account[]>([])
-const showCreateModal = ref(false)
-const showAddAccount = ref(false)
-const showModelModal = ref(false)
-
-// 双击编辑备注相关
-const editingRemarkId = ref<number | null>(null)
-const editingRemark = ref('')
-
-// 行内编辑权重/优先级的临时值（不直接改响应式数据，避免重渲染导致焦点丢失）
-const editingWeightMap = reactive<Record<number, number>>({})
-const editingPriorityMap = reactive<Record<number, number>>({})
-
-// 测试连接相关
-const testingConnection = ref(false)
-const testConnectionResult = ref<boolean | null>(null)
-const testConnectionError = ref('')
+const searchText = ref('')
+const filterType = ref<string | null>(null)
+const sortBy = ref('weight')
+const activeDetailTab = ref('info')
 
 const pagination = reactive({ page: 1, pageSize: 20, itemCount: 0 })
-const filterType = ref<string | null>(null)
-
-const createForm = reactive({ name: '', type: 'openai', base_url: '', api_key: '' })
-const editForm = reactive({ name: '', base_url: '', weight: 0, max_rpm: 0, max_tpm: 0, max_daily_requests: 0 })
-const accountForm = reactive({ api_key: '', remark: '' })
 
 const channelTypeOptions = [
   { label: 'OpenAI', value: 'openai' },
@@ -200,7 +224,12 @@ const channelTypeOptions = [
   { label: 'Google Gemini', value: 'gemini' },
 ]
 
-// 各渠道类型对应的官方默认 Base URL
+const sortOptions = [
+  { label: t('channels.sortByWeight'), value: 'weight' },
+  { label: 'ID', value: 'id' },
+  { label: t('channels.sortByLatency'), value: 'latency' },
+]
+
 const defaultBaseURLs: Record<string, string> = {
   openai: 'https://api.openai.com',
   'openai-response': 'https://api.openai.com',
@@ -208,105 +237,263 @@ const defaultBaseURLs: Record<string, string> = {
   gemini: 'https://generativelanguage.googleapis.com',
 }
 
-// 选择渠道类型时自动填充默认 Base URL（仅当用户未手动修改时）
-watch(() => createForm.type, (newType) => {
-  const defaultURL = defaultBaseURLs[newType]
-  if (defaultURL && (!createForm.base_url || Object.values(defaultBaseURLs).includes(createForm.base_url))) {
-    createForm.base_url = defaultURL
-  }
-})
+// 类型图标映射
+const typeIcons: Record<string, string> = {
+  openai: '🟢',
+  'openai-response': '🟣',
+  anthropic: '🟠',
+  gemini: '🔵',
+}
 
+const typeLabels: Record<string, string> = {
+  openai: 'OpenAI',
+  'openai-response': 'OpenAI Response',
+  anthropic: 'Anthropic',
+  gemini: 'Google Gemini',
+}
+
+// ========== 表格列定义 ==========
 const columns = computed(() => [
-  { title: 'ID', key: 'id', width: 80 },
-  { title: t('channels.name'), key: 'name' },
-  { title: t('channels.type'), key: 'type', width: 120 },
-  { title: t('channels.baseUrl'), key: 'base_url', ellipsis: true },
+  { title: 'ID', key: 'id', width: 70 },
   {
-    title: t('common.weight'), key: 'weight', width: 130, sorter: (a: Channel, b: Channel) => a.weight - b.weight, defaultSortOrder: 'descend',
-    render: (row: Channel) => h(NInputNumber, {
-      value: editingWeightMap[row.id] ?? row.weight, size: 'small', min: 0, style: { width: '90px' },
-      'onUpdate:value': (val: number | null) => { if (val !== null) editingWeightMap[row.id] = val },
-      onBlur: () => handleUpdateWeight(row),
-    }),
-  },
-  {
-    title: t('common.status'), key: 'status', width: 100,
-    render: (row: Channel) => h(NTag, { type: row.status === 'active' ? 'success' : 'error', size: 'small' }, () => row.status === 'active' ? t('common.active') : t('common.disabled')),
-  },
-  {
-    title: t('common.actions'), key: 'actions', width: 280,
-    render: (row: Channel) => h(NSpace, { size: 'small' }, () => [
-      h(NButton, { size: 'small', onClick: () => selectChannel(row) }, () => t('common.detail')),
-      h(NButton, { size: 'small', type: row.status === 'active' ? 'error' : 'success', onClick: () => handleToggleChannel(row) }, () => row.status === 'active' ? t('common.disable') : t('common.enable')),
-      h(NButton, { size: 'small', type: 'error', ghost: true, onClick: () => handleDeleteChannel(row) }, () => t('common.delete')),
-    ]),
-  },
-])
-
-const accountColumns = computed(() => [
-  { title: 'ID', key: 'id', width: 80 },
-  { title: t('channels.keyMask'), key: 'api_key_mask' },
-  {
-    title: t('channels.remark'), key: 'remark', width: 180,
-    render: (row: Account) => {
-      if (editingRemarkId.value === row.id) {
-        return h(NInput, {
-          value: editingRemark.value,
-          size: 'small',
-          autofocus: true,
-          style: { width: '150px' },
-          'onUpdate:value': (val: string) => { editingRemark.value = val },
-          onKeyup: (e: KeyboardEvent) => {
-            if (e.key === 'Enter') handleSaveRemark(row.id)
-            if (e.key === 'Escape') { editingRemarkId.value = null }
-          },
-          onBlur: () => handleSaveRemark(row.id),
-        })
+    title: t('channels.name'), key: 'name', width: 180,
+    render: (row: ChannelListItem) => {
+      const children = [h('span', row.name)]
+      if (row.total_account_count > 1) {
+        children.push(
+          h(NTooltip, null, {
+            trigger: () => h('span', { style: 'margin-left: 6px; cursor: help; font-size: 14px; opacity: 0.6' }, '👥'),
+            default: () => t('channels.multiAccount'),
+          })
+        )
       }
-      return h('span', {
-        style: { cursor: 'pointer', borderBottom: '1px dashed var(--text-tertiary)' },
-        onDblclick: () => {
-          editingRemarkId.value = row.id
-          editingRemark.value = row.remark || ''
-        },
-      }, row.remark || '-')
+      return h('div', { style: 'display: flex; align-items: center' }, children)
     },
   },
-  { title: t('common.priority'), key: 'priority', width: 130, sorter: (a: Account, b: Account) => a.priority - b.priority, defaultSortOrder: 'descend',
-    render: (row: Account) => h(NInputNumber, {
-      value: editingPriorityMap[row.id] ?? row.priority, size: 'small', min: 0, style: { width: '90px' },
-      'onUpdate:value': (val: number | null) => { if (val !== null) editingPriorityMap[row.id] = val },
-      onBlur: () => handleUpdatePriority(row),
-    }),
+  {
+    title: t('channels.type'), key: 'type', width: 180,
+    render: (row: ChannelListItem) => h('div', { style: 'display: flex; align-items: center; gap: 6px' }, [
+      h('span', { style: 'font-size: 14px' }, typeIcons[row.type] || '⚪'),
+      h('span', { style: 'width: 8px; height: 8px; border-radius: 50%; background: #f0c040; display: inline-block; flex-shrink: 0' }),
+      h('span', null, typeLabels[row.type] || row.type),
+    ]),
   },
   {
-    title: t('common.status'), key: 'status', width: 100,
-    render: (row: Account) => h(NTag, { type: row.status === 'active' ? 'success' : 'error', size: 'small' }, () => row.status === 'active' ? t('common.active') : t('common.disabled')),
+    title: t('common.status'), key: 'status', width: 160,
+    render: (row: ChannelListItem) => {
+      const statusTag = h(NTag, {
+        type: row.status === 'active' ? 'success' : 'error',
+        size: 'small',
+      }, () => row.status === 'active' ? t('common.active') : t('common.disabled'))
+
+      const active = row.active_account_count
+      const total = row.total_account_count
+      let ratioType: 'success' | 'warning' | 'error' = 'success'
+      if (active === 0) ratioType = 'error'
+      else if (active < total) ratioType = 'warning'
+      const ratioTag = h(NTag, { type: ratioType, size: 'small', bordered: false }, () => `(${active}/${total})`)
+
+      return h(NSpace, { size: 4, align: 'center' }, () => [statusTag, ratioTag])
+    },
   },
   {
-    title: t('common.actions'), key: 'actions', width: 200,
-    render: (row: Account) => h(NSpace, { size: 'small' }, () => [
-      h(NButton, { size: 'small', type: row.status === 'active' ? 'error' : 'success', onClick: () => handleToggleAccount(row) }, () => row.status === 'active' ? t('common.disable') : t('common.enable')),
-      h(NButton, { size: 'small', type: 'error', ghost: true, onClick: () => handleDeleteAccount(row.id) }, () => t('common.delete')),
+    title: t('channels.group'), key: 'groups', width: 150,
+    render: (row: ChannelListItem) => {
+      if (!row.groups || row.groups.length === 0) return h('span', { style: 'color: var(--text-tertiary)' }, '-')
+      return h(NSpace, { size: 4 }, () => row.groups.map(g => h(NTag, { size: 'small', round: true, type: 'info', bordered: false }, () => g.name)))
+    },
+  },
+  { title: t('common.weight'), key: 'weight', width: 80 },
+  {
+    title: t('channels.responseTime'), key: 'latency', width: 120,
+    render: (row: ChannelListItem) => {
+      if (!row.last_test_latency || row.last_test_latency === 0) return h('span', { style: 'color: var(--text-tertiary)' }, t('channels.notTested'))
+      const ms = row.last_test_latency
+      const display = ms >= 1000 ? `${(ms / 1000).toFixed(2)}s` : `${ms}ms`
+      return h('span', { style: { color: latencyColor(ms) } }, display)
+    },
+  },
+  {
+    title: t('channels.lastTested'), key: 'last_tested', width: 120,
+    render: (row: ChannelListItem) => {
+      if (!row.last_tested_at) return h('span', { style: 'color: var(--text-tertiary)' }, t('channels.notTested'))
+      return h('span', null, formatTimeAgo(row.last_tested_at))
+    },
+  },
+  {
+    title: t('common.actions'), key: 'actions', width: 150, fixed: 'right',
+    render: (row: ChannelListItem) => h(NSpace, { size: 4, align: 'center' }, () => [
+      h(NTooltip, null, {
+        trigger: () => h(NButton, { size: 'small', quaternary: true,      loading: testingChannelId.value !== null && testingChannelId.value === row.id, onClick: () => handleTestChannel(row)}, { icon: () => h('span', '⚡') }),
+        default: () => t('channels.testAvailability'),
+      }),
+      h(NTooltip, null, {
+        trigger: () => h(NButton, {
+          size: 'small', quaternary: true,
+          type: row.status === 'active' ? 'error' : 'success',
+          onClick: () => handleToggleChannel(row),
+        }, { icon: () => h('span', row.status === 'active' ? '⏸' : '▶') }),
+        default: () => row.status === 'active' ? t('common.disable') : t('common.enable'),
+      }),
+      h(NDropdown, {
+        options: getMoreOptions(row),
+        onSelect: (key: string) => handleMoreAction(key, row),
+      }, {
+        default: () => h(NButton, { size: 'small', quaternary: true }, { icon: () => h('span', '⋯') }),
+      }),
     ]),
   },
 ])
 
+const batchTestColumns = computed(() => [
+  { title: t('channels.testModel'), key: 'model' },
+  {
+    title: t('channels.testLatency'), key: 'latency', width: 100,
+    render: (row: BatchTestResultItem) => h('span', { style: { color: latencyColor(row.latency) } }, `${row.latency}ms`),
+  },
+  {
+    title: t('common.status'), key: 'success', width: 80,
+    render: (row: BatchTestResultItem) => h(NTag, { type: row.success ? 'success' : 'error', size: 'small' }, () => row.success ? '✓' : `✗ ${row.status || ''}`),
+  },
+  {
+    title: t('channels.testError'), key: 'error',
+    render: (row: BatchTestResultItem) => row.error ? h('span', { style: 'color: #ff6b6b; font-size: 12px; word-break: break-all' }, row.error.substring(0, 100)) : '-',
+  },
+])
+
+// ========== 更多操作 ==========
+function getMoreOptions(_row: ChannelListItem) {
+  return [
+    { label: t('channels.editChannel'), key: 'edit' },
+    { label: t('channels.batchTest'), key: 'batch-test' },
+    { label: t('channels.fetchModels'), key: 'fetch-models' },
+    { label: t('channels.upstreamUpdate'), key: 'upstream-update' },
+    { label: t('channels.copyChannel'), key: 'copy' },
+    { label: t('channels.manageKeys'), key: 'manage-keys' },
+    { type: 'divider', key: 'd1' },
+    { label: t('common.delete'), key: 'delete', props: { style: 'color: #ff6b6b' } },
+  ]
+}
+
+function handleMoreAction(key: string, row: ChannelListItem) {
+  switch (key) {
+    case 'edit':
+      selectChannel(row, 'info')
+      break
+    case 'batch-test':
+      selectChannel(row, 'models').then(() => { showBatchTest.value = true })
+      break
+    case 'fetch-models':
+      selectChannel(row, 'models').then(() => { showModelModal.value = true })
+      break
+    case 'upstream-update':
+      selectChannel(row, 'models').then(() => { showUpstreamUpdate.value = true })
+      break
+    case 'copy':
+      handleCopyChannel(row)
+      break
+    case 'manage-keys':
+      selectChannel(row, 'accounts')
+      break
+    case 'delete':
+      handleDeleteChannel(row)
+      break
+  }
+}
+
+// ========== 弹窗状态 ==========
+const showCreateModal = ref(false)
+const showAddAccount = ref(false)
+const showModelModal = ref(false)
+const showTestResult = ref(false)
+const showBatchTest = ref(false)
+const showUpstreamUpdate = ref(false)
+
+const testingChannelId = ref<number | null>(null)
+const testResult = ref<TestResult | null>(null)
+
+// 创建/编辑/账号表单
+const createForm = reactive({ name: '', type: 'openai', base_url: '', api_key: '' })
+const editForm = reactive({ name: '', base_url: '', weight: 0, max_rpm: 0, max_tpm: 0, max_daily_requests: 0, test_model: '' })
+const accountForm = reactive({ api_key: '', remark: '' })
+
+// 测试连接
+const testingConnection = ref(false)
+const testConnectionResult = ref<boolean | null>(null)
+const testConnectionError = ref('')
+
+// 账号编辑
+const editingRemarkId = ref<number | null>(null)
+const editingRemark = ref('')
+const editingPriorityMap = reactive<Record<number, number>>({})
+
+// 批量测试
+const batchTesting = ref(false)
+const batchTestModels = ref<string[]>([])
+const batchTestResults = ref<BatchTestResultItem[]>([])
+
+// 上游更新
+const fetchingUpstream = ref(false)
+const upstreamChecked = ref(false)
+const upstreamRemovedModels = ref<ChannelModel[]>([])
+
+// ========== 计算属性 ==========
+const upstreamModels = computed(() => {
+  const names = new Set<string>()
+  channelModels.value.filter(m => m.status === 'enabled').forEach(m => names.add(m.actual_model_name))
+  return Array.from(names)
+})
+
+const modelMappings = computed(() =>
+  channelModels.value.filter(m => m.display_model_name !== m.actual_model_name && m.status === 'enabled')
+)
+
+const accounts = ref<Account[]>([])
+
+// ========== 工具函数 ==========
+function latencyColor(ms: number): string {
+  if (ms < 500) return '#52c41a'
+  if (ms <= 2000) return '#f0c040'
+  return '#ff4d4f'
+}
+
+function formatTimeAgo(dateStr: string): string {
+  const date = new Date(dateStr)
+  const now = new Date()
+  const diffMs = now.getTime() - date.getTime()
+  const diffSec = Math.floor(diffMs / 1000)
+  if (diffSec < 60) return `${diffSec}s ago`
+  const diffMin = Math.floor(diffSec / 60)
+  if (diffMin < 60) return `${diffMin}m ago`
+  const diffHour = Math.floor(diffMin / 60)
+  if (diffHour < 24) return `${diffHour}h ago`
+  const diffDay = Math.floor(diffHour / 24)
+  if (diffDay < 30) return `${diffDay}d ago`
+  return date.toLocaleDateString()
+}
+
+function rowProps(_row: ChannelListItem) {
+  return { style: 'cursor: pointer', onClick: () => {} }
+}
+
+// ========== 数据加载 ==========
 async function loadChannels() {
   loading.value = true
   try {
-    const res = await channelApi.list({ page: pagination.page, page_size: pagination.pageSize, type: filterType.value || undefined })
-    channels.value = res.data.data.sort((a: Channel, b: Channel) => {
-      if (b.weight !== a.weight) return b.weight - a.weight
-      return b.id - a.id
+    const res = await channelApi.list({
+      page: pagination.page,
+      page_size: pagination.pageSize,
+      type: filterType.value || undefined,
+      search: searchText.value || undefined,
+      sort_by: sortBy.value || undefined,
+      sort_order: sortBy.value === 'id' ? 'asc' : 'desc',
     })
-    total.value = res.data.total
+    channels.value = res.data.data
     pagination.itemCount = res.data.total
   } finally {
     loading.value = false
   }
 }
-const total = ref(0)
 
 function handlePageChange(page: number) {
   pagination.page = page
@@ -321,17 +508,17 @@ async function loadAccounts(channelId: number) {
   })
 }
 
-async function selectChannel(ch: Channel) {
+async function selectChannel(ch: ChannelListItem, tab?: string) {
   selectedChannel.value = ch
+  if (tab) activeDetailTab.value = tab
   editForm.name = ch.name
   editForm.base_url = ch.base_url
   editForm.weight = ch.weight
   editForm.max_rpm = ch.max_rpm ?? 0
   editForm.max_tpm = ch.max_tpm ?? 0
   editForm.max_daily_requests = ch.max_daily_requests ?? 0
-  // 加载账号
+  editForm.test_model = ch.test_model ?? ''
   await loadAccounts(ch.id)
-  // 加载已配置模型
   try {
     const res = await channelApi.getModelsByChannel(ch.id)
     channelModels.value = res.data.data || []
@@ -340,57 +527,61 @@ async function selectChannel(ch: Channel) {
   }
 }
 
-async function copyModelName(name: string) {
+// ========== 渠道操作 ==========
+async function handleTestChannel(row: ChannelListItem) {
+  testingChannelId.value = row.id
   try {
-    await navigator.clipboard.writeText(name)
-    message.success(t('common.copied'))
-  } catch {
-    message.error(t('common.copyFailed'))
+    const res = await channelApi.testChannel(row.id)
+    testResult.value = res.data.data
+    showTestResult.value = true
+    loadChannels() // 刷新测试时间
+  } catch (err: any) {
+    message.error(err?.response?.data?.error || t('common.operationFailed'))
+  } finally {
+    testingChannelId.value = null
   }
 }
 
-async function handleUpdateWeight(row: Channel) {
-  const newWeight = editingWeightMap[row.id]
-  if (newWeight === undefined || newWeight === row.weight) {
-    delete editingWeightMap[row.id]
-    return
-  }
+async function handleToggleChannel(row: ChannelListItem) {
+  const newStatus = row.status === 'active' ? 'disabled' : 'active'
   try {
-    await channelApi.updateWeight(row.id, newWeight)
-    row.weight = newWeight
-    delete editingWeightMap[row.id]
-    // 提交成功后重新排序
-    channels.value = [...channels.value].sort((a, b) => {
-      if (b.weight !== a.weight) return b.weight - a.weight
-      return b.id - a.id
-    })
+    await channelApi.updateStatus(row.id, newStatus)
     message.success(t('common.success'))
-  } catch {
-    message.error(t('common.operationFailed'))
-    delete editingWeightMap[row.id]
-  }
+    loadChannels()
+  } catch { message.error(t('common.operationFailed')) }
 }
 
-async function handleUpdatePriority(row: Account) {
-  const newPriority = editingPriorityMap[row.id]
-  if (newPriority === undefined || newPriority === row.priority) {
-    delete editingPriorityMap[row.id]
-    return
-  }
+function handleDeleteChannel(row: ChannelListItem) {
+  dialog.warning({
+    title: t('common.confirm'),
+    content: t('channels.deleteConfirm', { name: row.name }),
+    positiveText: t('common.delete'),
+    negativeText: t('common.cancel'),
+    onPositiveClick: async () => {
+      try {
+        await channelApi.delete(row.id)
+        message.success(t('common.success'))
+        if (selectedChannel.value?.id === row.id) selectedChannel.value = null
+        loadChannels()
+      } catch { message.error(t('common.operationFailed')) }
+    },
+  })
+}
+
+async function handleCopyChannel(row: ChannelListItem) {
   try {
-    await accountApi.updatePriority(row.id, newPriority)
-    row.priority = newPriority
-    delete editingPriorityMap[row.id]
-    // 提交成功后重新排序
-    accounts.value = [...accounts.value].sort((a, b) => {
-      if (b.priority !== a.priority) return b.priority - a.priority
-      return b.id - a.id
-    })
-    message.success(t('common.success'))
-  } catch {
-    message.error(t('common.operationFailed'))
-    delete editingPriorityMap[row.id]
-  }
+    const res = await channelApi.copyChannel(row.id)
+    const newId = res.data.data?.id
+    message.success(t('channels.channelCopied'), { duration: 5000 })
+    loadChannels()
+    // 跳转到新渠道的账号管理
+    if (newId) {
+      const newItem = channels.value.find(c => c.id === newId)
+      if (newItem) {
+        selectChannel(newItem, 'accounts')
+      }
+    }
+  } catch { message.error(t('common.operationFailed')) }
 }
 
 async function handleCreateChannel() {
@@ -423,15 +614,9 @@ async function handleTestConnection() {
   testingConnection.value = true
   testConnectionResult.value = null
   try {
-    const res = await channelApi.testConnection({
-      type: createForm.type,
-      base_url: createForm.base_url,
-      api_key: createForm.api_key,
-    })
+    const res = await channelApi.testConnection({ type: createForm.type, base_url: createForm.base_url, api_key: createForm.api_key })
     testConnectionResult.value = res.data.success
-    if (!res.data.success) {
-      testConnectionError.value = res.data.error || t('channels.testConnectionFailed')
-    }
+    if (!res.data.success) testConnectionError.value = res.data.error || t('channels.testConnectionFailed')
   } catch {
     testConnectionResult.value = false
     testConnectionError.value = t('channels.testConnectionFailed')
@@ -454,38 +639,64 @@ async function handleModelSave(models: ChannelModel[]) {
   try {
     await channelApi.saveModels(selectedChannel.value.id, models)
     message.success(t('common.success'))
-    // 重新从后端加载，确保数据一致
     const res = await channelApi.getModelsByChannel(selectedChannel.value.id)
     channelModels.value = res.data.data || []
   } catch { message.error(t('common.operationFailed')) }
 }
 
-async function handleToggleChannel(row: Channel) {
-  const newStatus = row.status === 'active' ? 'disabled' : 'active'
+// ========== 批量测试 ==========
+async function handleBatchTest() {
+  if (!selectedChannel.value || batchTestModels.value.length === 0) return
+  batchTesting.value = true
+  batchTestResults.value = []
   try {
-    await channelApi.updateStatus(row.id, newStatus)
+    const res = await channelApi.batchTestModels(selectedChannel.value.id, batchTestModels.value)
+    batchTestResults.value = res.data.data || []
+    // 展示失败项的错误消息
+    const failures = batchTestResults.value.filter(r => !r.success)
+    failures.forEach((f, i) => {
+      setTimeout(() => {
+        message.error(`${f.model}: ${f.error || 'Failed'}`, { duration: 5000 })
+      }, i * 500)
+    })
+  } catch { message.error(t('common.operationFailed')) }
+  finally { batchTesting.value = false }
+}
+
+// ========== 上游更新 ==========
+async function handleFetchUpstream() {
+  if (!selectedChannel.value) return
+  fetchingUpstream.value = true
+  upstreamChecked.value = false
+  try {
+    const [upstreamRes, localRes] = await Promise.all([
+      channelApi.fetchModels(selectedChannel.value.id),
+      channelApi.getModelsByChannel(selectedChannel.value.id),
+    ])
+    const upstreamIds = new Set((upstreamRes.data.data || []).map((m: any) => m.id))
+    const localModels = localRes.data.data || []
+    upstreamRemovedModels.value = localModels.filter(m => m.status === 'enabled' && !upstreamIds.has(m.actual_model_name))
+    upstreamChecked.value = true
+  } catch { message.error(t('common.operationFailed')) }
+  finally { fetchingUpstream.value = false }
+}
+
+async function handleRemoveUpstreamRemoved() {
+  if (!selectedChannel.value) return
+  const remaining = channelModels.value.filter(m =>
+    m.status !== 'enabled' || !upstreamRemovedModels.value.find(r => r.actual_model_name === m.actual_model_name)
+  )
+  try {
+    await channelApi.saveModels(selectedChannel.value.id, remaining)
     message.success(t('common.success'))
-    loadChannels()
+    const res = await channelApi.getModelsByChannel(selectedChannel.value.id)
+    channelModels.value = res.data.data || []
+    upstreamRemovedModels.value = []
+    upstreamChecked.value = false
   } catch { message.error(t('common.operationFailed')) }
 }
 
-function handleDeleteChannel(row: Channel) {
-  dialog.warning({
-    title: t('common.confirm'),
-    content: t('channels.deleteConfirm', { name: row.name }),
-    positiveText: t('common.delete'),
-    negativeText: t('common.cancel'),
-    onPositiveClick: async () => {
-      try {
-        await channelApi.delete(row.id)
-        message.success(t('common.success'))
-        if (selectedChannel.value?.id === row.id) selectedChannel.value = null
-        loadChannels()
-      } catch { message.error(t('common.operationFailed')) }
-    },
-  })
-}
-
+// ========== 账号操作 ==========
 async function handleAddAccount() {
   if (!selectedChannel.value) return
   try {
@@ -516,7 +727,7 @@ async function handleDeleteAccount(id: number) {
 }
 
 async function handleSaveRemark(id: number) {
-  if (editingRemarkId.value === null) return // 防止 Enter + onBlur 重复提交
+  if (editingRemarkId.value === null) return
   const newRemark = editingRemark.value.trim()
   editingRemarkId.value = null
   try {
@@ -525,6 +736,87 @@ async function handleSaveRemark(id: number) {
     if (selectedChannel.value) selectChannel(selectedChannel.value)
   } catch { message.error(t('common.operationFailed')) }
 }
+
+async function handleUpdatePriority(row: Account) {
+  const newPriority = editingPriorityMap[row.id]
+  if (newPriority === undefined || newPriority === row.priority) {
+    delete editingPriorityMap[row.id]
+    return
+  }
+  try {
+    await accountApi.updatePriority(row.id, newPriority)
+    row.priority = newPriority
+    delete editingPriorityMap[row.id]
+    accounts.value = [...accounts.value].sort((a, b) => {
+      if (b.priority !== a.priority) return b.priority - a.priority
+      return b.id - a.id
+    })
+    message.success(t('common.success'))
+  } catch {
+    message.error(t('common.operationFailed'))
+    delete editingPriorityMap[row.id]
+  }
+}
+
+async function copyModelName(name: string) {
+  try {
+    await navigator.clipboard.writeText(name)
+    message.success(t('common.copied'))
+  } catch { message.error(t('common.copyFailed')) }
+}
+
+// 账号表格列
+const accountColumns = computed(() => [
+  { title: 'ID', key: 'id', width: 80 },
+  { title: t('channels.keyMask'), key: 'api_key_mask' },
+  {
+    title: t('channels.remark'), key: 'remark', width: 180,
+    render: (row: Account) => {
+      if (editingRemarkId.value === row.id) {
+        return h(NInput, {
+          value: editingRemark.value, size: 'small', autofocus: true, style: { width: '150px' },
+          'onUpdate:value': (val: string) => { editingRemark.value = val },
+          onKeyup: (e: KeyboardEvent) => {
+            if (e.key === 'Enter') handleSaveRemark(row.id)
+            if (e.key === 'Escape') editingRemarkId.value = null
+          },
+          onBlur: () => handleSaveRemark(row.id),
+        })
+      }
+      return h('span', {
+        style: { cursor: 'pointer', borderBottom: '1px dashed var(--text-tertiary)' },
+        onDblclick: () => { editingRemarkId.value = row.id; editingRemark.value = row.remark || '' },
+      }, row.remark || '-')
+    },
+  },
+  {
+    title: t('common.priority'), key: 'priority', width: 130,
+    render: (row: Account) => h(NInputNumber, {
+      value: editingPriorityMap[row.id] ?? row.priority, size: 'small', min: 0, style: { width: '90px' },
+      'onUpdate:value': (val: number | null) => { if (val !== null) editingPriorityMap[row.id] = val },
+      onBlur: () => handleUpdatePriority(row),
+    }),
+  },
+  {
+    title: t('common.status'), key: 'status', width: 100,
+    render: (row: Account) => h(NTag, { type: row.status === 'active' ? 'success' : 'error', size: 'small' }, () => row.status === 'active' ? t('common.active') : t('common.disabled')),
+  },
+  {
+    title: t('common.actions'), key: 'actions', width: 200,
+    render: (row: Account) => h(NSpace, { size: 'small' }, () => [
+      h(NButton, { size: 'small', type: row.status === 'active' ? 'error' : 'success', onClick: () => handleToggleAccount(row) }, () => row.status === 'active' ? t('common.disable') : t('common.enable')),
+      h(NButton, { size: 'small', type: 'error', ghost: true, onClick: () => handleDeleteAccount(row.id) }, () => t('common.delete')),
+    ]),
+  },
+])
+
+// 创建时自动填充默认 Base URL
+watch(() => createForm.type, (newType) => {
+  const defaultURL = defaultBaseURLs[newType]
+  if (defaultURL && (!createForm.base_url || Object.values(defaultBaseURLs).includes(createForm.base_url))) {
+    createForm.base_url = defaultURL
+  }
+})
 
 onMounted(() => loadChannels())
 </script>

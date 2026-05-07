@@ -1,6 +1,7 @@
 package api
 
 import (
+	"fmt"
 	"net/http"
 
 	"github.com/gin-gonic/gin"
@@ -32,6 +33,11 @@ func (h *ChannelHandler) RegisterRoutes(rg *gin.RouterGroup) {
 	channels.POST("/:id/fetch-models", h.FetchModels)
 	channels.GET("/:id/models", h.GetModelsByChannel)
 	channels.PUT("/:id/models", h.SaveModels)
+	// 新增端点
+	channels.POST("/:id/test", h.TestChannel)
+	channels.POST("/:id/test-models", h.BatchTestModels)
+	channels.PUT("/:id/test-model", h.UpdateTestModel)
+	channels.POST("/:id/copy", h.CopyChannel)
 }
 
 // Create 创建渠道
@@ -87,10 +93,13 @@ func (h *ChannelHandler) TestConnection(c *gin.Context) {
 // List 渠道列表
 func (h *ChannelHandler) List(c *gin.Context) {
 	filter := channel.ListFilter{
-		Page:     intQuery(c, "page", 1),
-		PageSize: intQuery(c, "page_size", 20),
+		Page:      intQuery(c, "page", 1),
+		PageSize:  intQuery(c, "page_size", 20),
 		Status:   c.Query("status"),
-		Type:     c.Query("type"),
+		Type:      c.Query("type"),
+		Search:    c.Query("search"),
+		SortBy:    c.Query("sort_by"),
+		SortOrder: c.Query("sort_order"),
 	}
 
 	items, total, err := h.svc.List(c.Request.Context(), filter)
@@ -139,6 +148,7 @@ func (h *ChannelHandler) Update(c *gin.Context) {
 		MaxRPM           int    `json:"max_rpm"`
 		MaxTPM           int    `json:"max_tpm"`
 		MaxDailyRequests int    `json:"max_daily_requests"`
+		TestModel        string `json:"test_model"`
 	}
 	if err := c.ShouldBindJSON(&req); err != nil {
 		c.JSON(http.StatusBadRequest, errorResponse("invalid_request", err.Error()))
@@ -301,4 +311,131 @@ func (h *ChannelHandler) SaveModels(c *gin.Context) {
 	}
 
 	c.JSON(http.StatusOK, gin.H{"data": gin.H{"id": id, "count": len(req.Models)}})
+}
+
+// TestChannel 测试渠道可用性
+func (h *ChannelHandler) TestChannel(c *gin.Context) {
+	id, err := parseID(c)
+	if err != nil {
+		c.JSON(http.StatusBadRequest, errorResponse("invalid_id", err.Error()))
+		return
+	}
+
+	// 获取活跃账号的 API Key
+	apiKey, err := h.getActiveAPIKey(c, id)
+	if err != nil {
+		c.JSON(http.StatusBadRequest, errorResponse("no_active_account", err.Error()))
+		return
+	}
+
+	result, err := h.svc.TestChannel(c.Request.Context(), id, apiKey)
+	if err != nil {
+		c.JSON(http.StatusBadRequest, errorResponse("test_failed", err.Error()))
+		return
+	}
+
+	c.JSON(http.StatusOK, gin.H{"data": result})
+}
+
+// BatchTestModels 批量测试模型
+func (h *ChannelHandler) BatchTestModels(c *gin.Context) {
+	id, err := parseID(c)
+	if err != nil {
+		c.JSON(http.StatusBadRequest, errorResponse("invalid_id", err.Error()))
+		return
+	}
+
+	var req struct {
+		Models []string `json:"models" binding:"required"`
+	}
+	if err := c.ShouldBindJSON(&req); err != nil {
+		c.JSON(http.StatusBadRequest, errorResponse("invalid_request", err.Error()))
+		return
+	}
+
+	apiKey, err := h.getActiveAPIKey(c, id)
+	if err != nil {
+		c.JSON(http.StatusBadRequest, errorResponse("no_active_account", err.Error()))
+		return
+	}
+
+	results, err := h.svc.BatchTestModels(c.Request.Context(), id, req.Models, apiKey)
+	if err != nil {
+		c.JSON(http.StatusBadRequest, errorResponse("test_failed", err.Error()))
+		return
+	}
+
+	c.JSON(http.StatusOK, gin.H{"data": results})
+}
+
+// UpdateTestModel 更新渠道指定测试模型
+func (h *ChannelHandler) UpdateTestModel(c *gin.Context) {
+	id, err := parseID(c)
+	if err != nil {
+		c.JSON(http.StatusBadRequest, errorResponse("invalid_id", err.Error()))
+		return
+	}
+
+	var req struct {
+		TestModel string `json:"test_model"`
+	}
+	if err := c.ShouldBindJSON(&req); err != nil {
+		c.JSON(http.StatusBadRequest, errorResponse("invalid_request", err.Error()))
+		return
+	}
+
+	if err := h.svc.UpdateTestModel(c.Request.Context(), id, req.TestModel); err != nil {
+		c.JSON(http.StatusInternalServerError, errorResponse("internal_error", err.Error()))
+		return
+	}
+
+	c.JSON(http.StatusOK, gin.H{"data": gin.H{"id": id, "test_model": req.TestModel}})
+}
+
+// CopyChannel 复制渠道
+func (h *ChannelHandler) CopyChannel(c *gin.Context) {
+	id, err := parseID(c)
+	if err != nil {
+		c.JSON(http.StatusBadRequest, errorResponse("invalid_id", err.Error()))
+		return
+	}
+
+	newCh, err := h.svc.CopyChannel(c.Request.Context(), id)
+	if err != nil {
+		c.JSON(http.StatusBadRequest, errorResponse("copy_failed", err.Error()))
+		return
+	}
+
+	c.JSON(http.StatusOK, gin.H{
+		"data":    newCh,
+		"message": "渠道已复制，请前往新渠道配置账号",
+	})
+}
+
+// getActiveAPIKey 获取渠道下优先级最高的 active 账号的 API Key
+func (h *ChannelHandler) getActiveAPIKey(c *gin.Context, channelID uint) (string, error) {
+	accounts, err := h.accountMgr.ListByChannel(c.Request.Context(), channelID)
+	if err != nil || len(accounts) == 0 {
+		return "", fmt.Errorf("该渠道没有可用账号，请先添加账号")
+	}
+
+	// 找优先级最高的 active 账号
+	var activeAccount *account.Account
+	for i := range accounts {
+		if accounts[i].Status == "active" {
+			if activeAccount == nil || accounts[i].Priority > activeAccount.Priority {
+				activeAccount = &accounts[i]
+			}
+		}
+	}
+	if activeAccount == nil {
+		return "", fmt.Errorf("该渠道没有活跃账号，请先启用账号")
+	}
+
+	plainKey, err := h.accountMgr.GetDecryptedAPIKey(c.Request.Context(), activeAccount.ID)
+	if err != nil {
+		return "", fmt.Errorf("获取 API Key 失败: %w", err)
+	}
+
+	return plainKey, nil
 }

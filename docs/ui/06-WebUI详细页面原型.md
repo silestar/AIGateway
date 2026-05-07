@@ -138,24 +138,50 @@
 
 #### 2.3.1 渠道列表 (ChannelList)
 
-**功能**：展示所有渠道，支持新建、编辑。
+**功能**：展示所有渠道，支持搜索、排序、新建、测试、编辑。
 
-**组件**：
+**顶部操作栏**：
+- 搜索框：支持按名称、ID、类型或模型名称模糊搜索
+- 类型筛选下拉
+- 排序选项：按权重（默认）、按ID、按响应时间
+- 创建渠道按钮
 
-- 新建按钮 → 弹出表单：渠道名称、类型（下拉选择 `openai` / `openai-response` / `anthropic` / `gemini`）、Base URL、状态。
-    
-- 列表卡片或表格：名称、类型、状态、模型数、活跃账号数/总账号数、今日请求数。
-    
-- 操作：进入详情、启用/禁用、删除。
-    
+**列表表格列**：
+| 列 | 说明 |
+|------|------|
+| ID | 自增数字 ID |
+| 名称 | 渠道名称，账号数>1 时显示多账号图标（👥）+ tooltip "多个账号" |
+| 类型 | 品牌 emoji + CSS 圆点（8px 黄色）+ 类型名（OpenAI / OpenAI Response / Anthropic / Google Gemini） |
+| 状态 | 启用/禁用标签 + (活跃账号数/总账号数)，全 active 绿色、部分黄色、零红色 |
+| 分组 | 所属渠道分组标签（圆角 NTag） |
+| 权重 | 数字，值越大越优先 |
+| 响应时间 | 最近测试延迟（<500ms 绿、500ms-2s 黄、>2s 红），未测试显示"未测试" |
+| 上次测试 | 相对时间（如 3 hours ago），未测试显示"未测试" |
+| 操作 | ⚡测试可用性、⏸/▶启用禁用、⋯更多操作 |
+
+**操作按钮详情**：
+- ⚡ 测试可用性：调用 `POST /api/channels/:id/test`，完成后弹窗显示耗时和结果
+- ⏸/▶ 启用/禁用：切换渠道状态
+- ⋯ 更多操作下拉：
+  - 编辑渠道：跳转详情页基本信息 Tab
+  - 批量测试模型：弹窗勾选模型 + 逐个测试 + 结果展示
+  - 获取模型：打开 ModelSelectModal
+  - 上游更新：拉取上游模型列表，标记下线模型（红色标签），一键移除
+  - 复制渠道：基本信息+模型映射复制，新渠道默认禁用
+  - 管理密钥：跳转详情页账号管理 Tab
+  - 删除渠道：二次确认后删除
+
+**行悬停**：背景色微亮
+
 - API:
-    
-    - `GET /api/channels`
-        
+    - `GET /api/channels` (含 search、sort_by、sort_order 参数)
     - `POST /api/channels`
-        
-    - `PATCH /api/channels/:id`
-        
+    - `POST /api/channels/:id/test`
+    - `POST /api/channels/:id/test-models`
+    - `PUT /api/channels/:id/test-model`
+    - `POST /api/channels/:id/copy`
+    - `PATCH /api/channels/:id/status`
+    - `DELETE /api/channels/:id`
 
 #### 2.3.2 渠道详情 (ChannelDetail)
 
@@ -164,6 +190,7 @@
 **Tab 1: 基本信息**
 
 - 编辑渠道名称、Base URL、类型等常规字段。
+- 测试模型：指定用于测试渠道可用性的模型，留空则自动取第一个已配置模型。
 - 速率限制配置：
   - RPM 限制：数字输入框，0 为不限制
   - TPM 限制：数字输入框，0 为不限制

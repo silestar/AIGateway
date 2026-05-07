@@ -11,8 +11,22 @@ export interface Channel {
   max_rpm: number
   max_tpm: number
   max_daily_requests: number
+  test_model: string
+  last_test_latency: number
+  last_tested_at: string | null
   created_at: string
   updated_at: string
+}
+
+export interface ChannelListItem extends Channel {
+  active_account_count: number
+  total_account_count: number
+  groups: GroupInfo[]
+}
+
+export interface GroupInfo {
+  id: number
+  name: string
 }
 
 export interface ChannelModel {
@@ -28,9 +42,32 @@ export interface ModelInfo {
   owned_by: string
 }
 
+export interface TestResult {
+  success: boolean
+  latency: number
+  error?: string
+  model: string
+}
+
+export interface BatchTestResultItem {
+  model: string
+  success: boolean
+  latency: number
+  error?: string
+  status?: number
+}
+
 export const channelApi = {
-  list(params?: { page?: number; page_size?: number; status?: string; type?: string }) {
-    return api.get<ListResult<Channel>>('/channels', { params })
+  list(params?: {
+    page?: number
+    page_size?: number
+    status?: string
+    type?: string
+    search?: string
+    sort_by?: string
+    sort_order?: string
+  }) {
+    return api.get<ListResult<ChannelListItem>>('/channels', { params })
   },
   create(data: { name: string; type: string; base_url: string; api_key: string }) {
     return api.post<{ data: Channel }>('/channels', data)
@@ -41,7 +78,15 @@ export const channelApi = {
   getById(id: number) {
     return api.get<{ data: Channel }>(`/channels/${id}`)
   },
-  update(id: number, data: { name?: string; base_url?: string; weight?: number }) {
+  update(id: number, data: {
+    name?: string
+    base_url?: string
+    weight?: number
+    max_rpm?: number
+    max_tpm?: number
+    max_daily_requests?: number
+    test_model?: string
+  }) {
     return api.put(`/channels/${id}`, data)
   },
   updateStatus(id: number, status: string) {
@@ -61,5 +106,18 @@ export const channelApi = {
   },
   saveModels(id: number, models: ChannelModel[]) {
     return api.put(`/channels/${id}/models`, { models })
+  },
+  // 新增接口
+  testChannel(id: number) {
+    return api.post<{ data: TestResult }>(`/channels/${id}/test`)
+  },
+  batchTestModels(id: number, models: string[]) {
+    return api.post<{ data: BatchTestResultItem[] }>(`/channels/${id}/test-models`, { models })
+  },
+  updateTestModel(id: number, testModel: string) {
+    return api.put(`/channels/${id}/test-model`, { test_model: testModel })
+  },
+  copyChannel(id: number) {
+    return api.post<{ data: Channel; message: string }>(`/channels/${id}/copy`)
   },
 }
