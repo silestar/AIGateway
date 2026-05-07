@@ -27,6 +27,9 @@ func (h *StatsHandler) RegisterRoutes(rg *gin.RouterGroup) {
 	s.GET("/channels", h.Channels)
 	s.GET("/keys/:id", h.KeysStats)
 	s.GET("/channel/:id", h.ChannelStats)
+	// 实时聚合（从 request_logs 直接查询）
+	s.GET("/consumer/:id", h.ConsumerRealtime)
+	s.GET("/channel-realtime/:id", h.ChannelRealtime)
 }
 
 // Dashboard 仪表盘概览
@@ -164,4 +167,34 @@ func (h *StatsHandler) ChannelStats(c *gin.Context) {
 	}
 
 	c.JSON(http.StatusOK, gin.H{"data": statsData})
+}
+
+// ConsumerRealtime 消费者实时聚合统计（从 request_logs 直接查询）
+func (h *StatsHandler) ConsumerRealtime(c *gin.Context) {
+	keysID, err := parseID(c)
+	if err != nil {
+		c.JSON(http.StatusBadRequest, errorResponse("invalid_keys_id", "invalid keys id"))
+		return
+	}
+	stats, err := h.statsMgr.GetConsumerRealtime(c.Request.Context(), keysID)
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, errorResponse("internal_error", err.Error()))
+		return
+	}
+	c.JSON(http.StatusOK, gin.H{"data": stats})
+}
+
+// ChannelRealtime 渠道实时聚合统计（从 request_logs 直接查询）
+func (h *StatsHandler) ChannelRealtime(c *gin.Context) {
+	channelID, err := parseID(c)
+	if err != nil {
+		c.JSON(http.StatusBadRequest, errorResponse("invalid_channel_id", "invalid channel id"))
+		return
+	}
+	stats, err := h.statsMgr.GetChannelRealtime(c.Request.Context(), channelID)
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, errorResponse("internal_error", err.Error()))
+		return
+	}
+	c.JSON(http.StatusOK, gin.H{"data": stats})
 }

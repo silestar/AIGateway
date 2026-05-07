@@ -17,11 +17,12 @@ import (
 
 // Manager 账号管理器实现
 type Manager struct {
-	db        *gorm.DB
-	cache     Cache
-	cryptoSvc *crypto.CryptoService
-	cfg       config.AccountManagerConfig
-	logger    *zap.Logger
+	db          *gorm.DB
+	cache       Cache
+	cryptoSvc   *crypto.CryptoService
+	cfg         config.AccountManagerConfig
+	logger      *zap.Logger
+	onProbeDone func(channelID, accountID uint, success bool)
 }
 
 // NewManager 创建账号管理器
@@ -33,6 +34,11 @@ func NewManager(db *gorm.DB, cache Cache, cryptoSvc *crypto.CryptoService, cfg c
 		cfg:       cfg,
 		logger:    logger,
 	}
+}
+
+// SetOnProbeDone 设置探测完成回调
+func (m *Manager) SetOnProbeDone(fn func(channelID, accountID uint, success bool)) {
+	m.onProbeDone = fn
 }
 
 // ========== 核心路由方法 ==========

@@ -3,20 +3,23 @@ package api
 import (
 	"fmt"
 	"net/http"
+	"time"
 
 	"github.com/gin-gonic/gin"
 	"github.com/bokelife/aigateway/internal/account"
 	"github.com/bokelife/aigateway/internal/channel"
+	"github.com/bokelife/aigateway/internal/stats"
 )
 
 // ChannelHandler 渠道管理 API
 type ChannelHandler struct {
-	svc        channel.ChannelService
-	accountMgr account.AccountManager
+	svc         channel.ChannelService
+	accountMgr  account.AccountManager
+	asyncWriter *stats.AsyncWriter
 }
 
-func NewChannelHandler(svc channel.ChannelService, accountMgr account.AccountManager) *ChannelHandler {
-	return &ChannelHandler{svc: svc, accountMgr: accountMgr}
+func NewChannelHandler(svc channel.ChannelService, accountMgr account.AccountManager, asyncWriter *stats.AsyncWriter) *ChannelHandler {
+	return &ChannelHandler{svc: svc, accountMgr: accountMgr, asyncWriter: asyncWriter}
 }
 
 // RegisterRoutes 注册渠道路由
@@ -330,9 +333,41 @@ func (h *ChannelHandler) TestChannel(c *gin.Context) {
 
 	result, err := h.svc.TestChannel(c.Request.Context(), id, apiKey)
 	if err != nil {
+		// 记录 health_check 失败日志
+		errMsg := err.Error()
+		traceID, _ := c.Get("trace_id")
+		traceIDStr, _ := traceID.(string)
+		h.asyncWriter.Record(&stats.RequestLog{
+			Timestamp:  time.Now(),
+			ChannelID:  &id,
+			ModelName:  "test",
+			StatusCode: 0,
+			LatencyMs:  0,
+			LogType:    "health_check",
+			TraceID:    traceIDStr,
+			ClientIP:   c.ClientIP(),
+			ErrorMsg:   &errMsg,
+		})
 		c.JSON(http.StatusBadRequest, errorResponse("test_failed", err.Error()))
 		return
 	}
+
+	// 记录 health_check 成功日志
+	chID := id
+	traceID, _ := c.Get("trace_id")
+	traceIDStr, _ := traceID.(string)
+	h.asyncWriter.Record(&stats.RequestLog{
+		Timestamp:       time.Now(),
+		ChannelID:       &chID,
+		ModelName:       result.Model,
+		StatusCode:      result.Status,
+		LatencyMs:       result.Latency,
+		LogType:         "health_check",
+		TraceID:         traceIDStr,
+		ClientIP:        c.ClientIP(),
+		PromptTokens:    result.PromptTokens,
+		CompletionTokens: result.CompletionTokens,
+	})
 
 	c.JSON(http.StatusOK, gin.H{"data": result})
 }

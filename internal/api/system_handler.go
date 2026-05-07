@@ -2,8 +2,6 @@ package api
 
 import (
 	"net/http"
-	"os"
-	"path/filepath"
 
 	"github.com/gin-gonic/gin"
 	"github.com/bokelife/aigateway/internal/config"
@@ -24,7 +22,6 @@ func (h *SystemHandler) RegisterRoutes(rg *gin.RouterGroup) {
 	system.GET("/info", h.Info)
 	system.GET("/config", h.GetConfig)
 	system.PUT("/config", h.UpdateConfig)
-	system.GET("/logs/download", h.DownloadLogs)
 }
 
 // Info 系统信息
@@ -62,16 +59,4 @@ func (h *SystemHandler) UpdateConfig(c *gin.Context) {
 	c.JSON(http.StatusOK, gin.H{
 		"data": gin.H{"message": "config updated successfully"},
 	})
-}
-
-// DownloadLogs 下载日志文件
-func (h *SystemHandler) DownloadLogs(c *gin.Context) {
-	logPath := filepath.Join("logs", "agw.log")
-	if _, err := os.Stat(logPath); os.IsNotExist(err) {
-		c.JSON(http.StatusNotFound, errorResponse("not_found", "log file not found"))
-		return
-	}
-
-	c.Header("Content-Disposition", "attachment; filename=agw.log")
-	c.File(logPath)
 }

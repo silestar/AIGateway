@@ -91,11 +91,13 @@ type GroupInfo struct {
 
 // TestResult 单次测试结果
 type TestResult struct {
-	Success  bool   `json:"success"`
-	Latency  int    `json:"latency"`  // 毫秒
-	Status   int    `json:"status,omitempty"`
-	Error    string `json:"error,omitempty"`
-	Model    string `json:"model"`
+	Success           bool   `json:"success"`
+	Latency           int    `json:"latency"`  // 毫秒
+	Status            int    `json:"status,omitempty"`
+	Error             string `json:"error,omitempty"`
+	Model             string `json:"model"`
+	PromptTokens      int    `json:"prompt_tokens,omitempty"`
+	CompletionTokens  int    `json:"completion_tokens,omitempty"`
 }
 
 // BatchTestResult 批量测试结果项

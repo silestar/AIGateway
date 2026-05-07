@@ -11,6 +11,7 @@ import (
 
 	"gorm.io/gorm"
 
+	"github.com/bokelife/aigateway/pkg/usage"
 	adapterregistry "github.com/bokelife/aigateway/pkg/adapter/registry"
 )
 
@@ -438,6 +439,12 @@ func (s *service) sendTestRequest(ctx context.Context, ch *Channel, model string
 			result.Error = fmt.Sprintf("HTTP %d: %s", resp.StatusCode, errMsg)
 		} else {
 			result.Success = true
+			// 提取 token usage
+			tokenUsage := usage.ExtractFromResponse(body)
+			if tokenUsage != nil {
+				result.PromptTokens = tokenUsage.PromptTokens
+				result.CompletionTokens = tokenUsage.CompletionTokens
+			}
 		}
 	}
 

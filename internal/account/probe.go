@@ -8,6 +8,7 @@ import (
 	"go.uber.org/zap"
 
 	"github.com/bokelife/aigateway/internal/channel"
+	"github.com/bokelife/aigateway/pkg/middleware"
 )
 
 // StartProbeScheduler 启动按需探测调度器
@@ -42,19 +43,20 @@ func (m *Manager) StartGlobalHealthCheck() {
 
 // runProbeCycle 按需探测一轮
 func (m *Manager) runProbeCycle(ctx context.Context) {
+	traceID := middleware.GenerateTraceID("probe")
 	var channels []channel.Channel
 	if err := m.db.WithContext(ctx).Where("status = ?", "active").Find(&channels).Error; err != nil {
-		m.logger.Error("probe: query channels", zap.Error(err))
+		m.logger.Error("probe: query channels", zap.Error(err), zap.String("trace_id", traceID))
 		return
 	}
 
 	for _, ch := range channels {
-		m.probeChannel(ctx, &ch)
+		m.probeChannel(ctx, &ch, traceID)
 	}
 }
 
 // probeChannel 探测单个渠道
-func (m *Manager) probeChannel(ctx context.Context, ch *channel.Channel) {
+func (m *Manager) probeChannel(ctx context.Context, ch *channel.Channel, traceID string) {
 	// 1. 计算 active_ratio
 	activeCount := m.getActiveCount(ctx, ch.ID)
 	totalCount := m.getTotalCount(ctx, ch.ID)
@@ -83,7 +85,7 @@ func (m *Manager) probeChannel(ctx context.Context, ch *channel.Channel) {
 		Where("probe_failures < ?", m.cfg.MaxProbeFailures). // 未达探测失败上限
 		Order("last_failed_at ASC").
 		Find(&disabledAccounts).Error; err != nil {
-		m.logger.Error("probe: query disabled accounts", zap.Error(err))
+		m.logger.Error("probe: query disabled accounts", zap.Error(err), zap.String("trace_id", traceID))
 		return
 	}
 
@@ -103,6 +105,7 @@ func (m *Manager) probeChannel(ctx context.Context, ch *channel.Channel) {
 
 		// 探测
 		success := m.probeAccount(ctx, ch, &acc)
+		m.recordProbeLog(ctx, ch.ID, acc.ID, success)
 		if success {
 			// 恢复账号
 			m.recoverAccount(ctx, &acc)
@@ -118,12 +121,13 @@ func (m *Manager) probeChannel(ctx context.Context, ch *channel.Channel) {
 				cooldownDuration := m.getCooldownDuration(1) // 使用一级冷却时长
 				cooldownUntil := time.Now().Add(cooldownDuration)
 				updates["probe_cooldown_until"] = cooldownUntil
-				m.logger.Warn("account probe failures reached limit, entering cooldown",
-					zap.Uint("account_id", acc.ID),
-					zap.Uint("channel_id", ch.ID),
-					zap.Int("probe_failures", newProbeFailures),
-					zap.Time("cooldown_until", cooldownUntil),
-				)
+			m.logger.Warn("account probe failures reached limit, entering cooldown",
+				zap.Uint("account_id", acc.ID),
+				zap.Uint("channel_id", ch.ID),
+				zap.Int("probe_failures", newProbeFailures),
+				zap.Time("cooldown_until", cooldownUntil),
+				zap.String("trace_id", traceID),
+			)
 			}
 			m.db.WithContext(ctx).Model(&Account{}).Where("id = ?", acc.ID).Updates(updates)
 		}
@@ -140,19 +144,20 @@ func (m *Manager) probeChannel(ctx context.Context, ch *channel.Channel) {
 
 // runGlobalHealthCheck 全局健康巡检一轮
 func (m *Manager) runGlobalHealthCheck(ctx context.Context) {
+	traceID := middleware.GenerateTraceID("health-check")
 	var channels []channel.Channel
 	if err := m.db.WithContext(ctx).Find(&channels).Error; err != nil {
-		m.logger.Error("health check: query channels", zap.Error(err))
+		m.logger.Error("health check: query channels", zap.Error(err), zap.String("trace_id", traceID))
 		return
 	}
 
 	for _, ch := range channels {
-		m.healthCheckChannel(ctx, &ch)
+		m.healthCheckChannel(ctx, &ch, traceID)
 	}
 }
 
 // healthCheckChannel 巡检单个渠道
-func (m *Manager) healthCheckChannel(ctx context.Context, ch *channel.Channel) {
+func (m *Manager) healthCheckChannel(ctx context.Context, ch *channel.Channel, traceID string) {
 	// 获取第一个 disabled/cooling 账号
 	var acc Account
 	if err := m.db.WithContext(ctx).
@@ -181,6 +186,7 @@ func (m *Manager) healthCheckChannel(ctx context.Context, ch *channel.Channel) {
 
 	// 探测
 	success := m.probeAccount(ctx, ch, &acc)
+	m.recordProbeLog(ctx, ch.ID, acc.ID, success)
 	if success {
 		m.recoverAccount(ctx, &acc)
 		m.resetCooldownCycles(ctx, ch.ID)
@@ -236,4 +242,11 @@ func (m *Manager) recoverAccount(ctx context.Context, acc *Account) {
 		zap.Uint("channel_id", acc.ChannelID),
 	)
 	_ = now // 避免未使用警告
+}
+
+// recordProbeLog 记录探测日志（通过回调通知外部写入）
+func (m *Manager) recordProbeLog(ctx context.Context, channelID, accountID uint, success bool) {
+	if m.onProbeDone != nil {
+		m.onProbeDone(channelID, accountID, success)
+	}
 }

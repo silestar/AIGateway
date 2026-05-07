@@ -63,9 +63,10 @@ type AccountManagerConfig struct {
 }
 
 type LogConfig struct {
-	Level      string `mapstructure:"level"` // debug / info / warn / error
-	Dir        string `mapstructure:"dir"`
-	MaxAgeDays int    `mapstructure:"max_age_days"`
+	Level      string `mapstructure:"level"`       // debug / info / warn / error
+	Dir        string `mapstructure:"dir"`         // 日志目录
+	MaxAgeDays int    `mapstructure:"max_age_days"` // 保留天数
+	MaxSizeMB  int    `mapstructure:"max_size_mb"`  // 单文件最大MB（0=不限制）
 }
 
 type ProxyConfig struct {

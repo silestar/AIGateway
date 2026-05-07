@@ -138,7 +138,7 @@ func (r *Router) Route(ctx context.Context, keysID uint, modelName string) (*Rou
 			acc, err := r.accountMgr.SelectAccount(ctx, keysID, ch.ID)
 			if err != nil {
 				retryChain.AddAttempt(ch.ID, 0)
-				retryChain.MarkError("no available account")
+				retryChain.MarkError("no available account", 0, 0)
 				continue
 			}
 
@@ -149,12 +149,12 @@ func (r *Router) Route(ctx context.Context, keysID uint, modelName string) (*Rou
 					zap.Uint("account_id", acc.ID),
 					zap.String("limit_type", limitType))
 				retryChain.AddAttempt(ch.ID, acc.ID)
-				retryChain.MarkError("account rate limit exceeded: " + limitType)
+				retryChain.MarkError("account rate limit exceeded: "+limitType, 0, 0)
 				continue
 			}
 
 			_ = retryChain.AddAttempt(ch.ID, acc.ID)
-			retryChain.MarkSuccess()
+			retryChain.MarkSuccess(0, 0)
 
 			actualName := actualModelMap[ch.ID]
 			if actualName == "" {

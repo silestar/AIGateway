@@ -10,7 +10,7 @@ import (
 type RequestLog struct {
 	ID               uint            `gorm:"primaryKey;autoIncrement" json:"id"`
 	Timestamp        time.Time       `gorm:"index;not null" json:"timestamp"`
-	KeysID       uint            `gorm:"index" json:"keys_id"`
+	KeysID           uint            `gorm:"index" json:"keys_id"`
 	ModelName        string          `gorm:"size:100;index" json:"model_name"`
 	ChannelID        *uint           `gorm:"index" json:"channel_id"`
 	AccountID        *uint           `json:"account_id"`
@@ -21,9 +21,16 @@ type RequestLog struct {
 	StatusCode       int             `json:"status_code"`
 	ErrorMsg         *string         `gorm:"type:text" json:"error_msg"`
 	LatencyMs        int             `json:"latency_ms"`
+	UpstreamLatencyMs int            `gorm:"default:0" json:"upstream_latency_ms"` // 上游处理耗时(ms)
 	Cost             float64         `json:"cost"`
+	CacheTokens      int             `gorm:"default:0" json:"cache_tokens"`       // 缓存命中Token数
+	MappedModel      string          `gorm:"size:100;default:''" json:"mapped_model"` // 映射后请求模型
+	UpstreamModel    string          `gorm:"size:100;default:''" json:"upstream_model"` // 上游实际响应模型
 	RequestMeta      json.RawMessage `gorm:"type:json" json:"request_meta"`
 	ResponseMeta     json.RawMessage `gorm:"type:json" json:"response_meta"`
+	LogType          string          `gorm:"size:20;index;default:consumption" json:"log_type"` // consumption/probe/health_check
+	TraceID          string          `gorm:"size:64;index" json:"trace_id"`                    // 请求追踪ID
+	ClientIP         string          `gorm:"size:45" json:"client_ip"`                         // 客户端IP
 }
 
 func (RequestLog) TableName() string { return "request_logs" }

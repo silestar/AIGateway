@@ -1,6 +1,6 @@
 # 管理 API 接口规范
 
-> 版本：1.1  
+> 版本：1.2  
 > 最后更新：2026-05-08  
 > 本文档集中定义 AIGateway 所有管理 API 端点，作为前后端开发的单一真相来源。
 
@@ -1422,9 +1422,100 @@
 
 | 参数 | 类型 | 必填 | 说明 |
 |------|------|:--:|------|
-| `date` | string | 否 | 日期 `2026-05-04`，不填则下载当天 |
+| `date` | string | 是 | 日期 `2026-05-04` |
 
-响应：`Content-Type: application/octet-stream`，返回对应日期的日志文件。
+响应：`Content-Type: application/octet-stream`，返回对应日期的日志文件。文件不存在返回 404。
+
+---
+
+### 8.4 查询系统日志
+
+**`GET /api/system/logs`**
+
+读取 zap JSON 日志文件，解析并返回结构化数据。
+
+查询参数：
+
+| 参数 | 类型 | 必填 | 说明 |
+|------|------|:--:|------|
+| `date` | string | 是 | 日期 `2026-05-07`（YYYY-MM-DD） |
+| `level` | string | 否 | 逗号分隔的日志级别，如 `info,warn` |
+| `keyword` | string | 否 | 关键字搜索（msg 字段模糊匹配） |
+| `trace_id` | string | 否 | Trace ID 精确匹配 |
+| `page` | int | 否 | 页码，默认 1 |
+| `page_size` | int | 否 | 每页条数，默认 100，最大 500 |
+| `since` | string | 否 | RFC3339 时间戳，只返回该时间之后的新日志（实时跟踪用） |
+
+响应示例：
+
+```json
+{
+  "data": [
+    {
+      "ts": "2026-05-07T19:44:20.123+08:00",
+      "level": "info",
+      "msg": "request completed",
+      "caller": "proxy/engine.go:42",
+      "trace_id": "6cc489bc-87a46c81"
+    }
+  ],
+  "total": 1000,
+  "page": 1,
+  "page_size": 100
+}
+```
+
+---
+
+### 8.5 获取系统日志日期列表
+
+**`GET /api/system/logs/dates`**
+
+扫描日志目录，返回所有有 `.log` 文件的日期列表。
+
+响应示例：
+
+```json
+{
+  "data": ["2026-05-07", "2026-05-06", "2026-05-05"]
+}
+```
+
+---
+
+### 8.6 实时聚合统计
+
+#### 消费者实时统计
+
+**`GET /api/stats/consumer/:id`**
+
+从 `request_logs` 表实时聚合指定消费者的当日统计数据。
+
+响应示例：
+
+```json
+{
+  "data": {
+    "keys_id": 1,
+    "total_requests": 150,
+    "success_count": 142,
+    "fail_count": 8,
+    "total_tokens": 52300,
+    "total_cost": 0.52,
+    "avg_latency_ms": 320,
+    "top_models": [
+      { "model_name": "gpt-4o", "total_requests": 80 },
+      { "model_name": "claude-3.5-sonnet", "total_requests": 70 }
+    ]
+  }
+}
+```
+
+#### 渠道实时统计
+
+**`GET /api/stats/channel-realtime/:id`**
+
+从 `request_logs` 表实时聚合指定渠道的当日统计数据。返回格式与消费者统计类似，字段名为 `channel_id`。
 
 ---
 

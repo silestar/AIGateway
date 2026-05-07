@@ -177,7 +177,7 @@
 import { ref, reactive, computed, onMounted } from 'vue'
 import { useI18n } from 'vue-i18n'
 import { useMessage } from 'naive-ui'
-import { systemApi } from '../api/system'
+import { systemApi, systemLogApi } from '../api/system'
 
 const { t } = useI18n()
 const message = useMessage()
@@ -253,10 +253,11 @@ async function handleSave() {
 
 async function handleDownloadLogs() {
   try {
-    const res = await systemApi.downloadLogs()
+    const today = new Date().toISOString().slice(0, 10)
+    const res = await systemLogApi.download(today)
     const url = URL.createObjectURL(new Blob([res.data]))
     const a = document.createElement('a')
-    a.href = url; a.download = 'agw.log'; a.click()
+    a.href = url; a.download = `agw-${today}.log`; a.click()
     URL.revokeObjectURL(url)
   } catch {
     message.error(t('common.operationFailed'))

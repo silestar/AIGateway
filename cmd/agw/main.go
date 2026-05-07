@@ -29,6 +29,7 @@ import (
 	"github.com/bokelife/aigateway/internal/storage/sqlite"
 	agwapi "github.com/bokelife/aigateway/internal/api"
 	"github.com/bokelife/aigateway/pkg/middleware"
+	"github.com/bokelife/aigateway/pkg/usage"
 )
 
 func main() {
@@ -90,6 +91,29 @@ func main() {
 	pluginMgr := plugin.NewManager(db, logger, "plugins")
 
 	// 启动账号池后台任务
+	accountMgr.SetOnProbeDone(func(channelID, accountID uint, success bool) {
+		chID := channelID
+		accID := accountID
+		statusCode := 0
+		errMsg := "probe failed"
+		if success {
+			statusCode = 200
+			errMsg = ""
+		}
+		log := &stats.RequestLog{
+			Timestamp:  time.Now(),
+			ChannelID:  &chID,
+			AccountID:  &accID,
+			ModelName:  "probe",
+			StatusCode: statusCode,
+			LogType:    "probe",
+			TraceID:    middleware.GenerateTraceID("probe"),
+		}
+		if errMsg != "" {
+			log.ErrorMsg = &errMsg
+		}
+		asyncWriter.Record(log)
+	})
 	accountMgr.StartProbeScheduler()
 	accountMgr.StartGlobalHealthCheck()
 
@@ -100,6 +124,7 @@ func main() {
 	router := gin.New()
 	router.Use(middleware.Recovery())
 	router.Use(middleware.CORS())
+	router.Use(middleware.TraceID())
 	router.Use(middleware.Logger(logger))
 
 	// 注入 db 到上下文
@@ -138,13 +163,14 @@ func main() {
 	protected := apiGroup.Group("")
 	protected.Use(authHandler.AuthMiddleware())
 	agwapi.NewKeysHandler(keysSvc).RegisterRoutes(protected)
-	agwapi.NewChannelHandler(channelSvc, accountMgr).RegisterRoutes(protected)
+	agwapi.NewChannelHandler(channelSvc, accountMgr, asyncWriter).RegisterRoutes(protected)
 	agwapi.NewAccountHandler(accountMgr).RegisterRoutes(protected)
 	agwapi.NewGroupHandler(groupRouter).RegisterRoutes(protected)
 	agwapi.NewStatsHandler(statsMgr).RegisterRoutes(protected)
 	agwapi.NewLogHandler(statsMgr).RegisterRoutes(protected)
 	agwapi.NewPluginHandler(pluginMgr).RegisterRoutes(protected)
 	agwapi.NewSystemHandler(cfg).RegisterRoutes(protected)
+	agwapi.NewSystemLogHandler(cfg).RegisterRoutes(protected)
 
 	// 10. 静态文件服务（前端 SPA）
 	router.Static("/assets", "./web/dist/assets")
@@ -231,6 +257,20 @@ func handleChatCompletions(c *gin.Context) {
 	// 2. 认证
 	cons, err := keysSvc.Authenticate(c.Request.Context(), apiKey)
 	if err != nil {
+		traceID, _ := c.Get("trace_id")
+		traceIDStr, _ := traceID.(string)
+		modelName := extractModelName(c)
+		errMsg := err.Error()
+		asyncWriter.Record(&stats.RequestLog{
+			Timestamp:  time.Now(),
+			ModelName:  modelName,
+			StatusCode: http.StatusUnauthorized,
+			LatencyMs:  int(time.Since(startTime).Milliseconds()),
+			LogType:    "consumption",
+			TraceID:    traceIDStr,
+			ClientIP:   c.ClientIP(),
+			ErrorMsg:   &errMsg,
+		})
 		c.JSON(http.StatusUnauthorized, gin.H{
 			"error": gin.H{"code": "unauthorized", "message": "Invalid API key"},
 		})
@@ -253,6 +293,20 @@ func handleChatCompletions(c *gin.Context) {
 	// 5. 路由选择
 	result, err := groupRouter.Route(c.Request.Context(), cons.ID, modelName)
 	if err != nil {
+		errMsg := err.Error()
+		traceID, _ := c.Get("trace_id")
+		traceIDStr, _ := traceID.(string)
+		asyncWriter.Record(&stats.RequestLog{
+			Timestamp:  time.Now(),
+			KeysID:     cons.ID,
+			ModelName:  modelName,
+			StatusCode: http.StatusServiceUnavailable,
+			LatencyMs:  int(time.Since(startTime).Milliseconds()),
+			LogType:    "consumption",
+			TraceID:    traceIDStr,
+			ClientIP:   c.ClientIP(),
+			ErrorMsg:   &errMsg,
+		})
 		c.JSON(http.StatusServiceUnavailable, gin.H{
 			"error": gin.H{"code": "no_available_channel", "message": err.Error()},
 		})
@@ -273,10 +327,15 @@ func handleChatCompletions(c *gin.Context) {
 
 	// 6. 判断是否流式
 	isStream := c.GetHeader("Accept") == "text/event-stream"
+	clientIP := c.ClientIP()
+	traceID, _ := c.Get("trace_id")
+	traceIDStr, _ := traceID.(string)
 
 	// 7. 转发请求 + 记录日志
 	var statusCode int
 	var latencyMs int
+	var usage *usage.TokenUsage
+	var respSummary *ResponseSummary
 
 	if isStream {
 		flusher, ok := c.Writer.(http.Flusher)
@@ -291,81 +350,222 @@ func handleChatCompletions(c *gin.Context) {
 		c.Header("Cache-Control", "no-cache")
 		c.Header("Connection", "keep-alive")
 
-		if err := proxyEngine.ForwardStream(c.Request.Context(), result.Channel, result.Account, c.Request, flusher, c.Writer); err != nil {
-			result.RetryChain.MarkError(err.Error())
-			statusCode = http.StatusBadGateway
-			latencyMs = int(time.Since(startTime).Milliseconds())
-			logger.Error("stream forward error", zap.Error(err))
-
-			// 记录失败日志
-			asyncWriter.Record(buildRequestLog(cons.ID, modelName, result, isStream, statusCode, latencyMs, err.Error()))
-
-			c.JSON(http.StatusBadGateway, gin.H{
-				"error": gin.H{"code": "upstream_error", "message": err.Error()},
-			})
-			return
-		}
-		result.RetryChain.MarkSuccess()
-		statusCode = http.StatusOK
-		latencyMs = int(time.Since(startTime).Milliseconds())
-	} else {
-		resp, err := proxyEngine.Forward(c.Request.Context(), result.Channel, result.Account, c.Request)
+		streamResult, err := proxyEngine.ForwardStream(c.Request.Context(), result.Channel, result.Account, c.Request, flusher, c.Writer)
 		latencyMs = int(time.Since(startTime).Milliseconds())
 
 		if err != nil {
-			result.RetryChain.MarkError(err.Error())
+			result.RetryChain.MarkError(shortenError(err.Error()), latencyMs, http.StatusBadGateway)
+			statusCode = http.StatusBadGateway
+			logger.Error("stream forward error", zap.Error(err))
+
+			// 记录失败日志（无响应摘要）
+			asyncWriter.Record(buildRequestLog(cons.ID, modelName, result.ActualModelName, result, isStream, statusCode, latencyMs, clientIP, nil, shortenError(err.Error()), traceIDStr, nil))
+
+			c.JSON(http.StatusBadGateway, gin.H{
+				"error": gin.H{"code": "upstream_error", "message": shortenError(err.Error())},
+			})
+			return
+		}
+		result.RetryChain.MarkSuccess(latencyMs, http.StatusOK)
+		statusCode = http.StatusOK
+		if streamResult != nil {
+			usage = streamResult.Usage
+		respSummary = &ResponseSummary{
+			ResponseModel:     streamResult.ResponseModel,
+			FinishReason:      streamResult.FinishReason,
+			SystemFingerprint: streamResult.SystemFingerprint,
+			UpstreamLatencyMs: streamResult.UpstreamLatencyMs,
+		}
+		}
+	} else {
+		proxyResult, err := proxyEngine.Forward(c.Request.Context(), result.Channel, result.Account, c.Request)
+		latencyMs = int(time.Since(startTime).Milliseconds())
+
+		if err != nil {
+			result.RetryChain.MarkError(shortenError(err.Error()), latencyMs, http.StatusBadGateway)
 			// 同渠道内尝试下一个账号
 			accountMgr.ReportResult(c.Request.Context(), result.Account.ID, false, 0)
 			statusCode = http.StatusBadGateway
 
-			// 记录失败日志
-			asyncWriter.Record(buildRequestLog(cons.ID, modelName, result, isStream, statusCode, latencyMs, err.Error()))
+			// 记录失败日志（无响应摘要）
+			asyncWriter.Record(buildRequestLog(cons.ID, modelName, result.ActualModelName, result, isStream, statusCode, latencyMs, clientIP, nil, shortenError(err.Error()), traceIDStr, nil))
 
 			c.JSON(http.StatusBadGateway, gin.H{
-				"error": gin.H{"code": "upstream_error", "message": err.Error()},
+				"error": gin.H{"code": "upstream_error", "message": shortenError(err.Error())},
 			})
 			return
 		}
-		defer resp.Body.Close()
-		result.RetryChain.MarkSuccess()
-		statusCode = resp.StatusCode
-		accountMgr.ReportResult(c.Request.Context(), result.Account.ID, true, resp.StatusCode)
+		result.RetryChain.MarkSuccess(latencyMs, proxyResult.StatusCode)
+		statusCode = proxyResult.StatusCode
+		usage = proxyResult.Usage
+		accountMgr.ReportResult(c.Request.Context(), result.Account.ID, true, proxyResult.StatusCode)
+		respSummary = &ResponseSummary{
+			ResponseModel:     proxyResult.ResponseModel,
+			FinishReason:      proxyResult.FinishReason,
+			SystemFingerprint: proxyResult.SystemFingerprint,
+			UpstreamLatencyMs: proxyResult.UpstreamLatencyMs,
+		}
 
 		// 复制响应头
-		for k, vv := range resp.Header {
+		for k, vv := range proxyResult.Headers {
 			for _, v := range vv {
 				c.Writer.Header().Add(k, v)
 			}
 		}
-		c.Writer.WriteHeader(resp.StatusCode)
-		io.Copy(c.Writer, resp.Body)
+		c.Writer.WriteHeader(proxyResult.StatusCode)
+		c.Writer.Write(proxyResult.Body)
 	}
 
 	// 更新速率/配额计数器
 	cache := c.MustGet("cache").(account.Cache)
 	updateRateLimitCounters(cache, result.Channel.ID, result.Account.ID)
 
-	// 记录成功日志
-	asyncWriter.Record(buildRequestLog(cons.ID, modelName, result, isStream, statusCode, latencyMs, ""))
+	// 记录成功日志（含响应摘要）
+	asyncWriter.Record(buildRequestLog(cons.ID, modelName, result.ActualModelName, result, isStream, statusCode, latencyMs, clientIP, usage, "", traceIDStr, respSummary))
 }
 
 // buildRequestLog 构造请求日志
-func buildRequestLog(keysID uint, modelName string, result *group.RouteResult, isStream bool, statusCode, latencyMs int, errMsg string) *stats.RequestLog {
+func buildRequestLog(keysID uint, modelName string, mappedModel string, result *group.RouteResult, isStream bool, statusCode, latencyMs int, clientIP string, usage *usage.TokenUsage, errMsg string, traceID string, respMeta *ResponseSummary) *stats.RequestLog {
 	log := &stats.RequestLog{
-		Timestamp:        time.Now(),
-		KeysID:       keysID,
-		ModelName:        modelName,
-		ChannelID:        &result.Channel.ID,
-		AccountID:        &result.Account.ID,
-		RetryChain:       result.RetryChain.ToJSON(),
-		IsStream:         isStream,
-		StatusCode:       statusCode,
-		LatencyMs:        latencyMs,
+		Timestamp:  time.Now(),
+		KeysID:     keysID,
+		ModelName:  modelName,
+		MappedModel: mappedModel,
+		ChannelID:  &result.Channel.ID,
+		AccountID:  &result.Account.ID,
+		RetryChain: result.RetryChain.ToJSON(),
+		IsStream:   isStream,
+		StatusCode: statusCode,
+		LatencyMs:  latencyMs,
+		LogType:    "consumption",
+		TraceID:    traceID,
+		ClientIP:   clientIP,
 	}
+
+	// Token 用量
+	if usage != nil {
+		log.PromptTokens = usage.PromptTokens
+		log.CompletionTokens = usage.CompletionTokens
+	}
+
+	// 简易费用计算（基于模型名估算单价，后续可接入配置）
+	log.Cost = estimateCost(modelName, log.PromptTokens, log.CompletionTokens)
+
+	// 请求元数据（始终填充渠道+模型上下文，方便排查）
+	reqMetaMap := map[string]interface{}{
+		"model":        modelName,
+		"stream":       isStream,
+		"channel_id":   result.Channel.ID,
+		"channel_name": result.Channel.Name,
+		"account_id":   result.Account.ID,
+	}
+
+	// 错误上下文回填：失败时额外注入关键信息
 	if errMsg != "" {
 		log.ErrorMsg = &errMsg
+		reqMetaMap["error_context"] = map[string]interface{}{
+			"channel_id":   result.Channel.ID,
+			"channel_name": result.Channel.Name,
+			"account_id":   result.Account.ID,
+			"model":        modelName,
+		}
 	}
+	reqMeta, _ := json.Marshal(reqMetaMap)
+	log.RequestMeta = reqMeta
+
+	// 成功响应摘要填充
+	if statusCode >= 200 && statusCode < 300 && respMeta != nil {
+		respMetaMap := map[string]interface{}{}
+		if respMeta.ResponseModel != "" {
+			respMetaMap["model"] = respMeta.ResponseModel
+			log.UpstreamModel = respMeta.ResponseModel
+		}
+		if respMeta.FinishReason != "" {
+			respMetaMap["finish_reason"] = respMeta.FinishReason
+		}
+		if respMeta.SystemFingerprint != "" {
+			respMetaMap["system_fingerprint"] = respMeta.SystemFingerprint
+		}
+		if respMeta.UpstreamLatencyMs > 0 {
+			log.UpstreamLatencyMs = respMeta.UpstreamLatencyMs
+		}
+		if len(respMetaMap) > 0 {
+			rm, _ := json.Marshal(respMetaMap)
+			log.ResponseMeta = rm
+		}
+	}
+
 	return log
+}
+
+// ResponseSummary 响应摘要（从 ProxyResult/StreamResult 提取）
+type ResponseSummary struct {
+	ResponseModel     string
+	FinishReason      string
+	SystemFingerprint string
+	UpstreamLatencyMs int
+}
+
+// shortenError 精简错误信息，移除冗长 URL 和堆栈，保留核心错误类型
+func shortenError(errMsg string) string {
+	// 移除 "upstream request: Post \"https://...\": " 前缀模式
+	if idx := strings.Index(errMsg, ": "); idx != -1 {
+		suffix := errMsg[idx+2:]
+		// 如果后缀仍含 URL，继续精简
+		if strings.HasPrefix(suffix, "Post ") || strings.HasPrefix(suffix, "Get ") {
+			// 提取 URL 后面的真正错误
+			if urlEnd := strings.Index(suffix, "\": "); urlEnd != -1 {
+				return suffix[urlEnd+3:]
+			}
+			if urlEnd := strings.Index(suffix, "\": "); urlEnd != -1 {
+				return suffix[urlEnd+3:]
+			}
+		}
+		// context deadline exceeded / connection refused 等标准错误
+		return suffix
+	}
+	// 截断超长错误
+	if len(errMsg) > 200 {
+		return errMsg[:200] + "..."
+	}
+	return errMsg
+}
+
+// estimateCost 简易费用估算（美元），后续可接入模型价格配置
+func estimateCost(modelName string, promptTokens, completionTokens int) float64 {
+	// 默认费率（按每1K token计价）
+	promptPrice := 0.001    // $0.001/1K input
+	completionPrice := 0.003 // $0.003/1K output
+
+	// 常见模型费率映射
+	switch {
+	case strings.Contains(modelName, "gpt-4o"), strings.Contains(modelName, "gpt-4-turbo"):
+		promptPrice = 0.01
+		completionPrice = 0.03
+	case strings.Contains(modelName, "gpt-4"):
+		promptPrice = 0.03
+		completionPrice = 0.06
+	case strings.Contains(modelName, "gpt-3.5"), strings.Contains(modelName, "gpt-4o-mini"):
+		promptPrice = 0.0005
+		completionPrice = 0.0015
+	case strings.Contains(modelName, "claude-3.5-sonnet"), strings.Contains(modelName, "claude-3-5-sonnet"):
+		promptPrice = 0.003
+		completionPrice = 0.015
+	case strings.Contains(modelName, "claude-3-opus"):
+		promptPrice = 0.015
+		completionPrice = 0.075
+	case strings.Contains(modelName, "claude-3-haiku"), strings.Contains(modelName, "claude-3.5-haiku"):
+		promptPrice = 0.00025
+		completionPrice = 0.00125
+	case strings.Contains(modelName, "gemini-1.5-pro"), strings.Contains(modelName, "gemini-2.5-pro"):
+		promptPrice = 0.00125
+		completionPrice = 0.005
+	case strings.Contains(modelName, "gemini-1.5-flash"), strings.Contains(modelName, "gemini-2.0-flash"):
+		promptPrice = 0.000075
+		completionPrice = 0.0003
+	}
+
+	return float64(promptTokens)*promptPrice/1000 + float64(completionTokens)*completionPrice/1000
 }
 
 // extractModelName 从请求体 JSON 提取 model 字段，同时缓存 body 供后续转发使用

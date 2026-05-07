@@ -2,6 +2,7 @@ package stats
 
 import (
 	"context"
+	"strings"
 	"sync"
 	"time"
 
@@ -72,8 +73,12 @@ func (m *Manager) StopAggregator() {
 	}
 }
 
-// IncrementCounters 递增实时计数器
+// IncrementCounters 递增实时计数器（仅消费类日志）
 func (m *Manager) IncrementCounters(log *RequestLog) {
+	// 只统计消费类日志，排除探测和健康检查
+	if log.LogType != "" && log.LogType != "consumption" {
+		return
+	}
 	success := log.StatusCode >= 200 && log.StatusCode < 300
 	tokens := log.PromptTokens + log.CompletionTokens
 	m.counters.Increment(success, log.LatencyMs, tokens)
@@ -199,16 +204,35 @@ func (m *Manager) QueryRequestLogs(ctx context.Context, filter LogFilter) ([]Req
 	if filter.KeysID > 0 {
 		query = query.Where("keys_id = ?", filter.KeysID)
 	}
+	if filter.KeysName != "" {
+		query = query.Where("keys_id IN (SELECT id FROM keys WHERE name LIKE ?)", "%"+filter.KeysName+"%")
+	}
 	if filter.ChannelID > 0 {
 		query = query.Where("channel_id = ?", filter.ChannelID)
 	}
+	if filter.ChannelName != "" {
+		query = query.Where("channel_id IN (SELECT id FROM channels WHERE name LIKE ?)", "%"+filter.ChannelName+"%")
+	}
 	if filter.ModelName != "" {
-		query = query.Where("model_name = ?", filter.ModelName)
+		query = query.Where("model_name LIKE ?", "%"+filter.ModelName+"%")
 	}
 	if filter.Status == "success" {
 		query = query.Where("status_code >= 200 AND status_code < 300")
 	} else if filter.Status == "failed" {
 		query = query.Where("status_code < 200 OR status_code >= 300")
+	}
+	if filter.LogTypes != "" {
+		types := strings.Split(filter.LogTypes, ",")
+		if len(types) > 0 {
+			query = query.Where("log_type IN ?", types)
+		}
+	}
+	if filter.TraceID != "" {
+		query = query.Where("trace_id = ?", filter.TraceID)
+	}
+	if filter.Keyword != "" {
+		kw := "%" + filter.Keyword + "%"
+		query = query.Where("trace_id LIKE ? OR error_msg LIKE ?", kw, kw)
 	}
 	if filter.Start != "" {
 		query = query.Where("timestamp >= ?", filter.Start)
@@ -241,14 +265,19 @@ func (m *Manager) GetRequestLogByID(ctx context.Context, id uint) (*RequestLog, 
 
 // LogFilter 日志查询筛选条件
 type LogFilter struct {
-	KeysID uint   `form:"keys_id"`
-	ChannelID  uint   `form:"channel_id"`
-	ModelName  string `form:"model_name"`
-	Status     string `form:"status"` // success / failed
-	Start      string `form:"start"`
-	End        string `form:"end"`
-	Page       int    `form:"page"`
-	PageSize   int    `form:"page_size"`
+	KeysID       uint   `form:"keys_id"`
+	KeysName     string `form:"keys_name"`     // 密钥名模糊搜索
+	ChannelID    uint   `form:"channel_id"`
+	ChannelName  string `form:"channel_name"`  // 渠道名模糊搜索
+	ModelName    string `form:"model_name"`
+	Status       string `form:"status"`        // success / failed
+	LogTypes     string `form:"log_types"`     // 逗号分隔多选
+	Keyword      string `form:"keyword"`       // 搜索 trace_id、error_msg
+	TraceID      string `form:"trace_id"`      // 精确 trace_id 搜索
+	Start        string `form:"start"`
+	End          string `form:"end"`
+	Page         int    `form:"page"`
+	PageSize     int    `form:"page_size"`
 }
 
 // ========== 聚合任务 ==========
@@ -276,11 +305,12 @@ func (m *Manager) aggregateSystemDaily(ctx context.Context, date string) {
 		Success int
 		Fail    int
 		Tokens  int64
-		AvgMs   int
+		AvgMs   float64
 	}
 
 	m.db.WithContext(ctx).Model(&RequestLog{}).
 		Where("timestamp >= ? AND timestamp < ?", date+" 00:00:00", date+" 23:59:59").
+		Where("log_type = ?", "consumption").
 		Select("COUNT(*) as total, SUM(CASE WHEN status_code >= 200 AND status_code < 300 THEN 1 ELSE 0 END) as success, SUM(CASE WHEN status_code < 200 OR status_code >= 300 THEN 1 ELSE 0 END) as fail, COALESCE(SUM(prompt_tokens + completion_tokens), 0) as tokens, COALESCE(AVG(latency_ms), 0) as avg_ms").
 		Scan(&result)
 
@@ -305,12 +335,13 @@ func (m *Manager) aggregateKeysDaily(ctx context.Context, date string) {
 		Success    int
 		Fail       int
 		Tokens     int64
-		AvgMs      int
+		AvgMs      float64
 	}
 
 	var rows []row
 	m.db.WithContext(ctx).Model(&RequestLog{}).
 		Where("timestamp >= ? AND timestamp < ?", date+" 00:00:00", date+" 23:59:59").
+		Where("log_type = ?", "consumption").
 		Select("keys_id, model_name, COUNT(*) as total, SUM(CASE WHEN status_code >= 200 AND status_code < 300 THEN 1 ELSE 0 END) as success, SUM(CASE WHEN status_code < 200 OR status_code >= 300 THEN 1 ELSE 0 END) as fail, COALESCE(SUM(prompt_tokens + completion_tokens), 0) as tokens, COALESCE(AVG(latency_ms), 0) as avg_ms").
 		Group("keys_id, model_name").
 		Scan(&rows)
@@ -338,12 +369,13 @@ func (m *Manager) aggregateChannelDaily(ctx context.Context, date string) {
 		Success   int
 		Fail      int
 		Tokens    int64
-		AvgMs     int
+		AvgMs     float64
 	}
 
 	var rows []row
 	m.db.WithContext(ctx).Model(&RequestLog{}).
 		Where("timestamp >= ? AND timestamp < ?", date+" 00:00:00", date+" 23:59:59").
+		Where("log_type = ?", "consumption").
 		Select("channel_id, model_name, COUNT(*) as total, SUM(CASE WHEN status_code >= 200 AND status_code < 300 THEN 1 ELSE 0 END) as success, SUM(CASE WHEN status_code < 200 OR status_code >= 300 THEN 1 ELSE 0 END) as fail, COALESCE(SUM(prompt_tokens + completion_tokens), 0) as tokens, COALESCE(AVG(latency_ms), 0) as avg_ms").
 		Where("channel_id IS NOT NULL").
 		Group("channel_id, model_name").
@@ -382,4 +414,125 @@ func (m *Manager) CleanOldLogs(ctx context.Context, retentionDays int) error {
 		zap.Int("retention_days", retentionDays),
 	)
 	return nil
+}
+
+// ConsumerRealtimeStats 单个消费者的实时聚合统计
+type ConsumerRealtimeStats struct {
+	KeysID         uint    `json:"keys_id"`
+	TotalRequests  int64   `json:"total_requests"`
+	SuccessCount   int64   `json:"success_count"`
+	FailCount      int64   `json:"fail_count"`
+	TotalTokens    int64   `json:"total_tokens"`
+	TotalCost      float64 `json:"total_cost"`
+	AvgLatencyMs   int     `json:"avg_latency_ms"`
+	TopModels      []ModelCount `json:"top_models"`
+}
+
+// ModelCount 模型请求计数
+type ModelCount struct {
+	ModelName     string `json:"model_name"`
+	TotalRequests int64  `json:"total_requests"`
+}
+
+// GetConsumerRealtime 从 request_logs 实时聚合消费者统计
+func (m *Manager) GetConsumerRealtime(ctx context.Context, keysID uint) (*ConsumerRealtimeStats, error) {
+	var stats ConsumerRealtimeStats
+	stats.KeysID = keysID
+
+	today := time.Now().Format("2006-01-02")
+	query := m.db.WithContext(ctx).
+		Where("keys_id = ? AND log_type = 'consumption' AND DATE(timestamp) = ?", keysID, today)
+
+	// 基础聚合
+	var result struct {
+		TotalRequests int64
+		SuccessCount  int64
+		TotalTokens   int64
+		TotalCost     float64
+		AvgLatency    float64
+	}
+	err := query.Model(&RequestLog{}).
+		Select("COUNT(*) as total_requests, SUM(CASE WHEN status_code >= 200 AND status_code < 300 THEN 1 ELSE 0 END) as success_count, SUM(prompt_tokens + completion_tokens) as total_tokens, COALESCE(SUM(cost), 0) as total_cost, CASE WHEN COUNT(*) > 0 THEN AVG(latency_ms) ELSE 0 END as avg_latency").
+		Scan(&result).Error
+	if err != nil {
+		return nil, err
+	}
+
+	stats.TotalRequests = result.TotalRequests
+	stats.SuccessCount = result.SuccessCount
+	stats.FailCount = result.TotalRequests - result.SuccessCount
+	stats.TotalTokens = result.TotalTokens
+	stats.TotalCost = result.TotalCost
+	stats.AvgLatencyMs = int(result.AvgLatency)
+
+	// Top 模型
+	var topModels []ModelCount
+	m.db.WithContext(ctx).
+		Model(&RequestLog{}).
+		Select("model_name, COUNT(*) as total_requests").
+		Where("keys_id = ? AND log_type = 'consumption' AND DATE(timestamp) = ?", keysID, today).
+		Group("model_name").
+		Order("total_requests DESC").
+		Limit(10).
+		Scan(&topModels)
+	stats.TopModels = topModels
+
+	return &stats, nil
+}
+
+// ChannelRealtimeStats 单个渠道的实时聚合统计
+type ChannelRealtimeStats struct {
+	ChannelID     uint    `json:"channel_id"`
+	TotalRequests int64   `json:"total_requests"`
+	SuccessCount  int64   `json:"success_count"`
+	FailCount     int64   `json:"fail_count"`
+	TotalTokens   int64   `json:"total_tokens"`
+	TotalCost     float64 `json:"total_cost"`
+	AvgLatencyMs  int     `json:"avg_latency_ms"`
+	TopModels     []ModelCount `json:"top_models"`
+}
+
+// GetChannelRealtime 从 request_logs 实时聚合渠道统计
+func (m *Manager) GetChannelRealtime(ctx context.Context, channelID uint) (*ChannelRealtimeStats, error) {
+	var stats ChannelRealtimeStats
+	stats.ChannelID = channelID
+
+	today := time.Now().Format("2006-01-02")
+	query := m.db.WithContext(ctx).
+		Where("channel_id = ? AND log_type = 'consumption' AND DATE(timestamp) = ?", channelID, today)
+
+	var result struct {
+		TotalRequests int64
+		SuccessCount  int64
+		TotalTokens   int64
+		TotalCost     float64
+		AvgLatency    float64
+	}
+	err := query.Model(&RequestLog{}).
+		Select("COUNT(*) as total_requests, SUM(CASE WHEN status_code >= 200 AND status_code < 300 THEN 1 ELSE 0 END) as success_count, SUM(prompt_tokens + completion_tokens) as total_tokens, COALESCE(SUM(cost), 0) as total_cost, CASE WHEN COUNT(*) > 0 THEN AVG(latency_ms) ELSE 0 END as avg_latency").
+		Scan(&result).Error
+	if err != nil {
+		return nil, err
+	}
+
+	stats.TotalRequests = result.TotalRequests
+	stats.SuccessCount = result.SuccessCount
+	stats.FailCount = result.TotalRequests - result.SuccessCount
+	stats.TotalTokens = result.TotalTokens
+	stats.TotalCost = result.TotalCost
+	stats.AvgLatencyMs = int(result.AvgLatency)
+
+	// Top 模型
+	var topModels []ModelCount
+	m.db.WithContext(ctx).
+		Model(&RequestLog{}).
+		Select("model_name, COUNT(*) as total_requests").
+		Where("channel_id = ? AND log_type = 'consumption' AND DATE(timestamp) = ?", channelID, today).
+		Group("model_name").
+		Order("total_requests DESC").
+		Limit(10).
+		Scan(&topModels)
+	stats.TopModels = topModels
+
+	return &stats, nil
 }

@@ -7,7 +7,7 @@ import (
 	"go.uber.org/zap"
 )
 
-// Logger 请求日志中间件
+// Logger 请求日志中间件（带 trace_id）
 func Logger(logger *zap.Logger) gin.HandlerFunc {
 	return func(c *gin.Context) {
 		start := time.Now()
@@ -26,6 +26,11 @@ func Logger(logger *zap.Logger) gin.HandlerFunc {
 			zap.String("query", query),
 			zap.String("ip", c.ClientIP()),
 			zap.Duration("latency", latency),
+		}
+
+		// 注入 trace_id
+		if traceID, ok := c.Get("trace_id"); ok {
+			fields = append(fields, zap.String("trace_id", traceID.(string)))
 		}
 
 		if len(c.Errors) > 0 {

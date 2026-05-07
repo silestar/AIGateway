@@ -168,7 +168,8 @@ const pageTitle = computed(() => {
     '/stats': 'menu.stats',
     '/logs': 'menu.logs',
     '/plugins': 'menu.plugins',
-    '/settings': 'menu.settings',
+    '/settings': 'menu.systemSettings',
+    '/settings/logs': 'menu.systemLogs',
   }
   const key = keyMap[route.path]
   return key ? t(key) : 'AIGateway'
@@ -385,14 +386,22 @@ function handleMenuClick(key: string) {
 function handleLogout() { localStorage.removeItem('agw_token'); router.push('/login') }
 
 const menuOptions = computed(() => [
-  { label: t('menu.dashboard'), key: '/', icon: () => '📊' },
-  { label: t('menu.keys'), key: '/keys', icon: () => '🔑' },
-  { label: t('menu.channels'), key: '/channels', icon: () => '🔌' },
-  { label: t('menu.groups'), key: '/groups', icon: () => '📁' },
-  { label: t('menu.stats'), key: '/stats', icon: () => '📈' },
-  { label: t('menu.logs'), key: '/logs', icon: () => '📋' },
-  { label: t('menu.plugins'), key: '/plugins', icon: () => '🧩' },
-  { label: t('menu.settings'), key: '/settings', icon: () => '⚙️' },
+  { label: t('menu.dashboard'), key: '/', icon: (): string => '📊' },
+  { label: t('menu.keys'), key: '/keys', icon: (): string => '🔑' },
+  { label: t('menu.channels'), key: '/channels', icon: (): string => '🔌' },
+  { label: t('menu.groups'), key: '/groups', icon: (): string => '📁' },
+  { label: t('menu.stats'), key: '/stats', icon: (): string => '📈' },
+  { label: t('menu.logs'), key: '/logs', icon: (): string => '📋' },
+  { label: t('menu.plugins'), key: '/plugins', icon: (): string => '🧩' },
+  {
+    label: t('menu.system'),
+    key: 'system',
+    icon: (): string => '⚙️',
+    children: [
+      { label: t('menu.systemSettings'), key: '/settings', icon: (): string => '🔧' },
+      { label: t('menu.systemLogs'), key: '/settings/logs', icon: (): string => '📄' },
+    ],
+  },
 ])
 </script>
 
