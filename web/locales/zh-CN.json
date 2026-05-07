@@ -124,6 +124,7 @@
     "testModel": "测试模型",
     "testModelPlaceholder": "留空则使用第一个已配置模型",
     "testModelHint": "指定用于测试渠道可用性的模型，留空则自动取第一个已配置模型",
+    "testSuccess": "测试成功",
     "testLatency": "耗时",
     "testError": "错误信息",
     "batchTest": "批量测试模型",
@@ -137,6 +138,8 @@
     "checkUpstream": "检查上游模型变动",
     "upstreamRemovedTip": "发现 {count} 个已下线模型",
     "removeRemovedModels": "一键移除已下线模型",
+    "checkingUpstream": "正在检查上游模型变动...",
+    "goToModelConfig": "前往模型配置",
     "noRemovedModels": "所有模型均在线，无已下线模型",
     "missingFields": "请填写必填项："
   },

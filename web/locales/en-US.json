@@ -124,6 +124,7 @@
     "testModel": "Test Model",
     "testModelPlaceholder": "Leave empty to use first configured model",
     "testModelHint": "Model used for availability test. Leave empty to auto-select the first configured model",
+    "testSuccess": "Test successful",
     "testLatency": "Latency",
     "testError": "Error",
     "batchTest": "Batch Test Models",
@@ -137,6 +138,8 @@
     "checkUpstream": "Check Upstream Changes",
     "upstreamRemovedTip": "Found {count} deprecated model(s)",
     "removeRemovedModels": "Remove Deprecated Models",
+    "checkingUpstream": "Checking upstream model changes...",
+    "goToModelConfig": "Go to Model Config",
     "noRemovedModels": "All models are online, no deprecated models found",
     "missingFields": "Please fill required fields: "
   },

@@ -55,6 +55,7 @@ export interface BatchTestResultItem {
   latency: number
   error?: string
   status?: number
+  testing?: boolean
 }
 
 export const channelApi = {
