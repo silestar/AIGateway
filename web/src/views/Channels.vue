@@ -142,7 +142,7 @@
     <ModelSelectModal v-model:show="showModelModal" :channel-id="selectedChannel?.id ?? 0" :channel-name="selectedChannel?.name ?? ''" :existing-models="channelModels" @save="handleModelSave" />
 
     <!-- 批量测试弹窗 -->
-    <n-modal v-model:show="showBatchTest" preset="card" style="width: 700px" :title="t('channels.batchTest')">
+    <n-modal v-model:show="showBatchTest" preset="card" style="width: 700px">
       <template #header>
         <div style="display: flex; align-items: center; justify-content: space-between; width: 100%; padding-right: 32px">
           <span>{{ t('channels.batchTest') }} - {{ batchTestChannelName }}</span>
@@ -150,22 +150,25 @@
         </div>
       </template>
       <n-space vertical size="small">
-        <n-space align="center">
-          <n-checkbox :checked="batchTestModels.length === batchTestEnabledModels.length && batchTestEnabledModels.length > 0" :indeterminate="batchTestModels.length > 0 && batchTestModels.length < batchTestEnabledModels.length" @update:checked="toggleAllBatchTest" />
-          <n-text depth="3" style="font-size: 12px">{{ t('channels.selectAll') }} ({{ batchTestModels.length }}/{{ batchTestEnabledModels.length }})</n-text>
-        </n-space>
-        <div style="max-height: 200px; overflow-y: auto; border: 1px solid var(--n-border-color, rgba(255,255,255,0.1)); border-radius: 6px; padding: 8px">
-          <n-checkbox-group v-model:value="batchTestModels">
-            <n-space vertical :size="4">
-              <n-checkbox v-for="m in batchTestPagedModels" :key="m.actual_model_name" :value="m.actual_model_name" :label="m.display_model_name === m.actual_model_name ? m.display_model_name : `${m.display_model_name} → ${m.actual_model_name}`" />
-            </n-space>
-          </n-checkbox-group>
-        </div>
-        <n-space v-if="batchTestEnabledModels.length > batchTestPageSize" justify="center" style="margin-top: 4px">
-          <n-button size="tiny" :disabled="batchTestPage <= 1" @click="batchTestPage--">‹</n-button>
-          <n-text depth="3" style="font-size: 12px; line-height: 24px">{{ batchTestPage }} / {{ Math.ceil(batchTestEnabledModels.length / batchTestPageSize) }}</n-text>
-          <n-button size="tiny" :disabled="batchTestPage >= Math.ceil(batchTestEnabledModels.length / batchTestPageSize)" @click="batchTestPage++">›</n-button>
-        </n-space>
+        <template v-if="batchTestEnabledModels.length > 0">
+          <n-space align="center">
+            <n-checkbox :checked="batchTestModels.length === batchTestEnabledModels.length && batchTestEnabledModels.length > 0" :indeterminate="batchTestModels.length > 0 && batchTestModels.length < batchTestEnabledModels.length" @update:checked="toggleAllBatchTest" />
+            <n-text depth="3" style="font-size: 12px">{{ t('channels.selectAll') }} ({{ batchTestModels.length }}/{{ batchTestEnabledModels.length }})</n-text>
+          </n-space>
+          <div style="max-height: 200px; overflow-y: auto; border: 1px solid var(--n-border-color, rgba(255,255,255,0.1)); border-radius: 6px; padding: 8px">
+            <n-checkbox-group v-model:value="batchTestModels">
+              <n-space vertical :size="4">
+                <n-checkbox v-for="m in batchTestPagedModels" :key="m.actual_model_name" :value="m.actual_model_name" :label="m.display_model_name === m.actual_model_name ? m.display_model_name : `${m.display_model_name} → ${m.actual_model_name}`" />
+              </n-space>
+            </n-checkbox-group>
+          </div>
+          <n-space v-if="batchTestEnabledModels.length > batchTestPageSize" justify="center" style="margin-top: 4px">
+            <n-button size="tiny" :disabled="batchTestPage <= 1" @click="batchTestPage--">‹</n-button>
+            <n-text depth="3" style="font-size: 12px; line-height: 24px">{{ batchTestPage }} / {{ Math.ceil(batchTestEnabledModels.length / batchTestPageSize) }}</n-text>
+            <n-button size="tiny" :disabled="batchTestPage >= Math.ceil(batchTestEnabledModels.length / batchTestPageSize)" @click="batchTestPage++">›</n-button>
+          </n-space>
+        </template>
+        <n-empty v-else :description="t('channels.noModelsConfigured')" style="padding: 20px 0" />
         <div v-if="batchTestResults.length > 0" style="margin-top: 8px">
           <n-data-table :columns="batchTestResultColumns" :data="batchTestResults" size="small" :pagination="false" />
         </div>
@@ -176,7 +179,7 @@
     <n-modal v-model:show="showUpstreamUpdate" preset="card" style="width: 600px" :title="t('channels.upstreamUpdate')">
       <n-space vertical>
         <div v-if="fetchingUpstream" style="display: flex; align-items: center; gap: 8px; padding: 20px 0; justify-content: center">
-          <span style="animation: spin 1s linear infinite; display: inline-block; font-size: 20px">⟳</span>
+          <n-spin :size="20" />
           <n-text depth="3">{{ t('channels.checkingUpstream') }}</n-text>
         </div>
         <template v-else>
@@ -203,7 +206,7 @@
 <script setup lang="ts">
 import { ref, reactive, computed, h, onMounted, watch } from 'vue'
 import { useI18n } from 'vue-i18n'
-import { useMessage, useDialog, NButton, NSpace, NTag, NInput, NAlert, NInputNumber, NTooltip, NDropdown, NCheckbox, NCheckboxGroup } from 'naive-ui'
+import { useMessage, useDialog, NButton, NSpace, NTag, NInput, NAlert, NInputNumber, NTooltip, NDropdown, NCheckbox, NCheckboxGroup, NSpin } from 'naive-ui'
 import { channelApi, type ChannelListItem, type ChannelModel, type BatchTestResultItem } from '../api/channel'
 import { accountApi, type Account } from '../api/account'
 import ModelSelectModal from '../components/ModelSelectModal.vue'
@@ -317,18 +320,29 @@ const columns = computed(() => [
     },
   },
   {
-    title: t('common.weight'), key: 'weight', width: 110,
+    title: t('common.weight'), key: 'weight', width: 120,
     render: (row: ChannelListItem) => {
       const currentWeight = editingWeightMap[row.id] ?? row.weight
-      // 编辑模式：点击数字时显示输入框
+      // 编辑模式：点击数字时显示输入框（带左右加减按钮）
       if (editingWeightRowId.value === row.id) {
-        return h('div', { style: 'display: inline-flex; align-items: center; height: 28px' }, [
+        return h('div', {
+          class: 'agw-weight-spinner',
+          style: 'display: inline-flex; align-items: center; height: 28px; border-radius: 6px; background: rgba(255,255,255,0.06)',
+        }, [
+          h('button', {
+            class: 'agw-weight-btn',
+            style: 'display: flex; align-items: center; justify-content: center; width: 24px; height: 28px; border: none; background: transparent; cursor: pointer; opacity: 0.6; transition: opacity 0.15s, color 0.15s; color: rgba(255,255,255,0.5); border-radius: 6px 0 0 6px; font-size: 16px; line-height: 1; padding: 0',
+            onClick: (e: Event) => { e.stopPropagation(); adjustWeight(row, -1) },
+            onMouseenter: (e: MouseEvent) => { (e.target as HTMLElement).style.opacity = '1'; (e.target as HTMLElement).style.color = 'var(--n-text-color, #fff)'; (e.target as HTMLElement).style.background = 'rgba(255,255,255,0.1)' },
+            onMouseleave: (e: MouseEvent) => { (e.target as HTMLElement).style.opacity = '0.6'; (e.target as HTMLElement).style.color = 'rgba(255,255,255,0.5)'; (e.target as HTMLElement).style.background = 'transparent' },
+          }, '−'),
           h('input', {
             value: currentWeight,
-            type: 'number',
-            min: '0',
+            type: 'text',
+            inputmode: 'numeric',
+            pattern: '[0-9]*',
             autofocus: true,
-            style: 'width: 50px; height: 28px; text-align: center; font-family: monospace; font-size: 13px; background: var(--n-color, rgba(255,255,255,0.08)); color: var(--n-text-color); border: 1px solid var(--n-primary-color, #00d2ff); border-radius: 4px; outline: none; padding: 0 4px',
+            style: 'width: 44px; height: 28px; text-align: center; font-family: monospace; font-size: 13px; background: transparent; color: var(--n-text-color); border: none; border-bottom: 1px solid var(--n-primary-color, #00d2ff); outline: none; padding: 0; -moz-appearance: textfield',
             onFocus: (e: FocusEvent) => { (e.target as HTMLInputElement).select() },
             onBlur: (e: FocusEvent) => { finishEditWeight(row, (e.target as HTMLInputElement).value) },
             onKeyup: (e: KeyboardEvent) => {
@@ -336,27 +350,50 @@ const columns = computed(() => [
               if (e.key === 'Escape') { editingWeightRowId.value = null; delete editingWeightMap[row.id] }
             },
           }),
+          h('button', {
+            class: 'agw-weight-btn',
+            style: 'display: flex; align-items: center; justify-content: center; width: 24px; height: 28px; border: none; background: transparent; cursor: pointer; opacity: 0.6; transition: opacity 0.15s, color 0.15s; color: rgba(255,255,255,0.5); border-radius: 0 6px 6px 0; font-size: 16px; line-height: 1; padding: 0',
+            onClick: (e: Event) => { e.stopPropagation(); adjustWeight(row, 1) },
+            onMouseenter: (e: MouseEvent) => { (e.target as HTMLElement).style.opacity = '1'; (e.target as HTMLElement).style.color = 'var(--n-text-color, #fff)'; (e.target as HTMLElement).style.background = 'rgba(255,255,255,0.1)' },
+            onMouseleave: (e: MouseEvent) => { (e.target as HTMLElement).style.opacity = '0.6'; (e.target as HTMLElement).style.color = 'rgba(255,255,255,0.5)'; (e.target as HTMLElement).style.background = 'transparent' },
+          }, '+'),
         ])
       }
-      // 正常模式：悬停显示加减按钮
+      // 正常模式：悬停显示左右加减按钮
       return h('div', {
-        class: 'weight-spinner',
+        class: 'agw-weight-spinner',
         style: 'display: inline-flex; align-items: center; height: 28px; border-radius: 6px; transition: background 0.15s; cursor: default',
+        onMouseenter: (e: MouseEvent) => {
+          const el = e.currentTarget as HTMLElement
+          el.style.background = 'rgba(255,255,255,0.06)'
+          el.querySelectorAll('.agw-weight-btn').forEach(b => { (b as HTMLElement).style.opacity = '0.6' })
+        },
+        onMouseleave: (e: MouseEvent) => {
+          const el = e.currentTarget as HTMLElement
+          el.style.background = 'transparent'
+          el.querySelectorAll('.agw-weight-btn').forEach(b => { (b as HTMLElement).style.opacity = '0' })
+        },
       }, [
         h('button', {
-          class: 'weight-spinner-btn',
-          style: 'display: flex; align-items: center; justify-content: center; width: 22px; height: 28px; border: none; background: transparent; cursor: pointer; opacity: 0; transition: opacity 0.15s, color 0.15s; color: var(--n-text-color-3, rgba(255,255,255,0.4)); border-radius: 6px 0 0 6px; font-size: 14px; line-height: 1',
+          class: 'agw-weight-btn',
+          style: 'display: flex; align-items: center; justify-content: center; width: 24px; height: 28px; border: none; background: transparent; cursor: pointer; opacity: 0; transition: opacity 0.15s, color 0.15s, background 0.15s; color: rgba(255,255,255,0.5); border-radius: 6px 0 0 6px; font-size: 16px; line-height: 1; padding: 0',
           onClick: (e: Event) => { e.stopPropagation(); adjustWeight(row, -1) },
+          onMouseenter: (e: MouseEvent) => { (e.target as HTMLElement).style.opacity = '1'; (e.target as HTMLElement).style.color = 'var(--n-text-color, #fff)'; (e.target as HTMLElement).style.background = 'rgba(255,255,255,0.1)' },
+          onMouseleave: (e: MouseEvent) => { (e.target as HTMLElement).style.opacity = '0.6'; (e.target as HTMLElement).style.color = 'rgba(255,255,255,0.5)'; (e.target as HTMLElement).style.background = 'transparent' },
         }, '−'),
         h('span', {
-          class: 'weight-spinner-value',
-          style: 'display: flex; align-items: center; justify-content: center; min-width: 28px; height: 28px; font-family: monospace; font-size: 13px; padding: 0 2px; user-select: none; cursor: pointer',
+          class: 'agw-weight-value',
+          style: 'display: flex; align-items: center; justify-content: center; min-width: 28px; height: 28px; font-family: monospace; font-size: 13px; padding: 0 2px; user-select: none; cursor: pointer; transition: color 0.15s',
           onClick: (e: Event) => { e.stopPropagation(); startEditWeight(row) },
+          onMouseenter: (e: MouseEvent) => { (e.target as HTMLElement).style.color = 'var(--n-primary-color, #00d2ff)' },
+          onMouseleave: (e: MouseEvent) => { (e.target as HTMLElement).style.color = '' },
         }, String(currentWeight)),
         h('button', {
-          class: 'weight-spinner-btn',
-          style: 'display: flex; align-items: center; justify-content: center; width: 22px; height: 28px; border: none; background: transparent; cursor: pointer; opacity: 0; transition: opacity 0.15s, color 0.15s; color: var(--n-text-color-3, rgba(255,255,255,0.4)); border-radius: 0 6px 6px 0; font-size: 14px; line-height: 1',
+          class: 'agw-weight-btn',
+          style: 'display: flex; align-items: center; justify-content: center; width: 24px; height: 28px; border: none; background: transparent; cursor: pointer; opacity: 0; transition: opacity 0.15s, color 0.15s, background 0.15s; color: rgba(255,255,255,0.5); border-radius: 0 6px 6px 0; font-size: 16px; line-height: 1; padding: 0',
           onClick: (e: Event) => { e.stopPropagation(); adjustWeight(row, 1) },
+          onMouseenter: (e: MouseEvent) => { (e.target as HTMLElement).style.opacity = '1'; (e.target as HTMLElement).style.color = 'var(--n-text-color, #fff)'; (e.target as HTMLElement).style.background = 'rgba(255,255,255,0.1)' },
+          onMouseleave: (e: MouseEvent) => { (e.target as HTMLElement).style.opacity = '0.6'; (e.target as HTMLElement).style.color = 'rgba(255,255,255,0.5)'; (e.target as HTMLElement).style.background = 'transparent' },
         }, '+'),
       ])
     },
@@ -444,6 +481,16 @@ function handleMoreAction(key: string, row: ChannelListItem) {
 
 // ========== 列表页直接操作的辅助函数 ==========
 async function openBatchTest(row: ChannelListItem) {
+  // 前置验证：检查 URL
+  if (!row.base_url) {
+    message.warning(t('channels.noBaseUrl'), { duration: 5000 })
+    return
+  }
+  // 前置验证：检查账号
+  if (!row.active_account_count || row.active_account_count === 0) {
+    message.warning(t('channels.noActiveAccount'), { duration: 5000 })
+    return
+  }
   batchTestChannelId.value = row.id
   batchTestChannelName.value = row.name
   batchTestModels.value = []
@@ -453,10 +500,18 @@ async function openBatchTest(row: ChannelListItem) {
     const res = await channelApi.getModelsByChannel(row.id)
     channelModels.value = res.data.data || []
   } catch { channelModels.value = [] }
+  if (channelModels.value.filter((m: any) => m.status === 'enabled').length === 0) {
+    message.warning(t('channels.noModelsConfigured'), { duration: 5000 })
+    return
+  }
   showBatchTest.value = true
 }
 
 async function openUpstreamUpdate(row: ChannelListItem) {
+  if (!row.base_url) {
+    message.warning(t('channels.noBaseUrl'), { duration: 5000 })
+    return
+  }
   upstreamChannelId.value = row.id
   upstreamChecked.value = false
   upstreamRemovedModels.value = []
@@ -525,7 +580,7 @@ const batchTestResultColumns = computed(() => [
   {
     title: t('common.status'), key: 'success', width: 80,
     render: (row: BatchTestResultItem) => {
-      if (row.testing) return h('span', { style: 'animation: spin 1s linear infinite; display: inline-block' }, '⟳')
+      if (row.testing) return h(NSpin, { size: 18 })
       return h(NTag, { type: row.success ? 'success' : 'error', size: 'small' }, () => row.success ? '✓' : `✗ ${row.status || ''}`)
     },
   },
@@ -637,6 +692,15 @@ async function selectChannel(ch: ChannelListItem, tab?: string) {
 
 // ========== 渠道操作 ==========
 async function handleTestChannel(row: ChannelListItem) {
+  // 前置验证
+  if (!row.base_url) {
+    message.warning(t('channels.noBaseUrl'), { duration: 5000 })
+    return
+  }
+  if (!row.active_account_count || row.active_account_count === 0) {
+    message.warning(t('channels.noActiveAccount'), { duration: 5000 })
+    return
+  }
   testingChannelId.value = row.id
   try {
     const res = await channelApi.testChannel(row.id)
@@ -648,7 +712,8 @@ async function handleTestChannel(row: ChannelListItem) {
     }
     loadChannels()
   } catch (err: any) {
-    message.error(err?.response?.data?.error || t('common.operationFailed'), { duration: 5000 })
+    const errMsg = err?.response?.data?.error?.message || err?.response?.data?.error || t('common.operationFailed')
+    message.error(errMsg, { duration: 5000 })
   } finally {
     testingChannelId.value = null
   }
@@ -887,15 +952,14 @@ function startEditWeight(row: ChannelListItem) {
 async function finishEditWeight(row: ChannelListItem, value: string) {
   const newWeight = Math.max(0, parseInt(value) || 0)
   editingWeightRowId.value = null
-  if (newWeight === row.weight) { delete editingWeightMap[row.id]; return }
+  delete editingWeightMap[row.id]
+  if (newWeight === row.weight) return // 无变更，直接恢复
   try {
     await channelApi.updateWeight(row.id, newWeight)
-    row.weight = newWeight
-    delete editingWeightMap[row.id]
     message.success(t('common.success'))
+    loadChannels() // 有变更，刷新列表重新排列
   } catch {
     message.error(t('common.operationFailed'))
-    delete editingWeightMap[row.id]
   }
 }
 
@@ -973,22 +1037,4 @@ onMounted(() => loadChannels())
 </script>
 
 <style scoped>
-@keyframes spin {
-  from { transform: rotate(0deg) }
-  to { transform: rotate(360deg) }
-}
-.weight-spinner:hover {
-  background: var(--n-color-hover, rgba(255,255,255,0.06));
-}
-.weight-spinner:hover .weight-spinner-btn {
-  opacity: 0.5 !important;
-}
-.weight-spinner .weight-spinner-btn:hover {
-  opacity: 1 !important;
-  color: var(--n-text-color, #fff) !important;
-  background: var(--n-color-hover, rgba(255,255,255,0.1));
-}
-.weight-spinner .weight-spinner-value:hover {
-  color: var(--n-primary-color, #00d2ff);
-}
 </style>

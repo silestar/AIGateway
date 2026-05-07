@@ -93,6 +93,7 @@ type GroupInfo struct {
 type TestResult struct {
 	Success  bool   `json:"success"`
 	Latency  int    `json:"latency"`  // 毫秒
+	Status   int    `json:"status,omitempty"`
 	Error    string `json:"error,omitempty"`
 	Model    string `json:"model"`
 }

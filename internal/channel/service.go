@@ -246,13 +246,30 @@ func (s *service) SaveModels(ctx context.Context, id uint, models []ChannelModel
 func (s *service) TestChannel(ctx context.Context, id uint, apiKey string) (*TestResult, error) {
 	var ch Channel
 	if err := s.db.WithContext(ctx).First(&ch, id).Error; err != nil {
-		return nil, fmt.Errorf("channel not found: %w", err)
+		return nil, fmt.Errorf("渠道不存在")
 	}
 
-	// 确定测试模型
+	// 前置验证
+	if ch.BaseURL == "" {
+		return nil, fmt.Errorf("该渠道未配置上游地址（Base URL）")
+	}
+
+	// 检查可用账号
+	var activeCount int64
+	s.db.WithContext(ctx).Table("channel_accounts").
+		Where("channel_id = ? AND status = ?", id, "active").
+		Count(&activeCount)
+	if activeCount == 0 {
+		return nil, fmt.Errorf("该渠道没有可用账号，请先添加并启用账号")
+	}
+
+	if apiKey == "" {
+		return nil, fmt.Errorf("未找到可用账号密钥")
+	}
+
+	// 确定测试模型（使用 actual_model_name）
 	testModel := ch.TestModel
 	if testModel == "" {
-		// 取第一个已配置的模型
 		var cm ChannelModel
 		if err := s.db.WithContext(ctx).Where("channel_id = ? AND status = ?", id, "enabled").Order("display_model_name").First(&cm).Error; err != nil {
 			return nil, fmt.Errorf("该渠道没有已配置的模型，请先配置模型或指定测试模型")
@@ -263,70 +280,16 @@ func (s *service) TestChannel(ctx context.Context, id uint, apiKey string) (*Tes
 		}
 	}
 
-	// 构建轻量请求
-	reqBody := map[string]interface{}{
-		"model":       testModel,
-		"messages":    []map[string]string{{"role": "user", "content": "hi"}},
-		"max_tokens":  5,
-		"stream":      false,
-	}
-	bodyBytes, _ := json.Marshal(reqBody)
-
-	url := ch.BaseURL + "/v1/chat/completions"
-	if ch.Type == "anthropic" {
-		url = ch.BaseURL + "/v1/messages"
-		reqBody = map[string]interface{}{
-			"model":      testModel,
-			"messages":   []map[string]string{{"role": "user", "content": "hi"}},
-			"max_tokens": 5,
-		}
-		bodyBytes, _ = json.Marshal(reqBody)
-	}
-
-	req, err := http.NewRequestWithContext(ctx, "POST", url, bytes.NewReader(bodyBytes))
+	result, err := s.sendTestRequest(ctx, &ch, testModel, apiKey)
 	if err != nil {
-		return nil, fmt.Errorf("create request: %w", err)
-	}
-
-	// 设置请求头
-	if ch.Type == "anthropic" {
-		req.Header.Set("x-api-key", apiKey)
-		req.Header.Set("anthropic-version", "2023-06-01")
-		req.Header.Set("Content-Type", "application/json")
-	} else {
-		req.Header.Set("Authorization", "Bearer "+apiKey)
-		req.Header.Set("Content-Type", "application/json")
-	}
-
-	start := time.Now()
-	client := &http.Client{Timeout: 30 * time.Second}
-	resp, err := client.Do(req)
-	latency := int(time.Since(start).Milliseconds())
-
-	result := &TestResult{
-		Model:   testModel,
-		Latency: latency,
-	}
-
-	if err != nil {
-		result.Success = false
-		result.Error = err.Error()
-	} else {
-		body, _ := io.ReadAll(resp.Body)
-		resp.Body.Close()
-		if resp.StatusCode >= 400 {
-			result.Success = false
-			result.Error = fmt.Sprintf("HTTP %d: %s", resp.StatusCode, string(body))
-		} else {
-			result.Success = true
-		}
+		return nil, err
 	}
 
 	// 更新渠道测试记录
 	now := time.Now()
 	s.db.WithContext(ctx).Model(&Channel{}).Where("id = ?", id).Updates(map[string]interface{}{
-		"last_test_latency": latency,
-		"last_tested_at":   now,
+		"last_test_latency": result.Latency,
+		"last_tested_at":    now,
 	})
 
 	return result, nil
@@ -336,68 +299,50 @@ func (s *service) TestChannel(ctx context.Context, id uint, apiKey string) (*Tes
 func (s *service) BatchTestModels(ctx context.Context, id uint, modelNames []string, apiKey string) ([]BatchTestResultItem, error) {
 	var ch Channel
 	if err := s.db.WithContext(ctx).First(&ch, id).Error; err != nil {
-		return nil, fmt.Errorf("channel not found: %w", err)
+		return nil, fmt.Errorf("渠道不存在")
+	}
+
+	// 前置验证
+	if ch.BaseURL == "" {
+		return nil, fmt.Errorf("该渠道未配置上游地址（Base URL）")
+	}
+	if apiKey == "" {
+		return nil, fmt.Errorf("未找到可用账号密钥")
+	}
+
+	// 获取模型映射表：display_model_name → actual_model_name
+	var allModels []ChannelModel
+	s.db.WithContext(ctx).Where("channel_id = ? AND status = ?", id, "enabled").Find(&allModels)
+	modelMap := make(map[string]string) // display → actual
+	for _, m := range allModels {
+		if m.ActualModelName != "" {
+			modelMap[m.DisplayModelName] = m.ActualModelName
+		}
+		if m.DisplayModelName != m.ActualModelName && m.ActualModelName != "" {
+			modelMap[m.ActualModelName] = m.ActualModelName
+		}
 	}
 
 	results := make([]BatchTestResultItem, 0, len(modelNames))
-	for _, modelName := range modelNames {
-		result := BatchTestResultItem{Model: modelName}
-
-		reqBody := map[string]interface{}{
-			"model":      modelName,
-			"messages":   []map[string]string{{"role": "user", "content": "hi"}},
-			"max_tokens": 5,
-			"stream":     false,
-		}
-		bodyBytes, _ := json.Marshal(reqBody)
-
-		url := ch.BaseURL + "/v1/chat/completions"
-		if ch.Type == "anthropic" {
-			url = ch.BaseURL + "/v1/messages"
-			reqBody = map[string]interface{}{
-				"model":      modelName,
-				"messages":   []map[string]string{{"role": "user", "content": "hi"}},
-				"max_tokens": 5,
-			}
-			bodyBytes, _ = json.Marshal(reqBody)
+	for _, displayName := range modelNames {
+		// 将 display_model_name 转换为 actual_model_name
+		actualName := displayName
+		if mapped, ok := modelMap[displayName]; ok {
+			actualName = mapped
 		}
 
-		req, err := http.NewRequestWithContext(ctx, "POST", url, bytes.NewReader(bodyBytes))
+		result := BatchTestResultItem{Model: displayName}
+
+		testResult, err := s.sendTestRequest(ctx, &ch, actualName, apiKey)
 		if err != nil {
 			result.Success = false
 			result.Error = err.Error()
-			results = append(results, result)
-			continue
-		}
-
-		if ch.Type == "anthropic" {
-			req.Header.Set("x-api-key", apiKey)
-			req.Header.Set("anthropic-version", "2023-06-01")
-			req.Header.Set("Content-Type", "application/json")
 		} else {
-			req.Header.Set("Authorization", "Bearer "+apiKey)
-			req.Header.Set("Content-Type", "application/json")
+			result.Success = testResult.Success
+			result.Latency = testResult.Latency
+			result.Status = testResult.Status
+			result.Error = testResult.Error
 		}
-
-		start := time.Now()
-			client := &http.Client{Timeout: 30 * time.Second}
-			resp, err := client.Do(req)
-			result.Latency = int(time.Since(start).Milliseconds())
-
-			if err != nil {
-				result.Success = false
-				result.Error = err.Error()
-			} else {
-				body, _ := io.ReadAll(resp.Body)
-				resp.Body.Close()
-				result.Status = resp.StatusCode
-				if resp.StatusCode >= 400 {
-					result.Success = false
-					result.Error = fmt.Sprintf("HTTP %d: %s", resp.StatusCode, string(body))
-				} else {
-					result.Success = true
-				}
-			}
 
 		results = append(results, result)
 	}
@@ -409,6 +354,94 @@ func (s *service) BatchTestModels(ctx context.Context, id uint, modelNames []str
 	})
 
 	return results, nil
+}
+
+// sendTestRequest 发送测试请求（通用方法）
+func (s *service) sendTestRequest(ctx context.Context, ch *Channel, model string, apiKey string) (*TestResult, error) {
+	var url string
+	var bodyBytes []byte
+
+	switch ch.Type {
+	case "anthropic":
+		url = ch.BaseURL + "/v1/messages"
+		reqBody := map[string]interface{}{
+			"model":      model,
+			"messages":   []map[string]string{{"role": "user", "content": "hi"}},
+			"max_tokens": 5,
+		}
+		bodyBytes, _ = json.Marshal(reqBody)
+	case "gemini":
+		url = ch.BaseURL + "/v1beta/models/" + model + ":generateContent"
+		reqBody := map[string]interface{}{
+			"contents": []map[string]interface{}{
+				{"parts": []map[string]string{{"text": "hi"}}},
+			},
+			"generationConfig": map[string]interface{}{
+				"maxOutputTokens": 5,
+			},
+		}
+		bodyBytes, _ = json.Marshal(reqBody)
+	default: // openai, openai-response
+		url = ch.BaseURL + "/v1/chat/completions"
+		reqBody := map[string]interface{}{
+			"model":      model,
+			"messages":   []map[string]string{{"role": "user", "content": "hi"}},
+			"max_tokens": 5,
+			"stream":     false,
+		}
+		bodyBytes, _ = json.Marshal(reqBody)
+	}
+
+	req, err := http.NewRequestWithContext(ctx, "POST", url, bytes.NewReader(bodyBytes))
+	if err != nil {
+		return nil, fmt.Errorf("创建请求失败: %w", err)
+	}
+
+	// 设置请求头
+	switch ch.Type {
+	case "anthropic":
+		req.Header.Set("x-api-key", apiKey)
+		req.Header.Set("anthropic-version", "2023-06-01")
+		req.Header.Set("Content-Type", "application/json")
+	case "gemini":
+		req.Header.Set("x-goog-api-key", apiKey)
+		req.Header.Set("Content-Type", "application/json")
+	default:
+		req.Header.Set("Authorization", "Bearer "+apiKey)
+		req.Header.Set("Content-Type", "application/json")
+	}
+
+	start := time.Now()
+	client := &http.Client{Timeout: 30 * time.Second}
+	resp, err := client.Do(req)
+	latency := int(time.Since(start).Milliseconds())
+
+	result := &TestResult{
+		Model:   model,
+		Latency: latency,
+	}
+
+	if err != nil {
+		result.Success = false
+		result.Error = err.Error()
+	} else {
+		body, _ := io.ReadAll(resp.Body)
+		resp.Body.Close()
+		result.Status = resp.StatusCode
+		if resp.StatusCode >= 400 {
+			result.Success = false
+			// 截取错误信息，避免过长
+			errMsg := string(body)
+			if len(errMsg) > 500 {
+				errMsg = errMsg[:500] + "..."
+			}
+			result.Error = fmt.Sprintf("HTTP %d: %s", resp.StatusCode, errMsg)
+		} else {
+			result.Success = true
+		}
+	}
+
+	return result, nil
 }
 
 // UpdateTestModel 更新渠道指定测试模型
