@@ -43,6 +43,10 @@ Thumbs.db
 web/node_modules/
 web/dist/
 
+# Air 热重载
+.air.toml
+tmp/
+
 # 方案文档（不放项目内）
 proposals/
 guide/
