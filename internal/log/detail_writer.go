@@ -59,16 +59,21 @@ func (w *DetailWriter) WriteDetail(traceID string, timestamp time.Time, reqSecti
 	// goroutine 异步写入，不阻塞主请求
 	go func() {
 		if err := w.writeFile(traceID, timestamp, entry); err != nil {
-			// 写入失败静默忽略，不影响主流程
 			return
 		}
 
-		// 标记 DB has_detail = 1
-		w.db.Model(&struct {
-			HasDetail int
-		}{}).Table("request_logs").
-			Where("trace_id = ?", traceID).
-			Update("has_detail", 1)
+		// 标记 DB has_detail = 1（异步写入器可能尚未落库，最多重试 5 次，每次等 200ms）
+		for i := 0; i < 5; i++ {
+			result := w.db.Model(&struct {
+				HasDetail int
+			}{}).Table("request_logs").
+				Where("trace_id = ?", traceID).
+				Update("has_detail", 1)
+			if result.Error == nil && result.RowsAffected > 0 {
+				return
+			}
+			time.Sleep(200 * time.Millisecond)
+		}
 	}()
 }
 
