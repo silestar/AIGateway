@@ -1190,7 +1190,7 @@ onUnmounted(() => {
 }
 
 .code-block-wrap .raw-json {
-  max-height: 300px;
+  max-height: 150px;
   overflow-y: auto;
   /* 滚动条样式 */
   scrollbar-width: thin;
