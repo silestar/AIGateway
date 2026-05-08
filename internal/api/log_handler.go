@@ -94,8 +94,8 @@ func (h *LogHandler) List(c *gin.Context) {
 		if log.KeysID > 0 {
 			var gName string
 			h.statsMgr.DB().Table("keys_groups").Select("keys_groups.name").
-				Joins("JOIN keys_group_items ON keys_groups.id = keys_group_items.group_id").
-				Where("keys_group_items.keys_id = ?", log.KeysID).
+				Joins("JOIN keys_group_members ON keys_groups.id = keys_group_members.group_id").
+				Where("keys_group_members.keys_id = ?", log.KeysID).
 				Limit(1).Scan(&gName)
 			item.GroupName = gName
 		}
