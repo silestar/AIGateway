@@ -17,26 +17,23 @@
           :placeholder="t('requestLogs.selectKeys')"
           clearable
           style="width: 140px"
-          @keyup.enter="onFilterChange"
-          @clear="onFilterChange"
+          @update:value="onFilterChange"
         />
         <n-input
           v-model:value="filterChannelName"
           :placeholder="t('requestLogs.selectChannel')"
           clearable
           style="width: 140px"
-          @keyup.enter="onFilterChange"
-          @clear="onFilterChange"
+          @update:value="onFilterChange"
         />
         <n-input
           v-model:value="filterModel"
           :placeholder="t('requestLogs.modelPlaceholder')"
           clearable
           style="width: 160px"
-          @keyup.enter="onFilterChange"
-          @clear="onFilterChange"
+          @update:value="onFilterChange"
         />
-        <n-button type="primary" " @click="onFilterChange">{{ t('requestLogs.search') }}</n-button>
+<n-button type="primary" :loading="loading" :disabled="loading" @click="onFilterChange">{{ loading ? t('requestLogs.searching') : t('requestLogs.search') }}</n-button>
         <n-button @click="resetFilters">{{ t('requestLogs.reset') }}</n-button>
         <div style="flex:1"></div>
         <!-- 实时跟踪开关 -->
@@ -83,8 +80,7 @@
           :placeholder="t('requestLogs.keywordPlaceholder')"
           clearable
           style="width: 240px"
-          @keyup.enter="onFilterChange"
-          @clear="onFilterChange"
+          @update:value="onFilterChange"
         />
       </div>
     </div>
@@ -230,9 +226,9 @@
               <div class="model-row">
                 <template v-if="detailLog.mapped_model">
                   <img :src="routeIcon" class="model-icon" />{{ t('requestLogs.modelMapped') }}：
-                  <span class="model-label">{{ detailLog.model_name }}</span>
+                  <n-tag type="info" size="small" class="model-tag" @click="copyText(detailLog.model_name)">{{ detailLog.model_name }}</n-tag>
                   <span class="model-arrow">→</span>
-                  <span class="model-label">{{ detailLog.mapped_model }}</span>
+                  <n-tag type="success" size="small" class="model-tag" @click="copyText(detailLog.mapped_model)">{{ detailLog.mapped_model }}</n-tag>
                 </template>
                 <template v-else>
                   <span class="model-label">{{ detailLog.model_name }}</span>
@@ -254,12 +250,12 @@
             <div class="detail-section-title">{{ t('requestLogs.detailTokenDetail') }}</div>
             <div class="detail-grid">
               <div class="detail-label">{{ t('requestLogs.detailPromptTokens') }}</div>
-              <div class="detail-value monospace">{{ detailLog.prompt_tokens }}</div>
+              <div class="detail-value monospace">{{ detailLog.prompt_tokens.toLocaleString('en-US') }}</div>
               <div class="detail-label">{{ t('requestLogs.detailCompletionTokens') }}</div>
-              <div class="detail-value monospace">{{ detailLog.completion_tokens }}</div>
+              <div class="detail-value monospace">{{ detailLog.completion_tokens.toLocaleString('en-US') }}</div>
               <template v-if="detailLog.cache_tokens > 0">
                 <div class="detail-label">{{ t('requestLogs.detailCacheTokens') }}</div>
-                <div class="detail-value"><span class="cache-badge">缓存↓ {{ detailLog.cache_tokens }}</span></div>
+                <div class="detail-value"><span class="cache-badge">缓存↓ {{ detailLog.cache_tokens.toLocaleString('en-US') }}</span></div>
               </template>
             </div>
           </div>
@@ -621,8 +617,9 @@ const tableColumns = computed<DataTableColumns<RequestLog>>(() => [
     key: 'tokens',
     width: 120,
     render: (row) => {
+      const fmtNum = (n: number) => n.toLocaleString('en-US')
       const children: any[] = [
-        h('div', { style: { fontSize: '12px', fontFamily: "'JetBrains Mono', monospace" } }, `${row.prompt_tokens} / ${row.completion_tokens}`),
+        h('div', { style: { fontSize: '12px', fontFamily: "'JetBrains Mono', monospace" } }, `${fmtNum(row.prompt_tokens)} / ${fmtNum(row.completion_tokens)}`),
       ]
       if (row.cache_tokens > 0) {
         children.push(h('div', { style: { fontSize: '10px', color: '#52c41a' } }, `缓存↓ ${row.cache_tokens}`))
@@ -636,9 +633,19 @@ const tableColumns = computed<DataTableColumns<RequestLog>>(() => [
     width: 70,
     render: (row) => {
       const ok = is2xx(row.status_code)
+      const color = ok ? '#52c41a' : '#ff4d4f'
       return h('span', {
-        class: `status-badge ${ok ? 'status-success' : 'status-error'}`,
-        style: { fontSize: '12px' },
+        style: {
+          display: 'inline-block',
+          padding: '1px 8px',
+          borderRadius: '4px',
+          fontSize: '12px',
+          fontWeight: '600',
+          fontFamily: "'JetBrains Mono', monospace",
+          color,
+          background: ok ? 'rgba(82, 196, 26, 0.1)' : 'rgba(255, 77, 79, 0.1)',
+          border: ok ? '1px solid rgba(82, 196, 26, 0.3)' : '1px solid rgba(255, 77, 79, 0.3)',
+        },
       }, String(row.status_code))
     },
   },
@@ -646,10 +653,33 @@ const tableColumns = computed<DataTableColumns<RequestLog>>(() => [
     title: '',
     key: 'detail',
     width: 40,
-    render: (row) => h('span', {
-      style: { cursor: 'pointer', color: '#00d2ff', fontSize: '14px' },
-      onClick: (e: Event) => { e.stopPropagation(); openDetail(row) },
-    }, '›'),
+    render: (row) => {
+      return h('span', {
+        style: {
+          cursor: 'pointer',
+          display: 'inline-flex',
+          alignItems: 'center',
+          justifyContent: 'center',
+          width: '28px',
+          height: '28px',
+          borderRadius: '6px',
+          background: 'rgba(0, 210, 255, 0.08)',
+          border: '1px solid rgba(0, 210, 255, 0.2)',
+          color: '#00d2ff',
+          fontSize: '16px',
+          transition: 'all 0.2s',
+        },
+        onClick: (e: Event) => { e.stopPropagation(); openDetail(row) },
+        onMouseenter: (e: MouseEvent) => {
+          (e.target as HTMLElement).style.background = 'rgba(0, 210, 255, 0.15)'
+          ;(e.target as HTMLElement).style.borderColor = '#00d2ff'
+        },
+        onMouseleave: (e: MouseEvent) => {
+          (e.target as HTMLElement).style.background = 'rgba(0, 210, 255, 0.08)'
+          ;(e.target as HTMLElement).style.borderColor = 'rgba(0, 210, 255, 0.2)'
+        },
+      }, '▶')
+    },
   },
 ])
 
@@ -723,7 +753,12 @@ function onFilterChange() {
 }
 
 function resetFilters() {
-  dateRange.value = null
+  // 重置为当天时间区间
+  const todayStart = new Date()
+  todayStart.setHours(0, 0, 0, 0)
+  const todayEnd = new Date()
+  todayEnd.setHours(23, 59, 59, 999)
+  dateRange.value = [todayStart.getTime(), todayEnd.getTime()]
   filterKeysName.value = ''
   filterChannelName.value = ''
   filterModel.value = ''
@@ -995,6 +1030,7 @@ onUnmounted(() => {
 .model-row { display: flex; align-items: center; gap: 4px; font-size: 12px; }
 .model-label { font-family: 'JetBrains Mono', monospace; font-weight: 600; }
 .model-label.warn { color: #f0c040; }
+.model-tag { cursor: pointer; font-family: 'JetBrains Mono', monospace; }
 .model-hint { font-size: 11px; color: #999; }
 .model-hint.warn { color: #f0c040; }
 .model-icon { width: 14px; height: 14px; vertical-align: middle; margin-right: 3px; opacity: 0.7; }
@@ -1011,8 +1047,8 @@ onUnmounted(() => {
 }
 
 .inline-json {
-  background: rgba(0, 0, 0, 0.3);
-  color: #e8eaed;
+  background: rgba(255, 255, 255, 0.06);
+  color: #e0e0e0;
   padding: 8px;
   border-radius: 6px;
   font-family: 'JetBrains Mono', monospace;
@@ -1026,8 +1062,8 @@ onUnmounted(() => {
 }
 
 .raw-json {
-  background: rgba(0, 0, 0, 0.3);
-  color: #e8eaed;
+  background: #000;
+  color: #fff;
   padding: 16px;
   border-radius: 8px;
   font-family: 'JetBrains Mono', monospace;

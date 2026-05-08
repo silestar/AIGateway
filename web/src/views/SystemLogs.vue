@@ -906,8 +906,8 @@ onUnmounted(() => {
 
 /* 内联 JSON */
 .inline-json {
-  background: rgba(0, 0, 0, 0.3);
-  color: #e8eaed;
+  background: rgba(255, 255, 255, 0.06);
+  color: #e0e0e0;
   padding: 8px;
   border-radius: 6px;
   font-family: 'JetBrains Mono', 'Fira Code', monospace;
@@ -922,8 +922,8 @@ onUnmounted(() => {
 
 /* 原始 JSON 折叠面板 */
 .raw-json {
-  background: rgba(0, 0, 0, 0.3);
-  color: #e8eaed;
+  background: #000;
+  color: #fff;
   padding: 16px;
   border-radius: 8px;
   font-family: 'JetBrains Mono', 'Fira Code', monospace;

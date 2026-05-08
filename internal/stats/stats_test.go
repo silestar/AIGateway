@@ -95,7 +95,7 @@ func TestManager_Realtime(t *testing.T) {
 		t.Errorf("expected 1 success, got %d", stats.SuccessRequests)
 	}
 	if stats.AvgLatencyMs != 50 {
-		t.Errorf("expected avg latency 50, got %d", stats.AvgLatencyMs)
+		t.Errorf("expected avg latency 50, got %f", stats.AvgLatencyMs)
 	}
 }
 

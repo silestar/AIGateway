@@ -42,7 +42,7 @@ type SystemDailyStats struct {
 	TotalRequests   int       `json:"total_requests"`
 	SuccessRequests int       `json:"success_requests"`
 	FailRequests    int       `json:"fail_requests"`
-	AvgLatencyMs    int       `json:"avg_latency_ms"`
+	AvgLatencyMs    float64   `json:"avg_latency_ms"`
 	TotalTokens     int64     `json:"total_tokens"`
 	TotalCost       float64   `json:"total_cost"`
 	CreatedAt       time.Time `gorm:"autoCreateTime" json:"created_at"`
@@ -59,7 +59,7 @@ type KeysDailyStats struct {
 	TotalRequests   int    `json:"total_requests"`
 	SuccessRequests int    `json:"success_requests"`
 	FailRequests    int    `json:"fail_requests"`
-	AvgLatencyMs    int    `json:"avg_latency_ms"`
+	AvgLatencyMs    float64 `json:"avg_latency_ms"`
 	TotalTokens     int64  `json:"total_tokens"`
 	TotalCost       float64 `json:"total_cost"`
 }
@@ -75,7 +75,7 @@ type ChannelDailyStats struct {
 	TotalRequests   int    `json:"total_requests"`
 	SuccessRequests int    `json:"success_requests"`
 	FailRequests    int    `json:"fail_requests"`
-	AvgLatencyMs    int    `json:"avg_latency_ms"`
+	AvgLatencyMs    float64 `json:"avg_latency_ms"`
 	TotalTokens     int64  `json:"total_tokens"`
 	TotalCost       float64 `json:"total_cost"`
 	ActiveAccounts  int    `json:"active_accounts"`
@@ -89,7 +89,7 @@ type RealtimeStats struct {
 	TotalRequests   int64  `json:"total_requests"`
 	SuccessRequests int64  `json:"success_requests"`
 	FailRequests    int64  `json:"fail_requests"`
-	AvgLatencyMs    int    `json:"avg_latency_ms"`
+	AvgLatencyMs    float64 `json:"avg_latency_ms"`
 	TotalTokens     int64  `json:"total_tokens"`
 	ActiveKeys int64  `json:"active_keys"`
 	ActiveChannels  int64  `json:"active_channels"`

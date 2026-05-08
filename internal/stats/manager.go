@@ -424,7 +424,7 @@ type ConsumerRealtimeStats struct {
 	FailCount      int64   `json:"fail_count"`
 	TotalTokens    int64   `json:"total_tokens"`
 	TotalCost      float64 `json:"total_cost"`
-	AvgLatencyMs   int     `json:"avg_latency_ms"`
+	AvgLatencyMs   float64 `json:"avg_latency_ms"`
 	TopModels      []ModelCount `json:"top_models"`
 }
 
@@ -463,7 +463,7 @@ func (m *Manager) GetConsumerRealtime(ctx context.Context, keysID uint) (*Consum
 	stats.FailCount = result.TotalRequests - result.SuccessCount
 	stats.TotalTokens = result.TotalTokens
 	stats.TotalCost = result.TotalCost
-	stats.AvgLatencyMs = int(result.AvgLatency)
+	stats.AvgLatencyMs = result.AvgLatency
 
 	// Top 模型
 	var topModels []ModelCount
@@ -488,7 +488,7 @@ type ChannelRealtimeStats struct {
 	FailCount     int64   `json:"fail_count"`
 	TotalTokens   int64   `json:"total_tokens"`
 	TotalCost     float64 `json:"total_cost"`
-	AvgLatencyMs  int     `json:"avg_latency_ms"`
+	AvgLatencyMs  float64 `json:"avg_latency_ms"`
 	TopModels     []ModelCount `json:"top_models"`
 }
 
@@ -520,7 +520,7 @@ func (m *Manager) GetChannelRealtime(ctx context.Context, channelID uint) (*Chan
 	stats.FailCount = result.TotalRequests - result.SuccessCount
 	stats.TotalTokens = result.TotalTokens
 	stats.TotalCost = result.TotalCost
-	stats.AvgLatencyMs = int(result.AvgLatency)
+	stats.AvgLatencyMs = result.AvgLatency
 
 	// Top 模型
 	var topModels []ModelCount

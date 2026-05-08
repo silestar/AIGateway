@@ -325,8 +325,19 @@ func handleChatCompletions(c *gin.Context) {
 		}
 	}
 
-	// 6. 判断是否流式
+	// 6. 判断是否流式（兼容 Header Accept 和 body stream 字段）
 	isStream := c.GetHeader("Accept") == "text/event-stream"
+	if !isStream {
+		if parsedBody, exists := c.Get("parsedBody"); exists {
+			if b, ok := parsedBody.(map[string]interface{}); ok {
+				if s, ok := b["stream"]; ok {
+					if v, ok := s.(bool); ok && v {
+						isStream = true
+					}
+				}
+			}
+		}
+	}
 	clientIP := c.ClientIP()
 	traceID, _ := c.Get("trace_id")
 	traceIDStr, _ := traceID.(string)

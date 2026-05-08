@@ -7,6 +7,7 @@ import (
 	"io"
 	"net"
 	"net/http"
+	"strconv"
 	"strings"
 	"time"
 
@@ -87,9 +88,7 @@ func (e *Engine) Forward(ctx context.Context, ch *channel.Channel, acc *account.
 	upstreamReq.Header.Set("Authorization", "Bearer "+plainKey)
 	upstreamReq.Header.Set("Content-Type", "application/json")
 
-	upstreamStart := time.Now()
 	resp, err := e.client.Do(upstreamReq)
-	upstreamLatencyMs := int(time.Since(upstreamStart).Milliseconds())
 	if err != nil {
 		return nil, fmt.Errorf("upstream request: %w", err)
 	}
@@ -145,6 +144,9 @@ func (e *Engine) Forward(ctx context.Context, ch *channel.Channel, acc *account.
 	for k, vv := range resp.Header {
 		headers[k] = vv
 	}
+
+	// 从上游响应头提取处理耗时
+	upstreamLatencyMs := extractUpstreamLatency(resp.Header)
 
 	return &ProxyResult{
 		StatusCode:        resp.StatusCode,
@@ -202,9 +204,7 @@ func (e *Engine) ForwardStream(ctx context.Context, ch *channel.Channel, acc *ac
 	upstreamReq.Header.Set("Content-Type", "application/json")
 
 	streamClient := &http.Client{Transport: e.client.Transport}
-	upstreamStart := time.Now()
 	resp, err := streamClient.Do(upstreamReq)
-	upstreamLatencyMs := int(time.Since(upstreamStart).Milliseconds())
 	if err != nil {
 		return nil, fmt.Errorf("upstream stream request: %w", err)
 	}
@@ -215,13 +215,21 @@ func (e *Engine) ForwardStream(ctx context.Context, ch *channel.Channel, acc *ac
 		return nil, fmt.Errorf("upstream returned %d: %s", resp.StatusCode, string(body))
 	}
 
-	var lastChunk string
+	var lastChunks strings.Builder
 	buf := make([]byte, 4096)
 	for {
 		n, readErr := resp.Body.Read(buf)
 		if n > 0 {
 			chunk := buf[:n]
-			lastChunk = string(chunk)
+			// 累积最后 64KB 的 chunk 用于提取 usage（不存完整响应体，避免数据库暴增）
+			lastChunks.Write(chunk)
+			if lastChunks.Len() > 65536 {
+				// 只保留最后 64KB
+				excess := lastChunks.Len() - 65536
+				remaining := lastChunks.String()[excess:]
+				lastChunks.Reset()
+				lastChunks.WriteString(remaining)
+			}
 
 			converted, convErr := adp.ConvertStreamChunk(ctx, chunk)
 			if convErr != nil {
@@ -241,12 +249,13 @@ func (e *Engine) ForwardStream(ctx context.Context, ch *channel.Channel, acc *ac
 		}
 	}
 
-	streamUsage := usage.ExtractFromStream(lastChunk)
+	lastChunkStr := lastChunks.String()
+	streamUsage := usage.ExtractFromStream(lastChunkStr)
 
 	// 从流式最后 chunk 提取响应摘要
 	var respModel, finishReason, sysFP string
-	// 从 lastChunk 的 SSE data 行中提取
-	for _, line := range strings.Split(lastChunk, "\n") {
+	// 从累积的尾部 chunks 的 SSE data 行中提取
+	for _, line := range strings.Split(lastChunkStr, "\n") {
 		line = strings.TrimSpace(line)
 		if !strings.HasPrefix(line, "data: ") || line == "data: [DONE]" {
 			continue
@@ -286,7 +295,7 @@ func (e *Engine) ForwardStream(ctx context.Context, ch *channel.Channel, acc *ac
 		ResponseModel:     respModel,
 		FinishReason:      finishReason,
 		SystemFingerprint: sysFP,
-		UpstreamLatencyMs: upstreamLatencyMs,
+		UpstreamLatencyMs: extractUpstreamLatency(resp.Header),
 	}, nil
 }
 
@@ -377,4 +386,17 @@ func SplitSSEData(data string) []string {
 		}
 	}
 	return results
+}
+
+// extractUpstreamLatency 从上游响应头中提取处理耗时(ms)
+// 支持: openai-processing-ms, x-processing-time, x-request-duration
+func extractUpstreamLatency(headers http.Header) int {
+	for _, key := range []string{"Openai-Processing-Ms", "X-Processing-Time", "X-Request-Duration"} {
+		if v := headers.Get(key); v != "" {
+			if ms, err := strconv.Atoi(strings.TrimSpace(v)); err == nil && ms > 0 {
+				return ms
+			}
+		}
+	}
+	return 0
 }

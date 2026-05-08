@@ -221,7 +221,7 @@ func (c *TodayCounters) Increment(success bool, latencyMs int, tokens int) {
 }
 
 // Snapshot 获取当前快照
-func (c *TodayCounters) Snapshot() (date string, total, success, fail int64, avgLatencyMs int, tokens int64) {
+func (c *TodayCounters) Snapshot() (date string, total, success, fail int64, avgLatencyMs float64, tokens int64) {
 	date = c.date.Load().(string)
 	total = c.totalRequests.Load()
 	success = c.successRequests.Load()
@@ -229,7 +229,7 @@ func (c *TodayCounters) Snapshot() (date string, total, success, fail int64, avg
 	tokens = c.totalTokens.Load()
 	count := c.requestCount.Load()
 	if count > 0 {
-		avgLatencyMs = int(c.totalLatencyMs.Load() / count)
+		avgLatencyMs = float64(c.totalLatencyMs.Load()) / float64(count)
 	}
 	return
 }
