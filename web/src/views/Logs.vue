@@ -317,11 +317,17 @@
                     </div>
                     <div class="detail-kv" v-if="detailContent.request.headers && Object.keys(detailContent.request.headers).length > 0">
                       <span class="detail-key">Headers</span>
-                      <pre class="inline-json" :style="{ maxHeight: detailCollapsed ? '80px' : 'none', overflow: 'hidden' }">{{ toPrettyJSON(detailContent.request.headers) }}</pre>
+                      <div class="code-block-wrap">
+                        <span class="code-copy-btn" @click="copyText(toPrettyJSON(detailContent.request.headers))" title="复制">📋</span>
+                        <pre class="raw-json">{{ toPrettyJSON(detailContent.request.headers) }}</pre>
+                      </div>
                     </div>
                     <div class="detail-kv" v-if="detailContent.request.body">
                       <span class="detail-key">Body</span>
-                      <pre class="inline-json" :style="{ maxHeight: detailCollapsed ? '80px' : 'none', overflow: 'hidden' }">{{ toPrettyJSON(detailContent.request.body) }}</pre>
+                      <div class="code-block-wrap">
+                        <span class="code-copy-btn" @click="copyText(toPrettyJSON(detailContent.request.body))" title="复制">📋</span>
+                        <pre class="raw-json">{{ toPrettyJSON(detailContent.request.body) }}</pre>
+                      </div>
                     </div>
                   </div>
                   <n-divider style="margin: 12px 0" />
@@ -333,11 +339,17 @@
                     </div>
                     <div class="detail-kv" v-if="detailContent.response.headers && Object.keys(detailContent.response.headers).length > 0">
                       <span class="detail-key">Headers</span>
-                      <pre class="inline-json" :style="{ maxHeight: detailCollapsed ? '80px' : 'none', overflow: 'hidden' }">{{ toPrettyJSON(detailContent.response.headers) }}</pre>
+                      <div class="code-block-wrap">
+                        <span class="code-copy-btn" @click="copyText(toPrettyJSON(detailContent.response.headers))" title="复制">📋</span>
+                        <pre class="raw-json">{{ toPrettyJSON(detailContent.response.headers) }}</pre>
+                      </div>
                     </div>
                     <div class="detail-kv" v-if="detailContent.response.body">
                       <span class="detail-key">Body</span>
-                      <pre class="inline-json" :style="{ maxHeight: detailCollapsed ? '80px' : 'none', overflow: 'hidden' }">{{ toPrettyJSON(detailContent.response.body) }}</pre>
+                      <div class="code-block-wrap">
+                        <span class="code-copy-btn" @click="copyText(toPrettyJSON(detailContent.response.body))" title="复制">📋</span>
+                        <pre class="raw-json">{{ toPrettyJSON(detailContent.response.body) }}</pre>
+                      </div>
                     </div>
                   </div>
                 </template>
@@ -415,7 +427,6 @@ const showDetail = ref(false)
 const detailLog = ref<RequestLog | null>(null)
 const detailContentLoading = ref(false)
 const detailContent = ref<LogDetailContent | null>(null)
-const detailCollapsed = ref(true)  // >20行默认折叠
 
 // === 闪烁行 ID 集合 ===
 const flashRowIds = ref<Set<number>>(new Set())
@@ -750,7 +761,6 @@ const tableColumns = computed<DataTableColumns<RequestLog>>(() => [
 function openDetail(row: RequestLog) {
   detailLog.value = row
   detailContent.value = null
-  detailCollapsed.value = true
   showDetail.value = true
   // 如果有详细内容，异步加载
   if (row.has_detail === 1) {
@@ -1158,5 +1168,45 @@ onUnmounted(() => {
   overflow: auto;
   max-height: calc(100vh - 400px);
   margin: 0;
+}
+
+.code-block-wrap {
+  position: relative;
+}
+
+.code-copy-btn {
+  position: absolute;
+  top: 6px;
+  right: 8px;
+  z-index: 2;
+  cursor: pointer;
+  font-size: 14px;
+  opacity: 0.5;
+  transition: opacity 0.2s;
+  user-select: none;
+}
+.code-copy-btn:hover {
+  opacity: 1;
+}
+
+.code-block-wrap .raw-json {
+  max-height: 300px;
+  overflow-y: auto;
+  /* 滚动条样式 */
+  scrollbar-width: thin;
+  scrollbar-color: rgba(255,255,255,0.15) transparent;
+}
+.code-block-wrap .raw-json::-webkit-scrollbar {
+  width: 5px;
+}
+.code-block-wrap .raw-json::-webkit-scrollbar-track {
+  background: transparent;
+}
+.code-block-wrap .raw-json::-webkit-scrollbar-thumb {
+  background: rgba(255,255,255,0.15);
+  border-radius: 3px;
+}
+.code-block-wrap .raw-json::-webkit-scrollbar-thumb:hover {
+  background: rgba(255,255,255,0.3);
 }
 </style>
