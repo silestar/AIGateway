@@ -46,6 +46,8 @@
           </template>
           {{ liveMode ? t('requestLogs.liveOffHint') : t('requestLogs.liveOnHint') }}
         </n-tooltip>
+        <!-- 脉冲指示灯 -->
+        <span v-if="liveMode" class="pulse-dot" :title="t('requestLogs.liveActive')"></span>
         <span class="filter-toggle" @click="filterExpanded = !filterExpanded">
           <template v-if="filterExpanded">
             <UpOutlined style="width:12px;height:12px;vertical-align:middle" />
@@ -96,9 +98,16 @@
         size="small"
         flex-height
         style="height: calc(100vh - 230px)"
-        :row-class-name="rowClassName"
       />
     </div>
+
+    <!-- 右下角新日志提示框 -->
+    <transition name="toast-fade">
+      <div v-if="toastVisible" class="live-toast">
+        <span>{{ t('requestLogs.liveNewLogs', { n: toastCount }) }}</span>
+        <span class="toast-close" @click="dismissToast">×</span>
+      </div>
+    </transition>
 
     <!-- 底部分页 -->
     <div class="bottom-bar glass-card">
@@ -371,7 +380,7 @@
 </template>
 
 <script setup lang="ts">
-import { ref, computed, onMounted, onUnmounted, h } from 'vue'
+import { ref, computed, onMounted, onUnmounted, nextTick, h } from 'vue'
 import { useI18n } from 'vue-i18n'
 import {
   NSelect,
@@ -392,6 +401,7 @@ import {
   type DataTableColumns,
 } from 'naive-ui'
 import { requestLogApi, type RequestLog, type RetryChainEntry, type LogDetailContent } from '../api/logs'
+import { systemApi } from '../api/system'
 import { UpOutlined, DownOutlined } from '@vicons/antd'
 import routeIcon from '../assets/icons/route.svg'
 
@@ -421,6 +431,24 @@ const loading = ref(false)
 // === 实时跟踪 ===
 const liveMode = ref(false)
 let liveTimer: ReturnType<typeof setInterval> | null = null
+let liveIntervalMs = 5000 // 默认 5 秒
+
+// Toast 状态
+const toastVisible = ref(false)
+const toastCount = ref(0)
+let toastTimer: ReturnType<typeof setTimeout> | null = null
+
+function showToast(n: number) {
+  toastCount.value = n
+  toastVisible.value = true
+  if (toastTimer) clearTimeout(toastTimer)
+  toastTimer = setTimeout(() => { toastVisible.value = false }, 3000)
+}
+
+function dismissToast() {
+  toastVisible.value = false
+  if (toastTimer) { clearTimeout(toastTimer); toastTimer = null }
+}
 
 // === 详情 ===
 const showDetail = ref(false)
@@ -428,8 +456,7 @@ const detailLog = ref<RequestLog | null>(null)
 const detailContentLoading = ref(false)
 const detailContent = ref<LogDetailContent | null>(null)
 
-// === 闪烁行 ID 集合 ===
-const flashRowIds = ref<Set<number>>(new Set())
+// === 闪烁行 ID 集合（已废弃，改用 DOM 直接操作）===
 
 // === 选项 ===
 const pageSizeOptions = [
@@ -524,12 +551,7 @@ const logTypeLabel: Record<string, string> = {
   health_check: t('requestLogs.logTypeHealthCheck'),
 }
 
-// === 行类名（闪烁） ===
-function rowClassName(row: RequestLog): string {
-  return flashRowIds.value.has(row.id) ? 'flash-row' : ''
-}
-
-// === 表格列 ===
+// === 类型标签色 ===
 const tableColumns = computed<DataTableColumns<RequestLog>>(() => [
   {
     title: t('requestLogs.colTime'),
@@ -822,11 +844,30 @@ async function fetchLogs(silent: boolean = false) {
       if (fresh.length > 0) {
         logEntries.value = [...fresh, ...logEntries.value]
         total.value += fresh.length
-        // 闪烁动画
-        fresh.forEach(f => {
-          flashRowIds.value.add(f.id)
-          setTimeout(() => flashRowIds.value.delete(f.id), 1200)
+        // DOM 层级：直接操作新行 td 的 transition 实现绿色渐变
+        const freshIds = new Set(fresh.map(f => f.id))
+        fresh.forEach((f, idx) => {
+          const delay = idx * 300
+          setTimeout(() => {
+            const trs = document.querySelectorAll('.log-table .n-data-table-tr')
+            trs.forEach(tr => {
+              const rowId = (tr as any).__vnode?.key
+              if (rowId != null && freshIds.has(Number(rowId))) {
+                const tds = tr.querySelectorAll('td')
+                tds.forEach(td => {
+                  const el = td as HTMLElement
+                  el.style.transition = 'background-color 1.5s ease-out'
+                  el.style.backgroundColor = 'rgba(54, 179, 126, 0.08)'
+                  requestAnimationFrame(() => {
+                    el.style.backgroundColor = 'transparent'
+                  })
+                })
+              }
+            })
+          }, delay)
         })
+        // 右下角 Toast
+        showToast(fresh.length)
       }
     } else {
       logEntries.value = data?.data || []
@@ -870,18 +911,34 @@ function onPageSizeChange(size: number) { pageSize.value = size; currentPage.val
 
 // === 实时跟踪 ===
 function onLiveModeChange(val: boolean) {
-  if (val) startLiveMode()
-  else stopLiveMode()
+  if (val) {
+    // 每次开启实时追踪时重新获取刷新间隔
+    loadRefreshInterval().then(() => startLiveMode())
+  } else {
+    stopLiveMode()
+  }
 }
 
 function startLiveMode() {
   if (liveTimer) clearInterval(liveTimer)
-  // 7秒间隔
-  liveTimer = setInterval(() => fetchLogs(true), 7000)
+  liveTimer = setInterval(() => fetchLogs(true), liveIntervalMs)
 }
 
 function stopLiveMode() {
   if (liveTimer) { clearInterval(liveTimer); liveTimer = null }
+  dismissToast()
+}
+
+// 获取刷新间隔配置
+async function loadRefreshInterval() {
+  try {
+    const res = await systemApi.getConfig()
+    const data = (res.data as any)?.data
+    const interval = data?.log?.refresh_interval
+    if (interval && interval >= 3 && interval <= 60) {
+      liveIntervalMs = interval * 1000
+    }
+  } catch { /* use default */ }
 }
 
 // === 生命周期 ===
@@ -890,6 +947,7 @@ onMounted(() => {
   const start = new Date(now.getFullYear(), now.getMonth(), now.getDate(), 0, 0, 0)
   const end = new Date(now.getFullYear(), now.getMonth(), now.getDate(), 23, 59, 59)
   dateRange.value = [start.getTime(), end.getTime()]
+  loadRefreshInterval()
   fetchLogs()
 })
 
@@ -953,15 +1011,7 @@ onUnmounted(() => {
   padding: 6px 8px !important;
 }
 
-/* 闪烁动画 */
-.log-table :deep(.flash-row) {
-  animation: row-flash 1.2s ease-out;
-}
-
-@keyframes row-flash {
-  0% { background: rgba(0, 210, 255, 0.18); }
-  100% { background: transparent; }
-}
+/* 新行淡入动画：通过 JS 直接操作 DOM td 实现 */
 
 /* === 底部栏 === */
 .bottom-bar {
@@ -1208,5 +1258,59 @@ onUnmounted(() => {
 }
 .code-block-wrap .raw-json::-webkit-scrollbar-thumb:hover {
   background: rgba(255,255,255,0.3);
+}
+
+/* === 脉冲指示灯 === */
+.pulse-dot {
+  display: inline-block;
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  background: #36b37e;
+  animation: pulse-blink 2s ease-in-out infinite;
+  margin-left: 4px;
+  vertical-align: middle;
+}
+
+@keyframes pulse-blink {
+  0%, 100% { opacity: 1; }
+  50% { opacity: 0.15; }
+}
+
+/* === 右下角 Toast === */
+.live-toast {
+  position: fixed;
+  bottom: 24px;
+  right: 24px;
+  z-index: 1000;
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 12px 20px;
+  border-radius: 8px;
+  background: rgba(0, 0, 0, 0.75);
+  color: #fff;
+  font-size: 14px;
+  backdrop-filter: blur(8px);
+  box-shadow: 0 4px 16px rgba(0,0,0,0.4);
+}
+
+.live-toast .toast-close {
+  cursor: pointer;
+  font-size: 18px;
+  line-height: 1;
+  opacity: 0.6;
+  transition: opacity 0.2s;
+  pointer-events: auto;
+}
+.live-toast .toast-close:hover { opacity: 1; }
+
+.toast-fade-enter-active,
+.toast-fade-leave-active {
+  transition: opacity 0.3s ease;
+}
+.toast-fade-enter-from,
+.toast-fade-leave-to {
+  opacity: 0;
 }
 </style>

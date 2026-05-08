@@ -48,6 +48,12 @@
             <n-switch v-model:value="form.log.detail_log_enabled" />
             <div class="form-hint">{{ t('settings.detailLogEnabledHint') }}</div>
           </n-form-item>
+          <n-form-item :label="t('settings.logRefreshInterval')">
+            <n-input-number v-model:value="form.log.refresh_interval" :min="3" :max="60" style="width:200px">
+              <template #suffix>{{ t('settings.seconds') }}</template>
+            </n-input-number>
+            <div class="form-hint">{{ t('settings.logRefreshIntervalHint') }}</div>
+          </n-form-item>
         </n-form>
       </div>
     </n-card>
@@ -202,7 +208,7 @@ function toggleSection(key: string) {
 
 const form = reactive({
   server: { mode: 'debug' } as Record<string, any>,
-  log: { level: 'info', dir: 'logs', max_age_days: 30, detail_log_enabled: true } as Record<string, any>,
+  log: { level: 'info', dir: 'logs', max_age_days: 30, detail_log_enabled: true, refresh_interval: 5 } as Record<string, any>,
   proxy: { connect_timeout: 5, read_timeout: 60, max_idle_conns: 100, idle_conn_timeout: 90 } as Record<string, any>,
   account_manager: {
     affinity_ttl: 3600, consecutive_failure_threshold: 5, min_disable_duration: 120,

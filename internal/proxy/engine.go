@@ -1,6 +1,7 @@
 package proxy
 
 import (
+	"bytes"
 	"context"
 	"encoding/json"
 	"fmt"
@@ -168,6 +169,8 @@ type StreamResult struct {
 	FinishReason      string `json:"finish_reason,omitempty"`
 	SystemFingerprint string `json:"system_fingerprint,omitempty"`
 	UpstreamLatencyMs int    `json:"upstream_latency_ms,omitempty"` // 上游处理耗时(ms)
+	// Body 流式响应的完整内容（上限 5MB），供 detail writer 写入文件
+	Body []byte `json:"-"`
 }
 
 // ForwardStream 流式转发请求，边读边转发，结束后返回 StreamResult
@@ -216,7 +219,10 @@ func (e *Engine) ForwardStream(ctx context.Context, ch *channel.Channel, acc *ac
 	}
 
 	var lastChunks strings.Builder
+	var fullBody bytes.Buffer // 累积完整流式响应体（上限 5MB）
 	buf := make([]byte, 4096)
+	const maxBodySize = 5 * 1024 * 1024 // 5MB
+	var bodyOverflow bool
 	for {
 		n, readErr := resp.Body.Read(buf)
 		if n > 0 {
@@ -229,6 +235,17 @@ func (e *Engine) ForwardStream(ctx context.Context, ch *channel.Channel, acc *ac
 				remaining := lastChunks.String()[excess:]
 				lastChunks.Reset()
 				lastChunks.WriteString(remaining)
+			}
+
+			// 累积完整 body 供 detail writer（上限 5MB）
+			if !bodyOverflow {
+				if fullBody.Len()+n > maxBodySize {
+					bodyOverflow = true
+					fullBody.Reset()
+					fullBody.WriteString(`{"overflow": true}`)
+				} else {
+					fullBody.Write(chunk)
+				}
 			}
 
 			converted, convErr := adp.ConvertStreamChunk(ctx, chunk)
@@ -296,6 +313,7 @@ func (e *Engine) ForwardStream(ctx context.Context, ch *channel.Channel, acc *ac
 		FinishReason:      finishReason,
 		SystemFingerprint: sysFP,
 		UpstreamLatencyMs: extractUpstreamLatency(resp.Header),
+		Body:              fullBody.Bytes(),
 	}, nil
 }
 

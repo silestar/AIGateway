@@ -68,6 +68,7 @@ type LogConfig struct {
 	MaxAgeDays       int    `mapstructure:"max_age_days"`       // 保留天数
 	MaxSizeMB        int    `mapstructure:"max_size_mb"`        // 单文件最大MB（0=不限制）
 	DetailLogEnabled bool   `mapstructure:"detail_log_enabled"` // 是否记录详细请求内容文件
+	RefreshInterval  int    `mapstructure:"refresh_interval"`   // 请求日志实时追踪刷新间隔(秒)
 }
 
 type ProxyConfig struct {
@@ -128,6 +129,7 @@ func (c *Config) GetHotReloadableConfig() map[string]interface{} {
 			"dir":                c.Log.Dir,
 			"max_age_days":       c.Log.MaxAgeDays,
 			"detail_log_enabled": c.Log.DetailLogEnabled,
+			"refresh_interval":   c.Log.RefreshInterval,
 		},
 		"proxy": map[string]interface{}{
 			"connect_timeout":  c.Proxy.ConnectTimeout,
@@ -179,6 +181,9 @@ func (c *Config) UpdateHotReloadableConfig(updates map[string]interface{}) error
 			}
 			if v, ok := logMap["detail_log_enabled"].(bool); ok {
 				c.Log.DetailLogEnabled = v
+			}
+			if v, ok := toInt(logMap["refresh_interval"]); ok {
+				c.Log.RefreshInterval = v
 			}
 		}
 	}
@@ -264,6 +269,7 @@ func (c *Config) writeConfigFile() error {
 	v.Set("log.dir", c.Log.Dir)
 	v.Set("log.max_age_days", c.Log.MaxAgeDays)
 	v.Set("log.detail_log_enabled", c.Log.DetailLogEnabled)
+	v.Set("log.refresh_interval", c.Log.RefreshInterval)
 	v.Set("proxy.connect_timeout", c.Proxy.ConnectTimeout)
 	v.Set("proxy.read_timeout", c.Proxy.ReadTimeout)
 	v.Set("proxy.max_idle_conns", c.Proxy.MaxIdleConns)
@@ -340,6 +346,7 @@ func setDefaults(v *viper.Viper) {
 	v.SetDefault("log.dir", "logs")
 	v.SetDefault("log.max_age_days", 30)
 	v.SetDefault("log.detail_log_enabled", true)
+	v.SetDefault("log.refresh_interval", 5)
 
 	v.SetDefault("proxy.connect_timeout", 5)
 	v.SetDefault("proxy.read_timeout", 60)

@@ -395,6 +395,8 @@ func handleChatCompletions(c *gin.Context) {
 			SystemFingerprint: streamResult.SystemFingerprint,
 			UpstreamLatencyMs: streamResult.UpstreamLatencyMs,
 		}
+			// 缓存流式完整响应体供 detail writer 使用
+			c.Set("streamResultBody", streamResult.Body)
 		}
 	} else {
 		proxyResult, err := proxyEngine.Forward(c.Request.Context(), result.Channel, result.Account, c.Request)
@@ -448,13 +450,20 @@ func handleChatCompletions(c *gin.Context) {
 	if detailWriter, ok := c.Get("detailWriter"); ok {
 		if dw, ok := detailWriter.(*agwlog.DetailWriter); ok {
 			var respBodyBytes []byte
-			if !isStream && statusCode >= 200 && statusCode < 300 {
-				// 非流式成功响应：proxyResult.Body 中已有上游响应的原始 body
-				// 注意：此时 proxyResult.Body 已通过 c.Writer.Write() 发送，
-				// 但 proxyResult.Body 变量本身仍然有效
-				if pb, ok := c.Get("proxyResultBody"); ok {
-					if b, ok := pb.([]byte); ok {
-						respBodyBytes = b
+			if statusCode >= 200 && statusCode < 300 {
+				if !isStream {
+					// 非流式：从 proxyResult 取缓存 body
+					if pb, ok := c.Get("proxyResultBody"); ok {
+						if b, ok := pb.([]byte); ok {
+							respBodyBytes = b
+						}
+					}
+				} else {
+					// 流式：从 streamResult 取累积的完整 body
+					if sb, ok := c.Get("streamResultBody"); ok {
+						if b, ok := sb.([]byte); ok {
+							respBodyBytes = b
+						}
 					}
 				}
 			}
