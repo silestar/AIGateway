@@ -380,7 +380,7 @@
 </template>
 
 <script setup lang="ts">
-import { ref, computed, onMounted, onUnmounted, nextTick, h } from 'vue'
+import { ref, computed, onMounted, onUnmounted, h } from 'vue'
 import { useI18n } from 'vue-i18n'
 import {
   NSelect,
@@ -432,6 +432,7 @@ const loading = ref(false)
 const liveMode = ref(false)
 let liveTimer: ReturnType<typeof setInterval> | null = null
 let liveIntervalMs = 5000 // 默认 5 秒
+let lastFetchTime = Date.now() // 上次刷新时间戳
 
 // Toast 状态
 const toastVisible = ref(false)
@@ -846,7 +847,7 @@ async function fetchLogs(silent: boolean = false) {
         total.value += fresh.length
         // DOM 层级：直接操作新行 td 的 transition 实现绿色渐变
         const freshIds = new Set(fresh.map(f => f.id))
-        fresh.forEach((f, idx) => {
+        fresh.forEach((_, idx) => {
           const delay = idx * 300
           setTimeout(() => {
             const trs = document.querySelectorAll('.log-table .n-data-table-tr')
@@ -877,6 +878,7 @@ async function fetchLogs(silent: boolean = false) {
     if (!silent) message.error(e?.message || 'Failed to fetch logs')
   } finally {
     loading.value = false
+    lastFetchTime = Date.now()
   }
 }
 
@@ -949,11 +951,24 @@ onMounted(() => {
   dateRange.value = [start.getTime(), end.getTime()]
   loadRefreshInterval()
   fetchLogs()
+
+  // 标签页切回时自动刷新
+  document.addEventListener('visibilitychange', onVisibilityChange)
 })
 
 onUnmounted(() => {
   stopLiveMode()
+  document.removeEventListener('visibilitychange', onVisibilityChange)
 })
+
+// 标签页可见性变化：切回页面时若距上次刷新>15秒且未开启实时追踪则自动刷新
+function onVisibilityChange() {
+  if (document.visibilityState === 'visible' && !liveMode.value) {
+    if (Date.now() - lastFetchTime > 15000) {
+      fetchLogs()
+    }
+  }
+}
 </script>
 
 <style scoped>
