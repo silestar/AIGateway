@@ -197,6 +197,7 @@ func StartLogCleaner(cfg config.LogConfig, logger *zap.Logger) {
 		defer ticker.Stop()
 		for range ticker.C {
 			cleanOldLogs(cfg.Dir, cfg.MaxAgeDays, logger)
+			CleanRequestDetails(cfg.Dir, cfg.MaxAgeDays)
 		}
 	}()
 	logger.Info("log cleaner started", zap.Int("max_age_days", cfg.MaxAgeDays))

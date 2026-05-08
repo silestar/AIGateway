@@ -43,6 +43,7 @@ log:
   level: "info"      # debug / info / warn / error
   dir: "logs"
   max_age_days: 30
+  detail_log_enabled: true  # 是否记录详细请求内容文件
 
 proxy:
   connect_timeout: 5    # 连接超时(秒)

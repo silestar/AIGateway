@@ -53,6 +53,22 @@ export interface RequestLog {
   log_type: string // consumption / probe / health_check
   trace_id: string
   client_ip: string
+  has_detail: number  // 1=有详细内容文件
+}
+
+export interface LogDetailContent {
+  trace_id: string
+  request: {
+    method: string
+    path: string
+    headers: Record<string, string>
+    body?: unknown
+  }
+  response: {
+    status_code: number
+    headers: Record<string, string>
+    body?: unknown
+  }
 }
 
 export interface RequestLogStats {
@@ -88,5 +104,8 @@ export const requestLogApi = {
   },
   keys() {
     return api.get('/logs/keys')
+  },
+  getDetail(id: number) {
+    return api.get(`/logs/${id}/detail`)
   },
 }

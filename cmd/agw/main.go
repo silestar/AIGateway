@@ -87,6 +87,13 @@ func main() {
 	asyncWriter.Start()
 	statsMgr.StartAggregator()
 
+	// 详细内容写入器
+	detailWriter := agwlog.NewDetailWriter(&agwlog.DetailWriterConfig{
+		Enabled:    cfg.Log.DetailLogEnabled,
+		LogDir:     cfg.Log.Dir,
+		MaxAgeDays: cfg.Log.MaxAgeDays,
+	}, db)
+
 	// 插件管理器
 	pluginMgr := plugin.NewManager(db, logger, "plugins")
 
@@ -137,6 +144,7 @@ func main() {
 		c.Set("groupRouter", groupRouter)
 		c.Set("statsMgr", statsMgr)
 		c.Set("asyncWriter", asyncWriter)
+		c.Set("detailWriter", detailWriter)
 		c.Set("logger", logger)
 		c.Set("cache", cache)
 		c.Next()
@@ -167,7 +175,7 @@ func main() {
 	agwapi.NewAccountHandler(accountMgr).RegisterRoutes(protected)
 	agwapi.NewGroupHandler(groupRouter).RegisterRoutes(protected)
 	agwapi.NewStatsHandler(statsMgr).RegisterRoutes(protected)
-	agwapi.NewLogHandler(statsMgr).RegisterRoutes(protected)
+	agwapi.NewLogHandler(statsMgr, &cfg.Log).RegisterRoutes(protected)
 	agwapi.NewPluginHandler(pluginMgr).RegisterRoutes(protected)
 	agwapi.NewSystemHandler(cfg).RegisterRoutes(protected)
 	agwapi.NewSystemLogHandler(cfg).RegisterRoutes(protected)
@@ -433,6 +441,13 @@ func handleChatCompletions(c *gin.Context) {
 
 	// 记录成功日志（含响应摘要）
 	asyncWriter.Record(buildRequestLog(cons.ID, modelName, result.ActualModelName, result, isStream, statusCode, latencyMs, clientIP, usage, "", traceIDStr, respSummary))
+
+	// 写入详细请求/响应内容文件（异步）
+	if detailWriter, ok := c.Get("detailWriter"); ok {
+		if dw, ok := detailWriter.(*agwlog.DetailWriter); ok {
+			captureAndWriteDetail(c, dw, traceIDStr)
+		}
+	}
 }
 
 // buildRequestLog 构造请求日志
@@ -642,4 +657,48 @@ func updateRateLimitCounters(cache account.Cache, channelID, accountID uint) {
 	// 账号每日请求计数器
 	dailyKey := fmt.Sprintf("stats:account:%d:daily_requests:%s", accountID, todayKey)
 	cache.Incr(dailyKey)
+}
+
+// captureAndWriteDetail 捕获请求/响应内容并异步写入文件
+func captureAndWriteDetail(c *gin.Context, dw *agwlog.DetailWriter, traceID string) {
+	// 捕获请求信息
+	reqSection := agwlog.DetailSection{
+		Method:  c.Request.Method,
+		Path:    c.Request.URL.Path,
+		Headers: captureHeaders(c.Request.Header),
+	}
+
+	// 捕获请求体
+	if cachedBody, exists := c.Get("cachedBody"); exists {
+		if bodyBytes, ok := cachedBody.([]byte); ok {
+			var bodyJSON interface{}
+			if json.Unmarshal(bodyBytes, &bodyJSON) == nil {
+				reqSection.Body = bodyJSON
+			}
+		}
+	}
+
+	// 捕获响应信息
+	respSection := agwlog.DetailSection{
+		StatusCode: c.Writer.Status(),
+		Headers:    captureHeaders(c.Writer.Header()),
+	}
+
+	dw.WriteDetail(traceID, time.Now(), reqSection, respSection)
+}
+
+// captureHeaders 捕获 HTTP headers（脱敏 key）
+func captureHeaders(h map[string][]string) map[string]string {
+	result := make(map[string]string)
+	for k, vv := range h {
+		if len(vv) > 0 {
+			val := vv[0]
+			// 脱敏 Authorization
+			if k == "Authorization" && len(val) > 15 {
+				val = val[:15] + "..." + val[len(val)-6:]
+			}
+			result[k] = val
+		}
+	}
+	return result
 }

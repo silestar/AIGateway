@@ -31,6 +31,7 @@ type RequestLog struct {
 	LogType          string          `gorm:"size:20;index;default:consumption" json:"log_type"` // consumption/probe/health_check
 	TraceID          string          `gorm:"size:64;index" json:"trace_id"`                    // 请求追踪ID
 	ClientIP         string          `gorm:"size:45" json:"client_ip"`                         // 客户端IP
+	HasDetail        int             `gorm:"default:0" json:"has_detail"`                      // 是否有详细内容文件（1=有）
 }
 
 func (RequestLog) TableName() string { return "request_logs" }

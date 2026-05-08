@@ -63,10 +63,11 @@ type AccountManagerConfig struct {
 }
 
 type LogConfig struct {
-	Level      string `mapstructure:"level"`       // debug / info / warn / error
-	Dir        string `mapstructure:"dir"`         // 日志目录
-	MaxAgeDays int    `mapstructure:"max_age_days"` // 保留天数
-	MaxSizeMB  int    `mapstructure:"max_size_mb"`  // 单文件最大MB（0=不限制）
+	Level            string `mapstructure:"level"`              // debug / info / warn / error
+	Dir              string `mapstructure:"dir"`                // 日志目录
+	MaxAgeDays       int    `mapstructure:"max_age_days"`       // 保留天数
+	MaxSizeMB        int    `mapstructure:"max_size_mb"`        // 单文件最大MB（0=不限制）
+	DetailLogEnabled bool   `mapstructure:"detail_log_enabled"` // 是否记录详细请求内容文件
 }
 
 type ProxyConfig struct {
@@ -123,9 +124,10 @@ func (c *Config) GetHotReloadableConfig() map[string]interface{} {
 			"mode": c.Server.Mode,
 		},
 		"log": map[string]interface{}{
-			"level":       c.Log.Level,
-			"dir":         c.Log.Dir,
-			"max_age_days": c.Log.MaxAgeDays,
+			"level":              c.Log.Level,
+			"dir":                c.Log.Dir,
+			"max_age_days":       c.Log.MaxAgeDays,
+			"detail_log_enabled": c.Log.DetailLogEnabled,
 		},
 		"proxy": map[string]interface{}{
 			"connect_timeout":  c.Proxy.ConnectTimeout,
@@ -174,6 +176,9 @@ func (c *Config) UpdateHotReloadableConfig(updates map[string]interface{}) error
 			}
 			if v, ok := toInt(logMap["max_age_days"]); ok {
 				c.Log.MaxAgeDays = v
+			}
+			if v, ok := logMap["detail_log_enabled"].(bool); ok {
+				c.Log.DetailLogEnabled = v
 			}
 		}
 	}
@@ -258,6 +263,7 @@ func (c *Config) writeConfigFile() error {
 	v.Set("log.level", c.Log.Level)
 	v.Set("log.dir", c.Log.Dir)
 	v.Set("log.max_age_days", c.Log.MaxAgeDays)
+	v.Set("log.detail_log_enabled", c.Log.DetailLogEnabled)
 	v.Set("proxy.connect_timeout", c.Proxy.ConnectTimeout)
 	v.Set("proxy.read_timeout", c.Proxy.ReadTimeout)
 	v.Set("proxy.max_idle_conns", c.Proxy.MaxIdleConns)
@@ -333,6 +339,7 @@ func setDefaults(v *viper.Viper) {
 	v.SetDefault("log.level", "info")
 	v.SetDefault("log.dir", "logs")
 	v.SetDefault("log.max_age_days", 30)
+	v.SetDefault("log.detail_log_enabled", true)
 
 	v.SetDefault("proxy.connect_timeout", 5)
 	v.SetDefault("proxy.read_timeout", 60)

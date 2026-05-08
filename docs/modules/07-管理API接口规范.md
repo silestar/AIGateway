@@ -1249,6 +1249,42 @@
 
 ---
 
+### 6.2a 请求详情内容文件
+
+**`GET /api/logs/:id/detail`**
+
+获取请求/响应详细内容（JSON 文件）。仅当 `has_detail=1` 时可用。
+
+响应：
+
+```json
+{
+  "data": {
+    "trace_id": "a1b2c3d4-e5f6-...",
+    "request": {
+      "method": "POST",
+      "path": "/v1/chat/completions",
+      "headers": {
+        "Content-Type": "application/json",
+        "Authorization": "Bearer sk-...******"
+      },
+      "body": {
+        "model": "gpt-4o",
+        "messages": [{"role": "user", "content": "Hello"}]
+      }
+    },
+    "response": {
+      "status_code": 200,
+      "headers": {
+        "Content-Type": "application/json"
+      }
+    }
+  }
+}
+```
+
+---
+
 ### 6.3 导出请求日志 CSV
 
 **`GET /api/logs/requests/export`**

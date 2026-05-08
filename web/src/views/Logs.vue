@@ -299,6 +299,53 @@
             <n-divider style="margin: 12px 0" />
           </template>
 
+          <!-- 详细请求/响应内容 -->
+          <template v-if="detailLog.has_detail === 1">
+            <n-collapse>
+              <n-collapse-item title="📋 请求/响应详细内容" name="detail-content">
+                <div v-if="detailContentLoading" style="text-align:center;padding:16px;">加载中...</div>
+                <template v-else-if="detailContent">
+                  <div class="detail-section">
+                    <div class="detail-section-title">📤 请求</div>
+                    <div class="detail-kv">
+                      <span class="detail-key">Method</span>
+                      <span class="detail-value">{{ detailContent.request.method }}</span>
+                    </div>
+                    <div class="detail-kv">
+                      <span class="detail-key">Path</span>
+                      <span class="detail-value monospace">{{ detailContent.request.path }}</span>
+                    </div>
+                    <div class="detail-kv" v-if="detailContent.request.headers && Object.keys(detailContent.request.headers).length > 0">
+                      <span class="detail-key">Headers</span>
+                      <pre class="inline-json" :style="{ maxHeight: detailCollapsed ? '80px' : 'none', overflow: 'hidden' }">{{ toPrettyJSON(detailContent.request.headers) }}</pre>
+                    </div>
+                    <div class="detail-kv" v-if="detailContent.request.body">
+                      <span class="detail-key">Body</span>
+                      <pre class="inline-json" :style="{ maxHeight: detailCollapsed ? '80px' : 'none', overflow: 'hidden' }">{{ toPrettyJSON(detailContent.request.body) }}</pre>
+                    </div>
+                  </div>
+                  <n-divider style="margin: 12px 0" />
+                  <div class="detail-section">
+                    <div class="detail-section-title">📥 响应</div>
+                    <div class="detail-kv">
+                      <span class="detail-key">Status</span>
+                      <span class="detail-value">{{ detailContent.response.status_code }}</span>
+                    </div>
+                    <div class="detail-kv" v-if="detailContent.response.headers && Object.keys(detailContent.response.headers).length > 0">
+                      <span class="detail-key">Headers</span>
+                      <pre class="inline-json" :style="{ maxHeight: detailCollapsed ? '80px' : 'none', overflow: 'hidden' }">{{ toPrettyJSON(detailContent.response.headers) }}</pre>
+                    </div>
+                    <div class="detail-kv" v-if="detailContent.response.body">
+                      <span class="detail-key">Body</span>
+                      <pre class="inline-json" :style="{ maxHeight: detailCollapsed ? '80px' : 'none', overflow: 'hidden' }">{{ toPrettyJSON(detailContent.response.body) }}</pre>
+                    </div>
+                  </div>
+                </template>
+                <div v-else style="color: var(--text-tertiary);padding:8px;">无法加载详细内容</div>
+              </n-collapse-item>
+            </n-collapse>
+          </template>
+
           <!-- 原始数据 -->
           <n-collapse>
             <n-collapse-item :title="t('requestLogs.detailRawData')" name="raw">
@@ -332,7 +379,7 @@ import {
   useMessage,
   type DataTableColumns,
 } from 'naive-ui'
-import { requestLogApi, type RequestLog, type RetryChainEntry } from '../api/logs'
+import { requestLogApi, type RequestLog, type RetryChainEntry, type LogDetailContent } from '../api/logs'
 import { UpOutlined, DownOutlined } from '@vicons/antd'
 import routeIcon from '../assets/icons/route.svg'
 
@@ -366,6 +413,9 @@ let liveTimer: ReturnType<typeof setInterval> | null = null
 // === 详情 ===
 const showDetail = ref(false)
 const detailLog = ref<RequestLog | null>(null)
+const detailContentLoading = ref(false)
+const detailContent = ref<LogDetailContent | null>(null)
+const detailCollapsed = ref(true)  // >20行默认折叠
 
 // === 闪烁行 ID 集合 ===
 const flashRowIds = ref<Set<number>>(new Set())
@@ -651,6 +701,18 @@ const tableColumns = computed<DataTableColumns<RequestLog>>(() => [
   },
   {
     title: '',
+    key: 'has_detail',
+    width: 36,
+    render: (row) => {
+      if (row.has_detail !== 1) return null
+      return h('span', {
+        style: { fontSize: '14px', opacity: '0.7', cursor: 'help' },
+        title: '含详细请求内容',
+      }, '📄')
+    },
+  },
+  {
+    title: '',
     key: 'detail',
     width: 40,
     render: (row) => {
@@ -687,7 +749,21 @@ const tableColumns = computed<DataTableColumns<RequestLog>>(() => [
 // === 操作 ===
 function openDetail(row: RequestLog) {
   detailLog.value = row
+  detailContent.value = null
+  detailCollapsed.value = true
   showDetail.value = true
+  // 如果有详细内容，异步加载
+  if (row.has_detail === 1) {
+    detailContentLoading.value = true
+    requestLogApi.getDetail(row.id).then(res => {
+      const data = (res.data as any)?.data
+      detailContent.value = data || null
+    }).catch(() => {
+      detailContent.value = null
+    }).finally(() => {
+      detailContentLoading.value = false
+    })
+  }
 }
 
 function copyText(text: string) {
@@ -696,6 +772,14 @@ function copyText(text: string) {
   }).catch(() => {
     message.error(t('common.copyFailed'))
   })
+}
+
+function toPrettyJSON(obj: unknown): string {
+  try {
+    return JSON.stringify(obj, null, 2)
+  } catch {
+    return String(obj)
+  }
 }
 
 // === 加载列表 ===

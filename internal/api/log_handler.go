@@ -5,17 +5,20 @@ import (
 	"strings"
 
 	"github.com/gin-gonic/gin"
+	"github.com/bokelife/aigateway/internal/config"
+	agwlog "github.com/bokelife/aigateway/internal/log"
 	"github.com/bokelife/aigateway/internal/stats"
 )
 
 // LogHandler 日志 API
 type LogHandler struct {
 	statsMgr *stats.Manager
+	cfg      *config.LogConfig
 }
 
 // NewLogHandler 创建日志 Handler
-func NewLogHandler(statsMgr *stats.Manager) *LogHandler {
-	return &LogHandler{statsMgr: statsMgr}
+func NewLogHandler(statsMgr *stats.Manager, cfg *config.LogConfig) *LogHandler {
+	return &LogHandler{statsMgr: statsMgr, cfg: cfg}
 }
 
 // RegisterRoutes 注册日志路由
@@ -26,6 +29,7 @@ func (h *LogHandler) RegisterRoutes(rg *gin.RouterGroup) {
 	logs.GET("/channels", h.ListChannels)
 	logs.GET("/keys", h.ListKeys)
 	logs.GET("/:id", h.GetById)
+	logs.GET("/:id/detail", h.GetDetail)
 }
 
 // List 请求日志列表
@@ -192,4 +196,32 @@ func splitComma(s string) []string {
 		return nil
 	}
 	return strings.Split(s, ",")
+}
+
+// GetDetail 获取请求日志的详细内容文件
+func (h *LogHandler) GetDetail(c *gin.Context) {
+	id, err := parseID(c)
+	if err != nil {
+		c.JSON(http.StatusBadRequest, errorResponse("invalid_id", "invalid log id"))
+		return
+	}
+
+	log, err := h.statsMgr.GetRequestLogByID(c.Request.Context(), id)
+	if err != nil {
+		c.JSON(http.StatusNotFound, errorResponse("not_found", "log not found"))
+		return
+	}
+
+	if log.TraceID == "" {
+		c.JSON(http.StatusNotFound, errorResponse("not_found", "no trace_id for this log"))
+		return
+	}
+
+	entry, err := agwlog.ReadDetail(h.cfg.Dir, log.TraceID, log.Timestamp)
+	if err != nil {
+		c.JSON(http.StatusNotFound, errorResponse("not_found", "detail file not found: "+err.Error()))
+		return
+	}
+
+	c.JSON(http.StatusOK, gin.H{"data": entry})
 }
