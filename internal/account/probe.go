@@ -105,7 +105,7 @@ func (m *Manager) probeChannel(ctx context.Context, ch *channel.Channel, traceID
 
 		// 探测
 		success := m.probeAccount(ctx, ch, &acc)
-		m.recordProbeLog(ctx, ch.ID, acc.ID, success)
+		m.recordProbeLog(ctx, ch.ID, acc.ID, success, "probe")
 		if success {
 			// 恢复账号
 			m.recoverAccount(ctx, &acc)
@@ -186,7 +186,7 @@ func (m *Manager) healthCheckChannel(ctx context.Context, ch *channel.Channel, t
 
 	// 探测
 	success := m.probeAccount(ctx, ch, &acc)
-	m.recordProbeLog(ctx, ch.ID, acc.ID, success)
+	m.recordProbeLog(ctx, ch.ID, acc.ID, success, "health_check")
 	if success {
 		m.recoverAccount(ctx, &acc)
 		m.resetCooldownCycles(ctx, ch.ID)
@@ -245,8 +245,8 @@ func (m *Manager) recoverAccount(ctx context.Context, acc *Account) {
 }
 
 // recordProbeLog 记录探测日志（通过回调通知外部写入）
-func (m *Manager) recordProbeLog(ctx context.Context, channelID, accountID uint, success bool) {
+func (m *Manager) recordProbeLog(ctx context.Context, channelID, accountID uint, success bool, logType string) {
 	if m.onProbeDone != nil {
-		m.onProbeDone(channelID, accountID, success)
+		m.onProbeDone(channelID, accountID, success, logType)
 	}
 }

@@ -98,25 +98,25 @@ func main() {
 	pluginMgr := plugin.NewManager(db, logger, "plugins")
 
 	// 启动账号池后台任务
-	accountMgr.SetOnProbeDone(func(channelID, accountID uint, success bool) {
+	accountMgr.SetOnProbeDone(func(channelID, accountID uint, success bool, logType string) {
 		chID := channelID
 		accID := accountID
 		statusCode := 0
-		errMsg := "probe failed"
 		if success {
 			statusCode = 200
-			errMsg = ""
 		}
+		errMsg := ""
 		log := &stats.RequestLog{
 			Timestamp:  time.Now(),
 			ChannelID:  &chID,
 			AccountID:  &accID,
-			ModelName:  "probe",
+			ModelName:  logType,
 			StatusCode: statusCode,
-			LogType:    "probe",
-			TraceID:    middleware.GenerateTraceID("probe"),
+			LogType:    logType,
+			TraceID:    middleware.GenerateTraceID(logType),
 		}
-		if errMsg != "" {
+		if !success {
+			errMsg = logType + " failed"
 			log.ErrorMsg = &errMsg
 		}
 		asyncWriter.Record(log)

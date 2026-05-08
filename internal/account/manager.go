@@ -5,6 +5,8 @@ import (
 	"crypto/rand"
 	"encoding/hex"
 	"fmt"
+	"net/http"
+	"strings"
 	"time"
 
 	"go.uber.org/zap"
@@ -22,7 +24,7 @@ type Manager struct {
 	cryptoSvc   *crypto.CryptoService
 	cfg         config.AccountManagerConfig
 	logger      *zap.Logger
-	onProbeDone func(channelID, accountID uint, success bool)
+	onProbeDone func(channelID, accountID uint, success bool, logType string)
 }
 
 // NewManager 创建账号管理器
@@ -37,7 +39,7 @@ func NewManager(db *gorm.DB, cache Cache, cryptoSvc *crypto.CryptoService, cfg c
 }
 
 // SetOnProbeDone 设置探测完成回调
-func (m *Manager) SetOnProbeDone(fn func(channelID, accountID uint, success bool)) {
+func (m *Manager) SetOnProbeDone(fn func(channelID, accountID uint, success bool, logType string)) {
 	m.onProbeDone = fn
 }
 
@@ -385,12 +387,64 @@ func (m *Manager) getTotalCount(ctx context.Context, channelID uint) int64 {
 func (m *Manager) probeAccount(ctx context.Context, ch *channel.Channel, acc *Account) bool {
 	plainKey, err := m.GetDecryptedAPIKey(ctx, acc.ID)
 	if err != nil {
+		m.logger.Error("probe: decrypt key failed",
+			zap.Uint("account_id", acc.ID),
+			zap.Error(err),
+		)
 		return false
 	}
 
-	// 发送最小探测请求
-	// TODO: 实际通过适配器发送探测请求
-	_ = plainKey
-	_ = ch
+	// 构造探测 URL：使用渠道 BaseURL + /v1/models 端点（最小开销）
+	baseURL := strings.TrimRight(ch.BaseURL, "/")
+	probeURL := baseURL + "/v1/models"
+
+	// 带超时的探测请求（10秒）
+	ctx, cancel := context.WithTimeout(ctx, 10*time.Second)
+	defer cancel()
+
+	req, err := http.NewRequestWithContext(ctx, "GET", probeURL, nil)
+	if err != nil {
+		m.logger.Error("probe: create request failed",
+			zap.Uint("account_id", acc.ID),
+			zap.String("url", probeURL),
+			zap.Error(err),
+		)
+		return false
+	}
+	req.Header.Set("Authorization", "Bearer "+plainKey)
+
+	client := &http.Client{Timeout: 10 * time.Second}
+	resp, err := client.Do(req)
+	if err != nil {
+		m.logger.Warn("probe: request failed",
+			zap.Uint("account_id", acc.ID),
+			zap.String("url", probeURL),
+			zap.Error(err),
+		)
+		return false
+	}
+	defer resp.Body.Close()
+
+	// 2xx/401（认证通过但无权限 → key 有效）：探测成功
+	// 403/429（明确拒绝）：探测失败
+	if resp.StatusCode >= 200 && resp.StatusCode < 300 {
+		m.logger.Info("probe: account reachable",
+			zap.Uint("account_id", acc.ID),
+			zap.Int("status_code", resp.StatusCode),
+		)
+		return true
+	}
+	if resp.StatusCode == 401 {
+		// 401 说明 API Key 有效但无 /v1/models 权限，也算成功
+		m.logger.Info("probe: account reachable (401, key valid but no models access)",
+			zap.Uint("account_id", acc.ID),
+		)
+		return true
+	}
+
+	m.logger.Warn("probe: account unreachable",
+		zap.Uint("account_id", acc.ID),
+		zap.Int("status_code", resp.StatusCode),
+	)
 	return false
 }
