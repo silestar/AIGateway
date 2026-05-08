@@ -250,9 +250,9 @@
             <div class="detail-section-title">{{ t('requestLogs.detailTokenDetail') }}</div>
             <div class="detail-grid">
               <div class="detail-label">{{ t('requestLogs.detailPromptTokens') }}</div>
-              <div class="detail-value monospace">{{ detailLog.prompt_tokens.toLocaleString('en-US') }}</div>
+              <div class="detail-value monospace">{{ detailLog.prompt_tokens > 0 ? detailLog.prompt_tokens.toLocaleString('en-US') : '-' }}</div>
               <div class="detail-label">{{ t('requestLogs.detailCompletionTokens') }}</div>
-              <div class="detail-value monospace">{{ detailLog.completion_tokens.toLocaleString('en-US') }}</div>
+              <div class="detail-value monospace">{{ detailLog.completion_tokens > 0 ? detailLog.completion_tokens.toLocaleString('en-US') : '-' }}</div>
               <template v-if="detailLog.cache_tokens > 0">
                 <div class="detail-label">{{ t('requestLogs.detailCacheTokens') }}</div>
                 <div class="detail-value"><span class="cache-badge">缓存↓ {{ detailLog.cache_tokens.toLocaleString('en-US') }}</span></div>
@@ -678,7 +678,7 @@ const tableColumns = computed<DataTableColumns<RequestLog>>(() => [
     key: 'tokens',
     width: 120,
     render: (row) => {
-      const fmtNum = (n: number) => n.toLocaleString('en-US')
+      const fmtNum = (n: number) => n > 0 ? n.toLocaleString('en-US') : '-'
       const children: any[] = [
         h('div', { style: { fontSize: '12px', fontFamily: "'JetBrains Mono', monospace" } }, `${fmtNum(row.prompt_tokens)} / ${fmtNum(row.completion_tokens)}`),
       ]
