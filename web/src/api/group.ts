@@ -10,6 +10,18 @@ export interface ChannelGroup {
   updated_at: string
 }
 
+export interface ChannelInfo {
+  id: number
+  name: string
+  type: string
+  status: string
+  weight: number
+}
+
+export interface ChannelGroupDetail extends ChannelGroup {
+  channels: ChannelInfo[]
+}
+
 export interface KeysGroup {
   id: number
   name: string
@@ -21,10 +33,26 @@ export interface KeysGroup {
   updated_at: string
 }
 
+export interface KeysInfo {
+  id: number
+  name: string
+  prefix: string
+  status: string
+}
+export interface KeysGroupDetail extends KeysGroup {
+  bound_channel_groups: ChannelGroup[]
+  available_channel_groups: ChannelGroup[]
+  bound_keys: KeysInfo[]
+  available_keys: KeysInfo[]
+}
+
 export const groupApi = {
   // 渠道分组
   listChannelGroups() {
     return api.get<{ data: ChannelGroup[]; total: number }>('/channel-groups')
+  },
+  getChannelGroup(id: number) {
+    return api.get<{ data: ChannelGroupDetail }>(`/channel-groups/${id}`)
   },
   createChannelGroup(data: { name: string; description?: string; weight?: number }) {
     return api.post<{ data: ChannelGroup }>('/channel-groups', data)
@@ -38,6 +66,9 @@ export const groupApi = {
   addChannelToGroup(groupId: number, channelId: number, weight?: number) {
     return api.post(`/channel-groups/${groupId}/channels`, { channel_id: channelId, weight: weight || 0 })
   },
+  setChannelGroupChannels(groupId: number, channelIds: number[]) {
+    return api.put(`/channel-groups/${groupId}/channels`, { channel_ids: channelIds })
+  },
   removeChannelFromGroup(groupId: number, channelId: number) {
     return api.delete(`/channel-groups/${groupId}/channels/${channelId}`)
   },
@@ -45,6 +76,9 @@ export const groupApi = {
   // 密钥分组
   listKeysGroups() {
     return api.get<{ data: KeysGroup[]; total: number }>('/keys-groups')
+  },
+  getKeysGroup(id: number) {
+    return api.get<{ data: KeysGroupDetail }>(`/keys-groups/${id}`)
   },
   createKeysGroup(data: { name: string; description?: string; quota_rpm?: number; quota_tpm?: number }) {
     return api.post<{ data: KeysGroup }>('/keys-groups', data)
@@ -57,6 +91,9 @@ export const groupApi = {
   },
   addKeysToGroup(groupId: number, keysId: number) {
     return api.post(`/keys-groups/${groupId}/keys`, { keys_id: keysId })
+  },
+  setKeysGroupChannelGroups(groupId: number, channelGroupIds: number[]) {
+    return api.put(`/keys-groups/${groupId}/channel-groups`, { channel_group_ids: channelGroupIds })
   },
   removeKeysFromGroup(groupId: number, keysId: number) {
     return api.delete(`/keys-groups/${groupId}/keys/${keysId}`)

@@ -189,6 +189,16 @@ func (r *Router) UpdateChannelGroup(ctx context.Context, id uint, name, descript
 }
 
 func (r *Router) DeleteChannelGroup(ctx context.Context, id uint) error {
+	// 检查是否被密钥分组引用
+	var count int64
+	if err := r.db.WithContext(ctx).Table("keys_group_channel_groups").
+		Where("channel_group_id = ?", id).Count(&count).Error; err != nil {
+		return err
+	}
+	if count > 0 {
+		return fmt.Errorf("该分组被 %d 个密钥分组引用，无法删除", count)
+	}
+
 	tx := r.db.WithContext(ctx).Begin()
 	if err := tx.Where("group_id = ?", id).Delete(&channel.ChannelGroupMember{}).Error; err != nil {
 		tx.Rollback()
@@ -288,4 +298,163 @@ func (r *Router) ListKeysGroups(ctx context.Context) ([]KeysGroupWithCount, erro
 		return nil, err
 	}
 	return groups, nil
+}
+
+// ========== 详情接口 ==========
+
+// GetChannelGroup 获取渠道分组详情（含关联渠道）
+func (r *Router) GetChannelGroup(ctx context.Context, id uint) (*ChannelGroupDetail, error) {
+	var cg channel.ChannelGroup
+	if err := r.db.WithContext(ctx).First(&cg, id).Error; err != nil {
+		return nil, err
+	}
+
+	var members []channel.ChannelGroupMember
+	r.db.WithContext(ctx).Where("group_id = ?", id).
+		Order("weight DESC, channel_id ASC").Find(&members)
+
+	channelIDs := make([]uint, len(members))
+	for i, m := range members {
+		channelIDs[i] = m.ChannelID
+	}
+
+	var chs []channel.Channel
+	if len(channelIDs) > 0 {
+		r.db.WithContext(ctx).Where("id IN ?", channelIDs).Find(&chs)
+	}
+	// 保持 channelIDs 的顺序
+	chMap := make(map[uint]channel.Channel, len(chs))
+	for _, ch := range chs {
+		chMap[ch.ID] = ch
+	}
+
+	infos := make([]channelInfo, 0, len(members))
+	for _, m := range members {
+		if ch, ok := chMap[m.ChannelID]; ok {
+			infos = append(infos, channelInfo{ID: ch.ID, Name: ch.Name, Type: ch.Type, Status: ch.Status, Weight: ch.Weight})
+		}
+	}
+
+	return &ChannelGroupDetail{ChannelGroup: cg, Channels: infos}, nil
+}
+
+// GetKeysGroup 获取密钥分组详情（含密钥+渠道分组绑定）
+func (r *Router) GetKeysGroup(ctx context.Context, id uint) (*KeysGroupDetail, error) {
+	var kg keys.KeysGroup
+	if err := r.db.WithContext(ctx).First(&kg, id).Error; err != nil {
+		return nil, err
+	}
+
+	// 已绑定的密钥
+	var boundKeysIDs []uint
+	r.db.WithContext(ctx).Model(&keys.KeysGroupMember{}).
+		Where("group_id = ?", id).Pluck("keys_id", &boundKeysIDs)
+	var boundKeys []keys.Keys
+	if len(boundKeysIDs) > 0 {
+		r.db.WithContext(ctx).Where("id IN ?", boundKeysIDs).Order("name ASC").Find(&boundKeys)
+	} else {
+		boundKeys = []keys.Keys{}
+	}
+
+	// 全部密钥（用于判断可用）
+	var allKeys []keys.Keys
+	r.db.WithContext(ctx).Order("name ASC").Find(&allKeys)
+	boundKeySet := make(map[uint]bool, len(boundKeysIDs))
+	for _, kid := range boundKeysIDs {
+		boundKeySet[kid] = true
+	}
+	availableKeys := make([]keys.Keys, 0)
+	for _, k := range allKeys {
+		if !boundKeySet[k.ID] {
+			availableKeys = append(availableKeys, k)
+		}
+	}
+	if availableKeys == nil {
+		availableKeys = []keys.Keys{}
+	}
+
+	ki := func(ks []keys.Keys) []keysInfo {
+		res := make([]keysInfo, len(ks))
+		for i, k := range ks {
+			res[i] = keysInfo{ID: k.ID, Name: k.Name, Prefix: k.APIKeyPrefix, Status: k.Status}
+		}
+		return res
+	}
+
+	// 已绑定的渠道分组
+	var boundIDs []uint
+	r.db.WithContext(ctx).Table("keys_group_channel_groups").
+		Where("keys_group_id = ?", id).Pluck("channel_group_id", &boundIDs)
+
+	var bound []channel.ChannelGroup
+	if len(boundIDs) > 0 {
+		r.db.WithContext(ctx).Where("id IN ?", boundIDs).Order("weight DESC, id ASC").Find(&bound)
+	} else {
+		bound = []channel.ChannelGroup{}
+	}
+
+	// 全部渠道分组
+	var all []channel.ChannelGroup
+	r.db.WithContext(ctx).Order("weight DESC, id ASC").Find(&all)
+
+	// 可选 = 全部 - 已绑
+	boundSet := make(map[uint]bool, len(boundIDs))
+	for _, bid := range boundIDs {
+		boundSet[bid] = true
+	}
+	available := make([]channel.ChannelGroup, 0)
+	for _, g := range all {
+		if !boundSet[g.ID] {
+			available = append(available, g)
+		}
+	}
+	if available == nil {
+		available = []channel.ChannelGroup{}
+	}
+
+	return &KeysGroupDetail{
+		KeysGroup:               kg,
+		BoundKeys:              ki(boundKeys),
+		AvailableKeys:           ki(availableKeys),
+		BoundChannelGroups:    bound,
+		AvailableChannelGroups: available,
+	}, nil
+}
+
+// ========== 批量设置接口 ==========
+
+// SetChannelGroupChannels 全量替换渠道分组内的渠道
+func (r *Router) SetChannelGroupChannels(ctx context.Context, groupID uint, channelIDs []uint) error {
+	tx := r.db.WithContext(ctx).Begin()
+	if err := tx.Where("group_id = ?", groupID).Delete(&channel.ChannelGroupMember{}).Error; err != nil {
+		tx.Rollback()
+		return err
+	}
+	for _, chID := range channelIDs {
+		if err := tx.Create(&channel.ChannelGroupMember{GroupID: groupID, ChannelID: chID}).Error; err != nil {
+			tx.Rollback()
+			return err
+		}
+	}
+	return tx.Commit().Error
+}
+
+// SetKeysGroupChannelGroups 全量替换密钥分组可访问的渠道分组
+func (r *Router) SetKeysGroupChannelGroups(ctx context.Context, groupID uint, channelGroupIDs []uint) error {
+	tx := r.db.WithContext(ctx).Begin()
+	if err := tx.Table("keys_group_channel_groups").
+		Where("keys_group_id = ?", groupID).Delete(nil).Error; err != nil {
+		tx.Rollback()
+		return err
+	}
+	for _, cgID := range channelGroupIDs {
+		if err := tx.Table("keys_group_channel_groups").Create(map[string]interface{}{
+			"keys_group_id":    groupID,
+			"channel_group_id": cgID,
+		}).Error; err != nil {
+			tx.Rollback()
+			return err
+		}
+	}
+	return tx.Commit().Error
 }

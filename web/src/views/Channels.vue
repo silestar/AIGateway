@@ -88,10 +88,10 @@
             <n-empty v-else :description="t('channels.noModelsConfigured')" style="padding: 20px 0" />
             <div v-if="modelMappings.length > 0" style="margin-top: 12px; padding-top: 12px; border-top: 1px solid var(--n-border-color, rgba(255,255,255,0.1))">
               <n-text depth="3" style="font-size: 13px; margin-bottom: 8px; display: block">{{ t('channels.modelMapping') }}（{{ modelMappings.length }}）</n-text>
-              <div v-for="m in modelMappings" :key="m.display_model_name" style="display: flex; align-items: center; gap: 8px; margin-bottom: 6px; padding: 4px 8px; background: rgba(255,255,255,0.03); border-radius: 4px">
-                <span style="font-family: 'Menlo', 'Consolas', monospace; font-size: 13px; color: #00d2ff">{{ m.display_model_name }}</span>
+              <div v-for="m in modelMappings" :key="m.display_model_name" style="display: flex; align-items: center; gap: 8px; margin-bottom: 6px">
+                <n-tag size="small" type="info" @click="copyText(m.display_model_name)" style="cursor: pointer" :title="t('channels.clickToCopyModel')">{{ m.display_model_name }}</n-tag>
                 <span style="color: var(--text-tertiary)">→</span>
-                <span style="font-family: 'Menlo', 'Consolas', monospace; font-size: 13px">{{ m.actual_model_name }}</span>
+                <n-tag size="small" @click="copyText(m.actual_model_name)" style="cursor: pointer" :title="t('channels.clickToCopyModel')">{{ m.actual_model_name }}</n-tag>
               </div>
             </div>
           </n-space>
@@ -979,6 +979,8 @@ async function copyModelName(name: string) {
     message.success(t('common.copied'))
   } catch { message.error(t('common.copyFailed')) }
 }
+
+function copyText(text: string) { copyModelName(text) }
 
 // 账号表格列
 const accountColumns = computed(() => [

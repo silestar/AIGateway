@@ -20,7 +20,7 @@
     </n-space>
 
     <!-- 创建密钥弹窗 -->
-    <n-modal v-model:show="showCreateModal" preset="dialog" :title="t('keys.create')" positive-text="OK" negative-text="Cancel" @positive-click="handleCreate">
+    <n-modal v-model:show="showCreateModal" preset="dialog" :title="t('keys.create')" :positive-text="t('common.save')" :negative-text="t('common.cancel')" @positive-click="handleCreate">
       <n-form :model="createForm">
         <n-form-item :label="t('keys.name')" path="name">
           <n-input v-model:value="createForm.name" :placeholder="t('keys.namePlaceholder')" />

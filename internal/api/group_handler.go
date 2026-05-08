@@ -22,19 +22,23 @@ func (h *GroupHandler) RegisterRoutes(rg *gin.RouterGroup) {
 	channelGroups := rg.Group("/channel-groups")
 	channelGroups.GET("", h.ListChannelGroups)
 	channelGroups.POST("", h.CreateChannelGroup)
+	channelGroups.GET("/:id", h.GetChannelGroup)
 	channelGroups.PUT("/:id", h.UpdateChannelGroup)
 	channelGroups.DELETE("/:id", h.DeleteChannelGroup)
 	channelGroups.POST("/:id/channels", h.AddChannelToGroup)
+	channelGroups.PUT("/:id/channels", h.SetChannelGroupChannels)
 	channelGroups.DELETE("/:id/channels/:channel_id", h.RemoveChannelFromGroup)
 
 	// 密钥分组
 	keysGroups := rg.Group("/keys-groups")
 	keysGroups.GET("", h.ListKeysGroups)
 	keysGroups.POST("", h.CreateKeysGroup)
+	keysGroups.GET("/:id", h.GetKeysGroup)
 	keysGroups.PUT("/:id", h.UpdateKeysGroup)
 	keysGroups.DELETE("/:id", h.DeleteKeysGroup)
 	keysGroups.POST("/:id/keys", h.AddKeysToGroup)
 	keysGroups.DELETE("/:id/keys/:keys_id", h.RemoveKeysFromGroup)
+	keysGroups.PUT("/:id/channel-groups", h.SetKeysGroupChannelGroups)
 
 	// 绑定关系
 	bindings := rg.Group("/group-bindings")
@@ -71,6 +75,22 @@ func (h *GroupHandler) ListChannelGroups(c *gin.Context) {
 		return
 	}
 	c.JSON(http.StatusOK, gin.H{"data": groups, "total": len(groups)})
+}
+
+func (h *GroupHandler) GetChannelGroup(c *gin.Context) {
+	id, err := parseID(c)
+	if err != nil {
+		c.JSON(http.StatusBadRequest, errorResponse("invalid_id", err.Error()))
+		return
+	}
+
+	detail, err := h.router.GetChannelGroup(c.Request.Context(), id)
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, errorResponse("internal_error", err.Error()))
+		return
+	}
+
+	c.JSON(http.StatusOK, gin.H{"data": detail})
 }
 
 func (h *GroupHandler) UpdateChannelGroup(c *gin.Context) {
@@ -137,6 +157,29 @@ func (h *GroupHandler) AddChannelToGroup(c *gin.Context) {
 	c.JSON(http.StatusOK, gin.H{"data": gin.H{"group_id": id, "channel_id": req.ChannelID}})
 }
 
+func (h *GroupHandler) SetChannelGroupChannels(c *gin.Context) {
+	id, err := parseID(c)
+	if err != nil {
+		c.JSON(http.StatusBadRequest, errorResponse("invalid_id", err.Error()))
+		return
+	}
+
+	var req struct {
+		ChannelIDs []uint `json:"channel_ids" binding:"required"`
+	}
+	if err := c.ShouldBindJSON(&req); err != nil {
+		c.JSON(http.StatusBadRequest, errorResponse("invalid_request", err.Error()))
+		return
+	}
+
+	if err := h.router.SetChannelGroupChannels(c.Request.Context(), id, req.ChannelIDs); err != nil {
+		c.JSON(http.StatusInternalServerError, errorResponse("internal_error", err.Error()))
+		return
+	}
+
+	c.JSON(http.StatusOK, gin.H{"data": gin.H{"group_id": id}})
+}
+
 func (h *GroupHandler) RemoveChannelFromGroup(c *gin.Context) {
 	groupID, err := parseID(c)
 	if err != nil {
@@ -187,6 +230,22 @@ func (h *GroupHandler) ListKeysGroups(c *gin.Context) {
 		return
 	}
 	c.JSON(http.StatusOK, gin.H{"data": groups, "total": len(groups)})
+}
+
+func (h *GroupHandler) GetKeysGroup(c *gin.Context) {
+	id, err := parseID(c)
+	if err != nil {
+		c.JSON(http.StatusBadRequest, errorResponse("invalid_id", err.Error()))
+		return
+	}
+
+	detail, err := h.router.GetKeysGroup(c.Request.Context(), id)
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, errorResponse("internal_error", err.Error()))
+		return
+	}
+
+	c.JSON(http.StatusOK, gin.H{"data": detail})
 }
 
 func (h *GroupHandler) UpdateKeysGroup(c *gin.Context) {
@@ -271,6 +330,29 @@ func (h *GroupHandler) RemoveKeysFromGroup(c *gin.Context) {
 	}
 
 	c.JSON(http.StatusOK, gin.H{"data": gin.H{"group_id": groupID, "keys_id": keysID}})
+}
+
+func (h *GroupHandler) SetKeysGroupChannelGroups(c *gin.Context) {
+	id, err := parseID(c)
+	if err != nil {
+		c.JSON(http.StatusBadRequest, errorResponse("invalid_id", err.Error()))
+		return
+	}
+
+	var req struct {
+		ChannelGroupIDs []uint `json:"channel_group_ids" binding:"required"`
+	}
+	if err := c.ShouldBindJSON(&req); err != nil {
+		c.JSON(http.StatusBadRequest, errorResponse("invalid_request", err.Error()))
+		return
+	}
+
+	if err := h.router.SetKeysGroupChannelGroups(c.Request.Context(), id, req.ChannelGroupIDs); err != nil {
+		c.JSON(http.StatusInternalServerError, errorResponse("internal_error", err.Error()))
+		return
+	}
+
+	c.JSON(http.StatusOK, gin.H{"data": gin.H{"group_id": id}})
 }
 
 // ========== 绑定 ==========

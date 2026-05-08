@@ -95,7 +95,7 @@
             <n-layout-content class="app-content">
               <div class="content-inner">
                 <router-view v-slot="{ Component }">
-                  <transition name="fade" mode="out-in">
+                  <transition name="fade">
                     <component :is="Component" :key="route.path + '-' + viewKey" />
                   </transition>
                 </router-view>
@@ -369,6 +369,7 @@ const naiveThemeOverrides = computed(() =>
 const appVersion = ref('0.1.0')
 const currentYear = new Date().getFullYear()
 onMounted(async () => {
+  if (route.path === '/login') return  // 登录页不请求系统信息
   try {
     const res = await systemApi.info()
     appVersion.value = (res.data as { data: { version: string } }).data.version

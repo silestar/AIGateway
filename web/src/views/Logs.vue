@@ -209,10 +209,15 @@
                     <div class="retry-dot"></div>
                     <div class="retry-content">
                       <div class="retry-header">
-                        <span class="retry-attempt">#{{ idx + 1 }}</span>
-                        <span class="retry-channel">· #{{ entry.channel_id }} {{ entry.channel_name || '' }}</span>
+                        <n-tooltip trigger="hover">
+                          <template #trigger><span class="retry-attempt">#{{ idx + 1 }}</span></template>
+                          {{ t('requestLogs.attemptPrefix') }}{{ idx + 1 }}{{ t('requestLogs.attemptSuffix') }}
+                        </n-tooltip>
+                        <span class="retry-separator">·</span>
+                        <span class="retry-channel">{{ t('requestLogs.colChannel') }}: <template v-if="entry.channel_name">{{ entry.channel_name }}</template> (#{{ entry.channel_id }})</span>
                         <template v-if="entry.account_id">
-                          <span class="retry-account">{{ entry.account_note || '' }} (#{{ entry.account_id }})</span>
+                          <span class="retry-separator">·</span>
+                          <span class="retry-account">{{ t('requestLogs.detailAccount') }}: <template v-if="entry.account_note">{{ entry.account_note }}</template> (#{{ entry.account_id }})</span>
                         </template>
                       </div>
                       <div class="retry-meta">

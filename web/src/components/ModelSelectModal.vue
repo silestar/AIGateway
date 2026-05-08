@@ -107,7 +107,13 @@
         <n-button size="small" @click="addMapping">+ {{ t('channels.addMapping') }}</n-button>
       </n-space>
       <div v-for="(m, idx) in mappings" :key="idx" style="display: flex; align-items: center; gap: 8px; margin-bottom: 8px">
-        <n-input v-model:value="m.display" :placeholder="t('channels.displayName')" size="small" style="flex: 1" />
+        <n-auto-complete
+          v-model:value="m.display"
+          :options="customNameOptions"
+          :placeholder="t('channels.displayName')"
+          size="small"
+          style="flex: 1"
+        />
         <span style="color: var(--text-tertiary)">→</span>
         <n-select
           v-model:value="m.actual"
@@ -237,6 +243,27 @@ const currentGroup = computed(() =>
 const selectedModelOptions = computed(() =>
   Array.from(selectedIds.value).map(id => ({ label: id, value: id }))
 )
+
+// 自定义模型名补全候选项（从 existingModels 中收集所有 display≠actual 的自定义名，并去重）
+const customNameOptions = computed(() => {
+  const seen = new Set<string>()
+  const opts: { label: string; value: string }[] = []
+  // 从已有映射中收集
+  for (const m of props.existingModels) {
+    if (m.display_model_name !== m.actual_model_name && !seen.has(m.display_model_name)) {
+      seen.add(m.display_model_name)
+      opts.push({ label: m.display_model_name, value: m.display_model_name })
+    }
+  }
+  // 从当前已输入的映射中收集（在保存后会持久化到 existingModels，但未保存时也要支持）
+  for (const m of mappings.value) {
+    if (m.display && !seen.has(m.display)) {
+      seen.add(m.display)
+      opts.push({ label: m.display, value: m.display })
+    }
+  }
+  return opts
+})
 
 // 全选状态
 const isAllSelected = computed(() => {
