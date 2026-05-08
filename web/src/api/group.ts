@@ -5,14 +5,18 @@ export interface ChannelGroup {
   name: string
   description: string
   weight: number
+  channel_count: number
   created_at: string
   updated_at: string
 }
 
-export interface ConsumerGroup {
+export interface KeysGroup {
   id: number
   name: string
   description: string
+  quota_rpm: number
+  quota_tpm: number
+  channel_count: number
   created_at: string
   updated_at: string
 }
@@ -38,35 +42,31 @@ export const groupApi = {
     return api.delete(`/channel-groups/${groupId}/channels/${channelId}`)
   },
 
-  // 消费者分组
-  listConsumerGroups() {
-    return api.get<{ data: ConsumerGroup[]; total: number }>('/consumer-groups')
+  // 密钥分组
+  listKeysGroups() {
+    return api.get<{ data: KeysGroup[]; total: number }>('/keys-groups')
   },
-  createConsumerGroup(data: { name: string; description?: string }) {
-    return api.post<{ data: ConsumerGroup }>('/consumer-groups', data)
+  createKeysGroup(data: { name: string; description?: string; quota_rpm?: number; quota_tpm?: number }) {
+    return api.post<{ data: KeysGroup }>('/keys-groups', data)
   },
-  updateConsumerGroup(id: number, data: { name?: string; description?: string }) {
-    return api.put(`/consumer-groups/${id}`, data)
+  updateKeysGroup(id: number, data: { name?: string; description?: string; quota_rpm?: number; quota_tpm?: number }) {
+    return api.put(`/keys-groups/${id}`, data)
   },
-  deleteConsumerGroup(id: number) {
-    return api.delete(`/consumer-groups/${id}`)
+  deleteKeysGroup(id: number) {
+    return api.delete(`/keys-groups/${id}`)
   },
-  addConsumerToGroup(groupId: number, consumerId: number, quotaRpm?: number, quotaTpm?: number) {
-    return api.post(`/consumer-groups/${groupId}/consumers`, {
-      consumer_id: consumerId,
-      quota_rpm: quotaRpm || 0,
-      quota_tpm: quotaTpm || 0,
-    })
+  addKeysToGroup(groupId: number, keysId: number) {
+    return api.post(`/keys-groups/${groupId}/keys`, { keys_id: keysId })
   },
-  removeConsumerFromGroup(groupId: number, consumerId: number) {
-    return api.delete(`/consumer-groups/${groupId}/consumers/${consumerId}`)
+  removeKeysFromGroup(groupId: number, keysId: number) {
+    return api.delete(`/keys-groups/${groupId}/keys/${keysId}`)
   },
 
   // 绑定关系
-  bindChannelGroup(consumerGroupId: number, channelGroupId: number) {
-    return api.post('/group-bindings', { consumer_group_id: consumerGroupId, channel_group_id: channelGroupId })
+  bindChannelGroup(keysGroupId: number, channelGroupId: number) {
+    return api.post('/group-bindings', { keys_group_id: keysGroupId, channel_group_id: channelGroupId })
   },
-  unbindChannelGroup(consumerGroupId: number, channelGroupId: number) {
-    return api.delete(`/group-bindings/${consumerGroupId}/${channelGroupId}`)
+  unbindChannelGroup(keysGroupId: number, channelGroupId: number) {
+    return api.delete(`/group-bindings/${keysGroupId}/${channelGroupId}`)
   },
 }

@@ -27,19 +27,19 @@ type KeysGroup struct {
 	ID          uint      `gorm:"primaryKey;autoIncrement" json:"id"`
 	Name        string    `gorm:"size:100;not null" json:"name"`
 	Description string    `gorm:"size:500" json:"description"`
+	QuotaRPM    int       `gorm:"not null;default:0" json:"quota_rpm"`  // 分组共享 RPM 限额，0=不限制
+	QuotaTPM    int       `gorm:"not null;default:0" json:"quota_tpm"`  // 分组共享 TPM 限额，0=不限制
 	CreatedAt   time.Time `gorm:"autoCreateTime" json:"created_at"`
-	UpdatedAt   time.Time `gorm:"autoCreateTime" json:"updated_at"`
+	UpdatedAt   time.Time `gorm:"autoUpdateTime" json:"updated_at"`
 }
 
 func (KeysGroup) TableName() string { return "keys_groups" }
 
 // KeysGroupMember 密钥-分组关联
 type KeysGroupMember struct {
-	ID       uint `gorm:"primaryKey;autoIncrement" json:"id"`
-	KeysID   uint `gorm:"not null;index;column:keys_id" json:"keys_id"`
-	GroupID  uint `gorm:"not null;index" json:"group_id"`
-	QuotaRPM int  `gorm:"not null;default:0" json:"quota_rpm"`
-	QuotaTPM int  `gorm:"not null;default:0" json:"quota_tpm"`
+	ID      uint `gorm:"primaryKey;autoIncrement" json:"id"`
+	KeysID  uint `gorm:"not null;index;column:keys_id" json:"keys_id"`
+	GroupID uint `gorm:"not null;index" json:"group_id"`
 }
 
 func (KeysGroupMember) TableName() string { return "keys_group_members" }

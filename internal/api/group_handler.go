@@ -163,13 +163,15 @@ func (h *GroupHandler) CreateKeysGroup(c *gin.Context) {
 	var req struct {
 		Name        string `json:"name" binding:"required"`
 		Description string `json:"description"`
+		QuotaRPM    int    `json:"quota_rpm"`
+		QuotaTPM    int    `json:"quota_tpm"`
 	}
 	if err := c.ShouldBindJSON(&req); err != nil {
 		c.JSON(http.StatusBadRequest, errorResponse("invalid_request", err.Error()))
 		return
 	}
 
-	cg, err := h.router.CreateKeysGroup(c.Request.Context(), req.Name, req.Description)
+	cg, err := h.router.CreateKeysGroup(c.Request.Context(), req.Name, req.Description, req.QuotaRPM, req.QuotaTPM)
 	if err != nil {
 		c.JSON(http.StatusInternalServerError, errorResponse("internal_error", err.Error()))
 		return
@@ -197,13 +199,15 @@ func (h *GroupHandler) UpdateKeysGroup(c *gin.Context) {
 	var req struct {
 		Name        string `json:"name"`
 		Description string `json:"description"`
+		QuotaRPM    int    `json:"quota_rpm"`
+		QuotaTPM    int    `json:"quota_tpm"`
 	}
 	if err := c.ShouldBindJSON(&req); err != nil {
 		c.JSON(http.StatusBadRequest, errorResponse("invalid_request", err.Error()))
 		return
 	}
 
-	if err := h.router.UpdateKeysGroup(c.Request.Context(), id, req.Name, req.Description); err != nil {
+	if err := h.router.UpdateKeysGroup(c.Request.Context(), id, req.Name, req.Description, req.QuotaRPM, req.QuotaTPM); err != nil {
 		c.JSON(http.StatusInternalServerError, errorResponse("internal_error", err.Error()))
 		return
 	}
@@ -234,16 +238,14 @@ func (h *GroupHandler) AddKeysToGroup(c *gin.Context) {
 	}
 
 	var req struct {
-		KeysID   uint `json:"keys_id" binding:"required"`
-		QuotaRPM int  `json:"quota_rpm"`
-		QuotaTPM int  `json:"quota_tpm"`
+		KeysID uint `json:"keys_id" binding:"required"`
 	}
 	if err := c.ShouldBindJSON(&req); err != nil {
 		c.JSON(http.StatusBadRequest, errorResponse("invalid_request", err.Error()))
 		return
 	}
 
-	if err := h.router.AddKeysToGroup(c.Request.Context(), id, req.KeysID, req.QuotaRPM, req.QuotaTPM); err != nil {
+	if err := h.router.AddKeysToGroup(c.Request.Context(), id, req.KeysID); err != nil {
 		c.JSON(http.StatusInternalServerError, errorResponse("internal_error", err.Error()))
 		return
 	}

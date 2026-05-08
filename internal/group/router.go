@@ -213,17 +213,17 @@ func (r *Router) RemoveChannelFromGroup(ctx context.Context, groupID, channelID 
 
 // ========== 密钥分组 CRUD ==========
 
-func (r *Router) CreateKeysGroup(ctx context.Context, name, description string) (*keys.KeysGroup, error) {
-	cg := &keys.KeysGroup{Name: name, Description: description}
+func (r *Router) CreateKeysGroup(ctx context.Context, name, description string, quotaRPM, quotaTPM int) (*keys.KeysGroup, error) {
+	cg := &keys.KeysGroup{Name: name, Description: description, QuotaRPM: quotaRPM, QuotaTPM: quotaTPM}
 	if err := r.db.WithContext(ctx).Create(cg).Error; err != nil {
 		return nil, err
 	}
 	return cg, nil
 }
 
-func (r *Router) UpdateKeysGroup(ctx context.Context, id uint, name, description string) error {
+func (r *Router) UpdateKeysGroup(ctx context.Context, id uint, name, description string, quotaRPM, quotaTPM int) error {
 	return r.db.WithContext(ctx).Model(&keys.KeysGroup{}).Where("id = ?", id).
-		Updates(map[string]interface{}{"name": name, "description": description}).Error
+		Updates(map[string]interface{}{"name": name, "description": description, "quota_rpm": quotaRPM, "quota_tpm": quotaTPM}).Error
 }
 
 func (r *Router) DeleteKeysGroup(ctx context.Context, id uint) error {
@@ -239,9 +239,9 @@ func (r *Router) DeleteKeysGroup(ctx context.Context, id uint) error {
 	return tx.Commit().Error
 }
 
-func (r *Router) AddKeysToGroup(ctx context.Context, groupID, keysID uint, quotaRPM, quotaTPM int) error {
+func (r *Router) AddKeysToGroup(ctx context.Context, groupID, keysID uint) error {
 	member := &keys.KeysGroupMember{
-		GroupID: groupID, KeysID: keysID, QuotaRPM: quotaRPM, QuotaTPM: quotaTPM,
+		GroupID: groupID, KeysID: keysID,
 	}
 	return r.db.WithContext(ctx).Create(member).Error
 }
@@ -262,19 +262,29 @@ func (r *Router) UnbindChannelGroup(ctx context.Context, keysGroupID, channelGro
 		Delete(nil).Error
 }
 
-// ListChannelGroups 查询所有渠道分组
-func (r *Router) ListChannelGroups(ctx context.Context) ([]channel.ChannelGroup, error) {
-	var groups []channel.ChannelGroup
-	if err := r.db.WithContext(ctx).Order("weight DESC, id ASC").Find(&groups).Error; err != nil {
+// ListChannelGroups 查询所有渠道分组（含成员计数）
+func (r *Router) ListChannelGroups(ctx context.Context) ([]ChannelGroupWithCount, error) {
+	var groups []ChannelGroupWithCount
+	if err := r.db.WithContext(ctx).Model(&channel.ChannelGroup{}).
+		Select("channel_groups.*, COUNT(cgm.channel_id) AS channel_count").
+		Joins("LEFT JOIN channel_group_members cgm ON cgm.group_id = channel_groups.id").
+		Group("channel_groups.id").
+		Order("weight DESC, channel_groups.id ASC").
+		Find(&groups).Error; err != nil {
 		return nil, err
 	}
 	return groups, nil
 }
 
-// ListKeysGroups 查询所有密钥分组
-func (r *Router) ListKeysGroups(ctx context.Context) ([]keys.KeysGroup, error) {
-	var groups []keys.KeysGroup
-	if err := r.db.WithContext(ctx).Order("id ASC").Find(&groups).Error; err != nil {
+// ListKeysGroups 查询所有密钥分组（含渠道分组绑定计数）
+func (r *Router) ListKeysGroups(ctx context.Context) ([]KeysGroupWithCount, error) {
+	var groups []KeysGroupWithCount
+	if err := r.db.WithContext(ctx).Model(&keys.KeysGroup{}).
+		Select("keys_groups.*, COUNT(kgcg.channel_group_id) AS channel_count").
+		Joins("LEFT JOIN keys_group_channel_groups kgcg ON kgcg.keys_group_id = keys_groups.id").
+		Group("keys_groups.id").
+		Order("keys_groups.id ASC").
+		Find(&groups).Error; err != nil {
 		return nil, err
 	}
 	return groups, nil

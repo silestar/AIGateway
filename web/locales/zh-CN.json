@@ -149,12 +149,12 @@
   },
   "groups": {
     "channelGroups": "渠道分组",
-    "keyGroups": "密钥分组",
+    "keysGroups": "密钥分组",
     "name": "分组名称",
     "description": "描述",
     "weight": "权重",
     "createChannelGroup": "新建渠道分组",
-    "createKeyGroup": "新建密钥分组"
+    "createKeysGroup": "新建密钥分组"
   },
   "dashboard": {
     "todayRequests": "今日请求数",

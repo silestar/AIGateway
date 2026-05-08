@@ -28,7 +28,7 @@ func (h *StatsHandler) RegisterRoutes(rg *gin.RouterGroup) {
 	s.GET("/keys/:id", h.KeysStats)
 	s.GET("/channel/:id", h.ChannelStats)
 	// 实时聚合（从 request_logs 直接查询）
-	s.GET("/consumer/:id", h.ConsumerRealtime)
+	s.GET("/keys-realtime/:id", h.KeysRealtime)
 	s.GET("/channel-realtime/:id", h.ChannelRealtime)
 }
 
@@ -169,8 +169,8 @@ func (h *StatsHandler) ChannelStats(c *gin.Context) {
 	c.JSON(http.StatusOK, gin.H{"data": statsData})
 }
 
-// ConsumerRealtime 消费者实时聚合统计（从 request_logs 直接查询）
-func (h *StatsHandler) ConsumerRealtime(c *gin.Context) {
+// KeysRealtime 密钥实时聚合统计（从 request_logs 直接查询）
+func (h *StatsHandler) KeysRealtime(c *gin.Context) {
 	keysID, err := parseID(c)
 	if err != nil {
 		c.JSON(http.StatusBadRequest, errorResponse("invalid_keys_id", "invalid keys id"))

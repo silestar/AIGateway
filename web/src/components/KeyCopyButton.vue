@@ -12,7 +12,7 @@ import { useMessage, NButton, NIcon } from 'naive-ui'
 import { CopyOutlined } from '@vicons/antd'
 
 const props = defineProps<{
-  type: 'consumer' | 'account'
+  type: 'keys' | 'account'
   id: number
   revealFn: (id: number) => Promise<{ data: { api_key: string } }>
 }>()
@@ -22,7 +22,7 @@ const message = useMessage()
 const loading = ref(false)
 
 async function handleCopy() {
-  // 消费者密钥无法 reveal，只支持复制新创建时显示的 key
+  // 密钥无法 reveal，只支持复制新创建时显示的 key
   // 账号密钥可以通过 reveal-key API 获取
   loading.value = true
   try {

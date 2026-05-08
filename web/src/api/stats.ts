@@ -16,8 +16,12 @@ export const statsApi = {
   channels() {
     return api.get('/stats/channels')
   },
-  consumerStats(consumerId: number, params?: { start?: string; end?: string }) {
-    return api.get(`/stats/consumer/${consumerId}`, { params })
+  keysStats(keysId: number, params?: { start?: string; end?: string }) {
+    return api.get(`/stats/keys/${keysId}`, { params })
+  },
+  // 兼容旧 consumerStats — 改为 keys-realtime
+  keysRealtime(keysId: number) {
+    return api.get(`/stats/keys-realtime/${keysId}`)
   },
   channelStats(channelId: number, params?: { start?: string; end?: string }) {
     return api.get(`/stats/channel/${channelId}`, { params })
