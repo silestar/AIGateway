@@ -433,6 +433,8 @@ func handleChatCompletions(c *gin.Context) {
 		}
 		c.Writer.WriteHeader(proxyResult.StatusCode)
 		c.Writer.Write(proxyResult.Body)
+		// 缓存响应体供 detail writer 后续读取
+		c.Set("proxyResultBody", proxyResult.Body)
 	}
 
 	// 更新速率/配额计数器
@@ -445,7 +447,18 @@ func handleChatCompletions(c *gin.Context) {
 	// 写入详细请求/响应内容文件（异步）
 	if detailWriter, ok := c.Get("detailWriter"); ok {
 		if dw, ok := detailWriter.(*agwlog.DetailWriter); ok {
-			captureAndWriteDetail(c, dw, traceIDStr)
+			var respBodyBytes []byte
+			if !isStream && statusCode >= 200 && statusCode < 300 {
+				// 非流式成功响应：proxyResult.Body 中已有上游响应的原始 body
+				// 注意：此时 proxyResult.Body 已通过 c.Writer.Write() 发送，
+				// 但 proxyResult.Body 变量本身仍然有效
+				if pb, ok := c.Get("proxyResultBody"); ok {
+					if b, ok := pb.([]byte); ok {
+						respBodyBytes = b
+					}
+				}
+			}
+			captureAndWriteDetail(c, dw, traceIDStr, respBodyBytes)
 		}
 	}
 }
@@ -660,7 +673,7 @@ func updateRateLimitCounters(cache account.Cache, channelID, accountID uint) {
 }
 
 // captureAndWriteDetail 捕获请求/响应内容并异步写入文件
-func captureAndWriteDetail(c *gin.Context, dw *agwlog.DetailWriter, traceID string) {
+func captureAndWriteDetail(c *gin.Context, dw *agwlog.DetailWriter, traceID string, respBodyBytes []byte) {
 	// 捕获请求信息
 	reqSection := agwlog.DetailSection{
 		Method:  c.Request.Method,
@@ -684,7 +697,25 @@ func captureAndWriteDetail(c *gin.Context, dw *agwlog.DetailWriter, traceID stri
 		Headers:    captureHeaders(c.Writer.Header()),
 	}
 
+	// 尝试解析响应 body 为 JSON
+	if len(respBodyBytes) > 0 {
+		var respJSON interface{}
+		if json.Unmarshal(respBodyBytes, &respJSON) == nil {
+			respSection.Body = respJSON
+		} else {
+			// 非 JSON 就截断存字符串
+			respSection.Body = string(respBodyBytes[:min(len(respBodyBytes), 4096)])
+		}
+	}
+
 	dw.WriteDetail(traceID, time.Now(), reqSection, respSection)
+}
+
+func min(a, b int) int {
+	if a < b {
+		return a
+	}
+	return b
 }
 
 // captureHeaders 捕获 HTTP headers（脱敏 key）
