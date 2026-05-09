@@ -85,6 +85,21 @@ func main() {
 	// 统计管理器 + 异步日志写入器
 	statsMgr := stats.NewManager(db, logger)
 	asyncWriter := stats.NewAsyncWriter(db, logger, statsMgr, 10000, 50, 100)
+	// 注册 on_log 钩子：日志入队前触发插件的 on_log 钩子
+	asyncWriter.SetOnLogHook(func(log *stats.RequestLog) {
+		if pluginMgr != nil {
+			hookReq := &plugin.HookRequest{
+				KeysID: log.KeysID,
+				Model:  log.ModelName,
+			}
+			if log.StatusCode > 0 {
+				hookReq.Response = &plugin.HookResponseBody{
+					StatusCode: log.StatusCode,
+				}
+			}
+			_, _ = pluginMgr.TriggerHook(context.Background(), plugin.HookOnLog, hookReq)
+		}
+	})
 	asyncWriter.Start()
 	statsMgr.StartAggregator()
 

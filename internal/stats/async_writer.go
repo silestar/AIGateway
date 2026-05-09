@@ -11,6 +11,9 @@ import (
 	"gorm.io/gorm"
 )
 
+// OnLogHook 日志钩子回调类型（用于插件 on_log 钩子，解耦 stats 包和 plugin 包）
+type OnLogHook func(log *RequestLog)
+
 // AsyncWriter 异步批量日志写入器
 type AsyncWriter struct {
 	db        *gorm.DB
@@ -20,7 +23,8 @@ type AsyncWriter struct {
 	wg        sync.WaitGroup
 	batchSize int
 	flushMs   int
-	statsMgr  *Manager // 用于实时计数
+	statsMgr  *Manager   // 用于实时计数
+	onLogHook OnLogHook  // 日志写入前的钩子回调
 }
 
 // NewAsyncWriter 创建异步写入器
@@ -51,8 +55,25 @@ func (w *AsyncWriter) Start() {
 	go w.run()
 }
 
+// SetOnLogHook 设置日志钩子回调（日志入队前触发）
+func (w *AsyncWriter) SetOnLogHook(hook OnLogHook) {
+	w.onLogHook = hook
+}
+
 // Record 记录一条请求日志（非阻塞，满则丢弃）
 func (w *AsyncWriter) Record(log *RequestLog) bool {
+	// 触发 on_log 钩子（异步，不阻塞主流程）
+	if w.onLogHook != nil {
+		func() {
+			defer func() {
+				if r := recover(); r != nil {
+					w.logger.Warn("on_log hook panic recovered", zap.Any("recover", r))
+				}
+			}()
+			w.onLogHook(log)
+		}()
+	}
+
 	select {
 	case w.ch <- log:
 		return true

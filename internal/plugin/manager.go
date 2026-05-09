@@ -121,6 +121,7 @@ func (m *Manager) Install(ctx context.Context, zipPath string) (*Plugin, error) 
 		Port:         manifest.Port,
 		Hooks:        string(hooksJSON),
 		ConfigSchema: string(manifest.ConfigSchema),
+		Manifest:     string(manifestData),
 		Status:       StatusInstalled,
 	}
 

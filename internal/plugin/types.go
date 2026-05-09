@@ -46,6 +46,7 @@ type Plugin struct {
 	Port        int        `gorm:"not null" json:"port"`
 	Hooks       string     `gorm:"type:text" json:"hooks"` // JSON array: ["pre_request","post_response"]
 	ConfigSchema string   `gorm:"type:text" json:"config_schema"` // JSON Schema
+	Manifest     string   `gorm:"type:text" json:"manifest"`     // 完整的 manifest.json 内容
 	AuthToken   string     `gorm:"type:text" json:"-"` // AES 加密存储
 	Status      string     `gorm:"size:20;not null;default:'installed'" json:"status"` // installed/running/stopped/unhealthy
 	Config      string     `gorm:"type:text" json:"config"` // 当前配置 JSON
