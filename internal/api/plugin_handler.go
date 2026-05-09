@@ -1,21 +1,56 @@
 package api
 
 import (
+	"encoding/json"
+	"fmt"
+	"io"
 	"net/http"
 	"os"
+	"sync"
+	"time"
 
+	adapterregistry "github.com/bokelife/aigateway/pkg/adapter/registry"
 	"github.com/gin-gonic/gin"
+	"github.com/bokelife/aigateway/internal/config"
 	"github.com/bokelife/aigateway/internal/plugin"
 )
+
+// RegistryEntry 注册中心插件条目
+type RegistryEntry struct {
+	Name         string `json:"name"`
+	Version      string `json:"version"`
+	Description  string `json:"description"`
+	Author       string `json:"author"`
+	DownloadURL  string `json:"download_url"`
+	HomePage     string `json:"homepage,omitempty"`
+	Tags         string `json:"tags,omitempty"`          // JSON array string
+	MinAGWVersion string `json:"min_agw_version,omitempty"` // 最低 AGW 版本要求
+}
+
+// registryCache 注册中心缓存
+type registryCache struct {
+	mu       sync.RWMutex
+	entries  []RegistryEntry
+	fetchedAt time.Time
+	ttl      time.Duration
+}
 
 // PluginHandler 插件 API
 type PluginHandler struct {
 	pluginMgr *plugin.Manager
+	cfg       *config.Config
+	registry  *registryCache
 }
 
 // NewPluginHandler 创建插件 Handler
-func NewPluginHandler(pluginMgr *plugin.Manager) *PluginHandler {
-	return &PluginHandler{pluginMgr: pluginMgr}
+func NewPluginHandler(pluginMgr *plugin.Manager, cfg *config.Config) *PluginHandler {
+	return &PluginHandler{
+		pluginMgr: pluginMgr,
+		cfg:       cfg,
+		registry: &registryCache{
+			ttl: 5 * time.Minute,
+		},
+	}
 }
 
 // RegisterRoutes 注册插件路由
@@ -31,6 +66,11 @@ func (h *PluginHandler) RegisterRoutes(rg *gin.RouterGroup) {
 	p.GET("/:id/channel-configs", h.ListChannelConfigs)
 	p.PUT("/:id/channel-configs/:channelId", h.SetChannelConfig)
 	p.DELETE("/:id/channel-configs/:channelId", h.DeleteChannelConfig)
+	// 注册中心
+	p.GET("/registry/list", h.RegistryList)
+	p.POST("/registry/install", h.RegistryInstall)
+	// 渠道类型
+	p.GET("/channel-types", h.ListChannelTypes)
 }
 
 // List 插件列表
@@ -208,6 +248,143 @@ func (h *PluginHandler) SetChannelConfig(c *gin.Context) {
 	c.JSON(http.StatusOK, gin.H{"data": gin.H{"plugin_id": id, "channel_id": channelID}})
 }
 
+// RegistryList 获取注册中心插件列表（带缓存）
+func (h *PluginHandler) RegistryList(c *gin.Context) {
+	registryURL := h.cfg.Plugin.PluginRegistryURL
+	if registryURL == "" {
+		c.JSON(http.StatusBadRequest, errorResponse("not_configured", "plugin registry URL is not configured"))
+		return
+	}
+
+	// 检查缓存
+	h.registry.mu.RLock()
+	if h.registry.entries != nil && time.Since(h.registry.fetchedAt) < h.registry.ttl {
+		entries := h.registry.entries
+		h.registry.mu.RUnlock()
+		c.JSON(http.StatusOK, gin.H{"data": entries})
+		return
+	}
+	h.registry.mu.RUnlock()
+
+	// 缓存过期或为空，从远程拉取
+	client := &http.Client{Timeout: 10 * time.Second}
+	req, err := http.NewRequestWithContext(c.Request.Context(), http.MethodGet, registryURL, nil)
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, errorResponse("request_failed", err.Error()))
+		return
+	}
+
+	// 如果需要认证，附加 session token
+	if h.cfg.Plugin.UseRegistryAuth {
+		token := c.GetHeader("Authorization")
+		if token != "" {
+			req.Header.Set("Authorization", token)
+		}
+	}
+
+	resp, err := client.Do(req)
+	if err != nil {
+		c.JSON(http.StatusBadGateway, errorResponse("registry_unreachable", err.Error()))
+		return
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode != http.StatusOK {
+		body, _ := io.ReadAll(resp.Body)
+		c.JSON(http.StatusBadGateway, errorResponse("registry_error", fmt.Sprintf("registry returned %d: %s", resp.StatusCode, string(body))))
+		return
+	}
+
+	var entries []RegistryEntry
+	if err := json.NewDecoder(resp.Body).Decode(&entries); err != nil {
+		c.JSON(http.StatusInternalServerError, errorResponse("parse_failed", err.Error()))
+		return
+	}
+
+	// 更新缓存
+	h.registry.mu.Lock()
+	h.registry.entries = entries
+	h.registry.fetchedAt = time.Now()
+	h.registry.mu.Unlock()
+
+	c.JSON(http.StatusOK, gin.H{"data": entries})
+}
+
+// RegistryInstall 从注册中心安装插件
+func (h *PluginHandler) RegistryInstall(c *gin.Context) {
+	registryURL := h.cfg.Plugin.PluginRegistryURL
+	if registryURL == "" {
+		c.JSON(http.StatusBadRequest, errorResponse("not_configured", "plugin registry URL is not configured"))
+		return
+	}
+
+	var req struct {
+		Name        string `json:"name" binding:"required"`
+		DownloadURL string `json:"download_url" binding:"required"`
+	}
+	if err := c.ShouldBindJSON(&req); err != nil {
+		c.JSON(http.StatusBadRequest, errorResponse("invalid_request", err.Error()))
+		return
+	}
+
+	// 1. 下载 ZIP 到临时文件
+	client := &http.Client{Timeout: 60 * time.Second}
+	httpReq, err := http.NewRequestWithContext(c.Request.Context(), http.MethodGet, req.DownloadURL, nil)
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, errorResponse("download_request_failed", err.Error()))
+		return
+	}
+
+	if h.cfg.Plugin.UseRegistryAuth {
+		token := c.GetHeader("Authorization")
+		if token != "" {
+			httpReq.Header.Set("Authorization", token)
+		}
+	}
+
+	resp, err := client.Do(httpReq)
+	if err != nil {
+		c.JSON(http.StatusBadGateway, errorResponse("download_failed", err.Error()))
+		return
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode != http.StatusOK {
+		c.JSON(http.StatusBadGateway, errorResponse("download_error", fmt.Sprintf("download returned %d", resp.StatusCode)))
+		return
+	}
+
+	// 2. 保存到临时文件
+	tmpFile, err := os.CreateTemp("", "registry_plugin_*.zip")
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, errorResponse("temp_failed", err.Error()))
+		return
+	}
+	tmpPath := tmpFile.Name()
+	defer os.Remove(tmpPath)
+
+	if _, err := io.Copy(tmpFile, resp.Body); err != nil {
+		tmpFile.Close()
+		c.JSON(http.StatusInternalServerError, errorResponse("save_failed", err.Error()))
+		return
+	}
+	tmpFile.Close()
+
+	// 3. 调用已有的 Install 流程
+	p, err := h.pluginMgr.Install(c.Request.Context(), tmpPath)
+	if err != nil {
+		c.JSON(http.StatusBadRequest, errorResponse("install_failed", err.Error()))
+		return
+	}
+
+	// 4. 安装成功后清除缓存，下次拉取时刷新
+	h.registry.mu.Lock()
+	h.registry.entries = nil
+	h.registry.mu.Unlock()
+
+	c.JSON(http.StatusOK, gin.H{"data": p})
+}
+
 // DeleteChannelConfig 删除某插件在某渠道的配置
 func (h *PluginHandler) DeleteChannelConfig(c *gin.Context) {
 	id, err := parseID(c)
@@ -225,4 +402,10 @@ func (h *PluginHandler) DeleteChannelConfig(c *gin.Context) {
 		return
 	}
 	c.JSON(http.StatusOK, gin.H{"data": gin.H{"plugin_id": id, "channel_id": channelID}})
+}
+
+// ListChannelTypes 获取所有渠道类型（内置 + 插件注册的）
+func (h *PluginHandler) ListChannelTypes(c *gin.Context) {
+	types := adapterregistry.ListChannelTypes()
+	c.JSON(http.StatusOK, gin.H{"data": types})
 }

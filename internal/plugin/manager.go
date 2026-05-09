@@ -1,6 +1,7 @@
 package plugin
 
 import (
+	"archive/zip"
 	"bytes"
 	"context"
 	"encoding/json"
@@ -11,8 +12,8 @@ import (
 	"os/exec"
 	"path/filepath"
 	"time"
-	"archive/zip"
 
+	adapterregistry "github.com/bokelife/aigateway/pkg/adapter/registry"
 	"go.uber.org/zap"
 	"gorm.io/gorm"
 )
@@ -194,6 +195,9 @@ func (m *Manager) Start(ctx context.Context, pluginID uint) error {
 			zap.String("name", plugin.Name),
 			zap.Int("pid", pid),
 		)
+	} else {
+		// 健康检查通过，尝试探测渠道类型
+		m.discoverChannelType(ctx, plugin)
 	}
 
 	// 异步监听进程退出，自动更新状态
@@ -439,4 +443,69 @@ func (m *Manager) GetEffectiveConfig(ctx context.Context, channelID, pluginID ui
 		return "", err
 	}
 	return plugin.Config, nil
+}
+
+// ChannelTypeDiscovery 插件渠道类型发现响应
+type ChannelTypeDiscovery struct {
+	Type        string `json:"type"`
+	Name        string `json:"name"`
+	BaseURL     string `json:"base_url,omitempty"`
+	Description string `json:"description,omitempty"`
+}
+
+// discoverChannelType 探测插件是否提供渠道类型，如提供则注册到 adapter registry
+func (m *Manager) discoverChannelType(ctx context.Context, plugin Plugin) {
+	url := fmt.Sprintf("http://127.0.0.1:%d/.well-known/channel-type", plugin.Port)
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, url, nil)
+	if err != nil {
+		return
+	}
+	req.Header.Set("Authorization", "Bearer "+plugin.AuthToken)
+
+	resp, err := m.client.Do(req)
+	if err != nil {
+		return // 插件不提供渠道类型，静默跳过
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode == http.StatusNotFound {
+		return // 插件不提供渠道类型端点
+	}
+	if resp.StatusCode != http.StatusOK {
+		m.logger.Warn("plugin channel-type discovery returned non-200",
+			zap.String("name", plugin.Name),
+			zap.Int("status", resp.StatusCode),
+		)
+		return
+	}
+
+	var discovery ChannelTypeDiscovery
+	if err := json.NewDecoder(resp.Body).Decode(&discovery); err != nil {
+		m.logger.Warn("failed to decode plugin channel-type discovery",
+			zap.String("name", plugin.Name),
+			zap.Error(err),
+		)
+		return
+	}
+
+	if discovery.Type == "" {
+		m.logger.Warn("plugin channel-type discovery missing 'type' field",
+			zap.String("name", plugin.Name),
+		)
+		return
+	}
+
+	// 注册到 adapter registry
+	adapterregistry.RegisterChannelType(adapterregistry.ChannelTypeInfo{
+		Type:        discovery.Type,
+		Name:        discovery.Name,
+		IsPlugin:    true,
+		BaseURL:     discovery.BaseURL,
+		Description: discovery.Description,
+	})
+
+	m.logger.Info("plugin registered channel type",
+		zap.String("plugin", plugin.Name),
+		zap.String("channel_type", discovery.Type),
+	)
 }

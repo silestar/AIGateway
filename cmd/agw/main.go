@@ -23,6 +23,7 @@ import (
 	"github.com/bokelife/aigateway/internal/crypto"
 	"github.com/bokelife/aigateway/internal/group"
 	agwlog "github.com/bokelife/aigateway/internal/log"
+	"github.com/bokelife/aigateway/internal/models"
 	"github.com/bokelife/aigateway/internal/plugin"
 	"github.com/bokelife/aigateway/internal/proxy"
 	"github.com/bokelife/aigateway/internal/stats"
@@ -81,6 +82,19 @@ func main() {
 	accountMgr := account.NewManager(db, cache, cryptoService, channelSvc, cfg.AccountManager, logger)
 	groupRouter := group.NewRouter(db, keysSvc, accountMgr, logger, cache)
 	proxyEngine := proxy.NewEngine(cfg.Proxy, accountMgr, pluginMgr, logger)
+
+	// 模型目录服务 + 渠道模型变更回调
+	catalogSvc := models.NewCatalogService(db, logger)
+	channelSvc.SetOnModelsChange(func() {
+		if err := catalogSvc.SyncFromChannelModels(context.Background()); err != nil {
+			logger.Warn("failed to sync model catalog", zap.Error(err))
+		}
+	})
+
+	// 启动时初始同步一次
+	if err := catalogSvc.SyncFromChannelModels(context.Background()); err != nil {
+		logger.Warn("initial model catalog sync failed", zap.Error(err))
+	}
 
 	// 统计管理器 + 异步日志写入器
 	statsMgr := stats.NewManager(db, logger)
@@ -170,7 +184,7 @@ func main() {
 	})
 
 	// 8. 注册路由（代理 + 健康检查）
-	registerRoutes(router, cfg, logger)
+	registerRoutes(router, cfg, catalogSvc, logger)
 
 	// 9. 认证 + 管理API
 	authHandler := agwapi.NewAuthHandler(cfg.Server.APIToken)
@@ -195,7 +209,8 @@ func main() {
 	agwapi.NewGroupHandler(groupRouter).RegisterRoutes(protected)
 	agwapi.NewStatsHandler(statsMgr).RegisterRoutes(protected)
 	agwapi.NewLogHandler(statsMgr, &cfg.Log).RegisterRoutes(protected)
-	agwapi.NewPluginHandler(pluginMgr).RegisterRoutes(protected)
+	agwapi.NewPluginHandler(pluginMgr, cfg).RegisterRoutes(protected)
+	agwapi.NewModelHandler(catalogSvc).RegisterRoutes(protected)
 	agwapi.NewSystemHandler(cfg).RegisterRoutes(protected)
 	agwapi.NewSystemLogHandler(cfg).RegisterRoutes(protected)
 
@@ -245,7 +260,7 @@ func main() {
 }
 
 // registerRoutes 注册代理和健康检查路由
-func registerRoutes(r *gin.Engine, cfg *config.Config, logger *zap.Logger) {
+func registerRoutes(r *gin.Engine, cfg *config.Config, catalogSvc models.CatalogService, logger *zap.Logger) {
 	// 健康检查
 	r.GET("/health", func(c *gin.Context) {
 		c.JSON(http.StatusOK, gin.H{"status": "ok"})
@@ -258,7 +273,9 @@ func registerRoutes(r *gin.Engine, cfg *config.Config, logger *zap.Logger) {
 	v1 := r.Group("/v1")
 	v1.POST("/chat/completions", handleChatCompletions)
 	v1.POST("/completions", notImplemented)
-	v1.GET("/models", notImplemented)
+	v1.GET("/models", func(c *gin.Context) {
+		handleModelsList(c, catalogSvc)
+	})
 }
 
 // handleChatCompletions 处理 Chat Completions 请求
@@ -870,4 +887,34 @@ func captureHeaders(h map[string][]string) map[string]string {
 		}
 	}
 	return result
+}
+
+// handleModelsList 处理 /v1/models 请求（OpenAI 兼容格式）
+func handleModelsList(c *gin.Context, catalogSvc models.CatalogService) {
+	list, err := catalogSvc.GetVisibleModels(c.Request.Context())
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{
+			"error": gin.H{"code": "internal_error", "message": err.Error()},
+		})
+		return
+	}
+
+	type modelItem struct {
+		ID      string `json:"id"`
+		Object  string `json:"object"`
+		OwnedBy string `json:"owned_by"`
+	}
+	items := make([]modelItem, len(list))
+	for i, m := range list {
+		items[i] = modelItem{
+			ID:      m.ModelName,
+			Object:  "model",
+			OwnedBy: "aigateway",
+		}
+	}
+
+	c.JSON(http.StatusOK, gin.H{
+		"object": "list",
+		"data":   items,
+	})
 }

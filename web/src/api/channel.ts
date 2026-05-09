@@ -58,6 +58,14 @@ export interface BatchTestResultItem {
   testing?: boolean
 }
 
+export interface ChannelTypeInfo {
+  type: string
+  name: string
+  is_plugin: boolean
+  base_url?: string
+  description?: string
+}
+
 export const channelApi = {
   list(params?: {
     page?: number
@@ -120,5 +128,9 @@ export const channelApi = {
   },
   copyChannel(id: number) {
     return api.post<{ data: Channel; message: string }>(`/channels/${id}/copy`)
+  },
+  // 渠道类型（内置 + 插件注册的）
+  listChannelTypes() {
+    return api.get<{ data: ChannelTypeInfo[] }>('/plugins/channel-types')
   },
 }

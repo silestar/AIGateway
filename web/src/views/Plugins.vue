@@ -4,7 +4,7 @@
       <div style="display:flex;align-items:center;justify-content:space-between">
         <h2 class="page-title" style="margin:0">{{ t('plugins.title') }}</h2>
         <n-space>
-          <n-button tertiary :disabled="true">
+          <n-button tertiary @click="openRegistry">
             <template #icon><n-icon><StoreIcon /></n-icon></template>
             {{ t('plugins.market') }}
           </n-button>
@@ -188,6 +188,44 @@
         </n-space>
       </template>
     </n-modal>
+
+    <!-- 注册中心弹窗 -->
+    <n-modal v-model:show="registryModalShow" preset="card" :title="t('plugins.registryTitle')" style="width:700px">
+      <n-spin :show="registryLoading">
+        <n-empty v-if="!registryLoading && registryEntries.length === 0" :description="t('plugins.registryEmpty')" style="padding:40px 0" />
+        <n-list v-else bordered>
+          <n-list-item v-for="entry in registryEntries" :key="entry.name">
+            <n-thing :title="entry.name">
+              <template #description>
+                <n-space size="small" align="center">
+                  <n-tag size="small" type="info">{{ entry.version }}</n-tag>
+                  <span style="color:#999;font-size:12px">{{ entry.author }}</span>
+                </n-space>
+              </template>
+              {{ entry.description }}
+              <template #action>
+                <n-space justify="end">
+                  <n-button
+                    size="small"
+                    type="primary"
+                    :loading="registryInstallLoading[entry.name]"
+                    :disabled="isPluginInstalled(entry.name)"
+                    @click="handleRegistryInstall(entry)"
+                  >
+                    {{ isPluginInstalled(entry.name) ? t('plugins.registryInstalled') : t('plugins.registryInstallBtn') }}
+                  </n-button>
+                </n-space>
+              </template>
+            </n-thing>
+          </n-list-item>
+        </n-list>
+      </n-spin>
+      <template #action>
+        <n-space justify="end">
+          <n-button @click="registryModalShow = false">{{ t('common.cancel') }}</n-button>
+        </n-space>
+      </template>
+    </n-modal>
   </n-card>
 </template>
 
@@ -199,9 +237,10 @@ import {
   NCard, NGrid, NGridItem, NTag, NButton, NSpace, NUpload,
   NDescriptions, NDescriptionsItem, NEmpty, NModal, NInput, NIcon,
   NForm, NFormItem, NSelect, NInputNumber, NSwitch, NTabs, NTabPane,
+  NList, NListItem, NThing, NSpin,
 } from 'naive-ui'
 import { CloudUploadOutline as UploadIcon, AppsOutline as StoreIcon } from '@vicons/ionicons5'
-import { pluginApi, type PluginItem, type ChannelPluginConfig } from '../api/plugin'
+import { pluginApi, type PluginItem, type ChannelPluginConfig, type RegistryEntry } from '../api/plugin'
 
 const { t } = useI18n()
 const message = useMessage()
@@ -501,6 +540,54 @@ function addChannelConfig() {
     updated_at: '',
   })
   newChannelId.value = null
+}
+
+// 注册中心相关
+const registryModalShow = ref(false)
+const registryLoading = ref(false)
+const registryEntries = ref<RegistryEntry[]>([])
+const registryInstallLoading = reactive<Record<string, boolean>>({})
+
+function isPluginInstalled(name: string): boolean {
+  return plugins.value.some(p => p.name === name)
+}
+
+async function openRegistry() {
+  registryModalShow.value = true
+  if (registryEntries.value.length === 0) {
+    await fetchRegistryList()
+  }
+}
+
+async function fetchRegistryList() {
+  registryLoading.value = true
+  try {
+    const { data } = await pluginApi.registryList()
+    registryEntries.value = data?.data || []
+  } catch (e: any) {
+    const errMsg = e?.response?.data?.error?.message || e.message
+    if (errMsg.includes('not configured')) {
+      message.warning(t('plugins.registryNotConfigured'))
+    } else {
+      message.error(t('plugins.registryLoadFailed') + ': ' + errMsg)
+    }
+    registryEntries.value = []
+  } finally {
+    registryLoading.value = false
+  }
+}
+
+async function handleRegistryInstall(entry: RegistryEntry) {
+  registryInstallLoading[entry.name] = true
+  try {
+    await pluginApi.registryInstall(entry.name, entry.download_url)
+    message.success(t('plugins.registryInstallSuccess'))
+    await fetchPlugins()
+  } catch (e: any) {
+    message.error(t('plugins.installFailed') + ': ' + (e?.response?.data?.error?.message || e.message))
+  } finally {
+    registryInstallLoading[entry.name] = false
+  }
 }
 
 onMounted(fetchPlugins)

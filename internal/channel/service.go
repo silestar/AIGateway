@@ -16,12 +16,18 @@ import (
 )
 
 type service struct {
-	db *gorm.DB
+	db            *gorm.DB
+	onModelsChange func() // 模型变更回调，用于同步 model_catalog
 }
 
 // NewService 创建渠道服务
 func NewService(db *gorm.DB) ChannelService {
 	return &service{db: db}
+}
+
+// SetOnModelsChange 设置模型变更回调
+func (s *service) SetOnModelsChange(fn func()) {
+	s.onModelsChange = fn
 }
 
 func (s *service) Create(ctx context.Context, name, channelType, baseURL string) (*Channel, error) {
@@ -147,8 +153,14 @@ func (s *service) Update(ctx context.Context, id uint, name, baseURL string, wei
 }
 
 func (s *service) UpdateStatus(ctx context.Context, id uint, status string) error {
-	return s.db.WithContext(ctx).Model(&Channel{}).Where("id = ?", id).
-		Update("status", status).Error
+	if err := s.db.WithContext(ctx).Model(&Channel{}).Where("id = ?", id).
+		Update("status", status).Error; err != nil {
+		return err
+	}
+
+	// 渠道状态变更（启用/禁用）后触发同步 catalog
+	s.triggerModelsChange()
+	return nil
 }
 
 func (s *service) UpdateWeight(ctx context.Context, id uint, weight int) error {
@@ -187,7 +199,13 @@ func (s *service) Delete(ctx context.Context, id uint) error {
 		tx.Rollback()
 		return err
 	}
-	return tx.Commit().Error
+	if err := tx.Commit().Error; err != nil {
+		return err
+	}
+
+	// 渠道删除后触发同步 catalog
+	s.triggerModelsChange()
+	return nil
 }
 
 func (s *service) FetchModels(ctx context.Context, id uint, testKey string) ([]ModelInfo, error) {
@@ -240,7 +258,20 @@ func (s *service) SaveModels(ctx context.Context, id uint, models []ChannelModel
 		}
 	}
 
-	return tx.Commit().Error
+	if err := tx.Commit().Error; err != nil {
+		return err
+	}
+
+	// 模型变更后触发同步 catalog
+	s.triggerModelsChange()
+	return nil
+}
+
+// triggerModelsChange 触发模型变更回调
+func (s *service) triggerModelsChange() {
+	if s.onModelsChange != nil {
+		go s.onModelsChange()
+	}
 }
 
 // TestAccount 测试指定账号（不限状态，用于探测/巡检）

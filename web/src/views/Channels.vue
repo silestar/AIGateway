@@ -112,7 +112,7 @@
       <n-form :model="createForm">
         <n-form-item :label="t('common.name')"><n-input v-model:value="createForm.name" /></n-form-item>
         <n-form-item :label="t('common.type')">
-          <n-select v-model:value="createForm.type" :options="channelTypeOptions" />
+          <n-select v-model:value="createForm.type" :options="channelTypeOptions" @update:value="onChannelTypeChange" />
         </n-form-item>
         <n-form-item :label="t('channels.baseUrl')">
           <n-input v-model:value="createForm.base_url" />
@@ -233,12 +233,40 @@ const activeDetailTab = ref('info')
 
 const pagination = reactive({ page: 1, pageSize: 20, itemCount: 0 })
 
-const channelTypeOptions = [
-  { label: 'OpenAI', value: 'openai' },
-  { label: 'OpenAI Response', value: 'openai-response' },
-  { label: 'Anthropic', value: 'anthropic' },
-  { label: 'Gemini', value: 'gemini' },
-]
+const channelTypeOptions = ref<{ label: string; value: string }[]>([])
+// 保存渠道类型完整信息，用于自动填充 base_url
+const channelTypeMap = ref<Record<string, { base_url?: string; is_plugin?: boolean }>>({})
+
+async function loadChannelTypes() {
+  try {
+    const { data } = await channelApi.listChannelTypes()
+    const types = data?.data || []
+    channelTypeOptions.value = types.map((t: any) => ({
+      label: t.is_plugin ? `${t.name} (Plugin)` : t.name,
+      value: t.type,
+    }))
+    // 保存 base_url 映射
+    const map: Record<string, { base_url?: string; is_plugin?: boolean }> = {}
+    for (const t of types) {
+      map[t.type] = { base_url: t.base_url || '', is_plugin: t.is_plugin }
+    }
+    channelTypeMap.value = map
+  } catch {
+    // fallback 到内置类型
+    channelTypeOptions.value = [
+      { label: 'OpenAI', value: 'openai' },
+      { label: 'Anthropic', value: 'anthropic' },
+      { label: 'Gemini', value: 'gemini' },
+    ]
+  }
+}
+
+// 选择渠道类型时，自动填充 base_url（仅当 base_url 为空时）
+function onChannelTypeChange(type: string) {
+  if (!createForm.base_url && channelTypeMap.value[type]?.base_url) {
+    createForm.base_url = channelTypeMap.value[type].base_url!
+  }
+}
 
 const sortOptions = [
   { label: t('channels.sortByWeight'), value: 'weight' },
@@ -1035,7 +1063,10 @@ watch(() => createForm.type, (newType) => {
   }
 })
 
-onMounted(() => loadChannels())
+onMounted(() => {
+  loadChannelTypes()
+  loadChannels()
+})
 </script>
 
 <style scoped>

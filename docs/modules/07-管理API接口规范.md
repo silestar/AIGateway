@@ -1555,6 +1555,93 @@
 
 ---
 
+## 9. 模型管理
+
+### 9.1 获取模型目录
+
+```
+GET /api/models/catalog
+```
+
+返回完整的模型目录（含可见和隐藏的），按 `model_name` 排序。
+
+**响应**：
+
+```json
+{
+  "data": [
+    {
+      "id": 1,
+      "model_name": "gpt-4o",
+      "is_mapped": false,
+      "visible": true,
+      "ref_count": 3,
+      "created_at": "2026-05-10T12:00:00Z",
+      "updated_at": "2026-05-10T12:00:00Z"
+    }
+  ]
+}
+```
+
+| 字段 | 类型 | 说明 |
+|------|------|------|
+| `model_name` | string | 去重后的 display_model_name |
+| `is_mapped` | bool | 是否为自定义映射模型（display != actual） |
+| `visible` | bool | 是否在 /v1/models 返回 |
+| `ref_count` | int | 引用该模型的活跃渠道数，0 表示已无渠道使用 |
+
+### 9.2 切换模型可见性
+
+```
+PUT /api/models/catalog/:id/visibility
+```
+
+**请求体**：
+
+```json
+{
+  "visible": false
+}
+```
+
+**响应**：
+
+```json
+{
+  "data": {
+    "id": 1,
+    "visible": false
+  }
+}
+```
+
+### 9.3 OpenAI 兼容模型列表
+
+```
+GET /v1/models
+```
+
+返回 OpenAI 标准格式的模型列表，仅包含 `visible=true` 且 `ref_count > 0` 的模型。
+
+**响应**：
+
+```json
+{
+  "object": "list",
+  "data": [
+    {
+      "id": "gpt-4o",
+      "object": "model",
+      "owned_by": "aigateway"
+    }
+  ]
+}
+```
+
+> 注意：此端点为代理端点（无需认证或使用 API Key 认证），不走管理端 Bearer Token 认证。
+
+---
+
 ## 附录 A：错误响应格式
 
 所有错误统一格式：

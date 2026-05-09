@@ -129,4 +129,6 @@ type ChannelService interface {
 	BatchTestModels(ctx context.Context, id uint, modelNames []string, apiKey string) ([]BatchTestResultItem, error)
 	UpdateTestModel(ctx context.Context, id uint, testModel string) error
 	CopyChannel(ctx context.Context, id uint) (*Channel, error)
+	// SetOnModelsChange 设置模型变更回调（用于同步 model_catalog）
+	SetOnModelsChange(fn func())
 }

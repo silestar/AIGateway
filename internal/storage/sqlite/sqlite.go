@@ -15,6 +15,7 @@ import (
 	"github.com/bokelife/aigateway/internal/account"
 	"github.com/bokelife/aigateway/internal/stats"
 	"github.com/bokelife/aigateway/internal/plugin"
+	"github.com/bokelife/aigateway/internal/models"
 )
 
 type SQLiteStorage struct {
@@ -90,6 +91,7 @@ func autoMigrate(db *gorm.DB) error {
 		&stats.KeysDailyStats{},
 		&stats.ChannelDailyStats{},
 		&plugin.Plugin{},
+		&models.ModelCatalog{},
 	)
 }
 

@@ -9,6 +9,7 @@
     "groups": "Groups",
     "stats": "Statistics",
     "logs": "Logs",
+    "models": "Models",
     "plugins": "Plugins",
     "system": "System",
     "systemSettings": "Settings",
@@ -172,9 +173,9 @@
     "channelPriorityTip": "Channel priority is determined by its own weight (higher = more preferred). Channels within a group are tried in descending weight order, with lower-weight channels used as fallbacks when higher-weight channels are unavailable.",
     "removeChannel": "Remove",
     "quotaRPM": "RPM Limit",
-    "quotaRPMHint": "Max requests per minute shared by all keys in this group. 0 = unlimited",
+    "quotaRPMHint": "Max requests per minute for each key in this group. 0 = unlimited",
     "quotaTPM": "TPM Limit",
-    "quotaTPMHint": "Max tokens per minute shared by all keys in this group. 0 = unlimited",
+    "quotaTPMHint": "Max tokens per minute for each key in this group. 0 = unlimited",
     "accessibleChannels": "Accessible Channel Groups",
     "deleteBlocked": "This group is currently in use and cannot be deleted"
   },
@@ -269,7 +270,14 @@
     "addChannelConfig": "Add Channel Config",
     "channelIdRequired": "Please enter channel ID",
     "channelConfigExists": "Config already exists for this channel",
-    "deleteChannelConfigConfirm": "Delete this channel-level config?"
+    "deleteChannelConfigConfirm": "Delete this channel-level config?",
+    "registryTitle": "Plugin Registry",
+    "registryEmpty": "No plugins available in the registry",
+    "registryNotConfigured": "Plugin registry URL is not configured. Please set plugin_registry_url in System Settings",
+    "registryLoadFailed": "Failed to load plugin registry",
+    "registryInstallBtn": "Install",
+    "registryInstalled": "Installed",
+    "registryInstallSuccess": "Plugin installed successfully"
   },
   "settings": {
     "title": "System Settings",
@@ -448,5 +456,21 @@
     "perPage": "Per Page",
     "exporting": "Exporting...",
     "clickToCopy": "Click to copy"
+  },
+  "models": {
+    "title": "Model Management",
+    "selectedModels": "Selected Models",
+    "mappedModels": "Custom Mapped Models",
+    "modelName": "Model Name",
+    "visible": "Visible",
+    "hidden": "Hidden",
+    "refCount": "Channel References",
+    "visibilityOn": "This model will be returned in /v1/models",
+    "visibilityOff": "This model is hidden from /v1/models",
+    "noModels": "No models available",
+    "noModelsHint": "Please configure model mappings in channels first. Models will be synced here automatically.",
+    "mappedFrom": "Mapped from",
+    "refresh": "Refresh",
+    "total": "{count} models in total"
   }
 }

@@ -167,6 +167,7 @@ const pageTitle = computed(() => {
     '/groups': 'menu.groups',
     '/stats': 'menu.stats',
     '/logs': 'menu.logs',
+    '/models': 'menu.models',
     '/plugins': 'menu.plugins',
     '/settings': 'menu.systemSettings',
     '/settings/logs': 'menu.systemLogs',
@@ -393,6 +394,7 @@ const menuOptions = computed(() => [
   { label: t('menu.groups'), key: '/groups', icon: (): string => '📁' },
   { label: t('menu.stats'), key: '/stats', icon: (): string => '📈' },
   { label: t('menu.logs'), key: '/logs', icon: (): string => '📋' },
+  { label: t('menu.models'), key: '/models', icon: (): string => '🤖' },
   { label: t('menu.plugins'), key: '/plugins', icon: (): string => '🧩' },
   {
     label: t('menu.system'),

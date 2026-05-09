@@ -20,7 +20,7 @@ func (e *QuotaError) Error() string {
 }
 
 // CheckQuota 检查密钥所在分组的配额（RPM/TPM）
-// 配额从 KeysGroup 取值，语义：该分组下所有密钥共享的总限额
+// 配额从 KeysGroup 取值，语义：该分组下每个密钥各自的限额（非分组共享总量）
 func (s *service) CheckQuota(ctx context.Context, keysID uint, tokenCount int) error {
 	// 1. 查密钥所在的分组
 	var member KeysGroupMember

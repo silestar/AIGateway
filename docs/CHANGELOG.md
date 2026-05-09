@@ -54,3 +54,13 @@
 - 插件系统核心（Sidecar 进程管理 + 钩子调度 + Go SDK）
 - Docker 多阶段构建 + docker-compose
 - README + CHANGELOG
+
+### 阶段八：插件优化与模型管理
+- 插件注册中心：`marketplace_url/token` → `plugin_registry_url/use_registry_auth`，支持远程列表 + 一键安装
+- 渠道类型插件：插件启动后通过 `/.well-known/channel-type` 自动发现并注册新渠道类型
+- 前端渠道类型下拉框从 API 动态获取（不再硬编码），选插件类型时自动填充 base_url
+- 模型管理模块：`model_catalog` 表 + 全量同步逻辑（SaveModels/Delete/UpdateStatus 触发）
+- `/v1/models` 端点实现（OpenAI 兼容格式，返回 `visible=true` 的模型）
+- 管理端 API：`GET /api/models/catalog`、`PUT /api/models/catalog/:id/visibility`
+- 前端模型管理页面：左右两列（已选模型 / 自定义映射模型）+ 可见性开关
+- 密钥分组配额语义修正："共享"→"各自的"（每密钥独立限额）

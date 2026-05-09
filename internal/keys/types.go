@@ -27,8 +27,8 @@ type KeysGroup struct {
 	ID          uint      `gorm:"primaryKey;autoIncrement" json:"id"`
 	Name        string    `gorm:"size:100;not null" json:"name"`
 	Description string    `gorm:"size:500" json:"description"`
-	QuotaRPM    int       `gorm:"not null;default:0" json:"quota_rpm"`  // 分组共享 RPM 限额，0=不限制
-	QuotaTPM    int       `gorm:"not null;default:0" json:"quota_tpm"`  // 分组共享 TPM 限额，0=不限制
+	QuotaRPM    int       `gorm:"not null;default:0" json:"quota_rpm"`  // 每个密钥各自的 RPM 限额，0=不限制
+	QuotaTPM    int       `gorm:"not null;default:0" json:"quota_tpm"`  // 每个密钥各自的 TPM 限额，0=不限制
 	CreatedAt   time.Time `gorm:"autoCreateTime" json:"created_at"`
 	UpdatedAt   time.Time `gorm:"autoUpdateTime" json:"updated_at"`
 }

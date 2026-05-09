@@ -50,3 +50,9 @@ proxy:
   read_timeout: 60      # 读取超时(秒)
   max_idle_conns: 100   # 最大空闲连接数
   idle_conn_timeout: 90 # 空闲连接超时(秒)
+
+plugin:
+  # plugin_registry_url: ""    # 插件注册中心地址，为空时不启用市场功能
+  # use_registry_auth: false   # 注册中心是否需要认证
+  plugin_dir: "./plugins"       # 本地插件存储目录
+  sidecar_timeout: 5            # Sidecar 钩子调用超时(秒)

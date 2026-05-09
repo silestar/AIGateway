@@ -52,6 +52,7 @@
 |`/stats/consumer`|StatsConsumer|用户分析（可选密钥ID参数）|
 |`/stats/channel`|StatsChannel|渠道分析（可选渠道ID参数）|
 |`/logs/requests`|RequestLogs|请求日志查询|
+|`/models`|Models|模型管理|
 |`/plugins`|PluginMarket|插件管理|
 |`/settings`|SystemSettings|系统配置、日志下载|
 
@@ -347,7 +348,38 @@
     - `PUT /api/plugins/:id/config` { config }
         
 
-### 2.8 系统设置 (SystemSettings)
+### 2.8 模型管理 (Models)
+
+**功能**：管理对外暴露的模型列表，控制 `/v1/models` 端点返回的模型。
+
+**页面布局**：
+
+- 页面标题："模型管理" + 刷新按钮
+- 左右两列布局（`n-grid :cols="2"`）
+
+**左列 — 已选模型**：
+- 卡片标题"已选模型" + 计数标签
+- 模型列表（`n-list`），每项：
+  - 蓝色标签显示模型名
+  - 引用渠道数
+  - 可见性开关（`n-switch`），带 tooltip 提示效果说明
+
+**右列 — 自定义映射模型**：
+- 卡片标题"自定义映射模型" + 计数标签
+- 模型列表，每项：
+  - 橙色标签显示模型名
+  - 引用渠道数
+  - 可见性开关
+
+**空状态**：无模型时显示引导提示"请先在渠道中配置模型映射"。
+
+**API**：
+- `GET /api/models/catalog` — 获取完整目录
+- `PUT /api/models/catalog/:id/visibility` — 切换可见性
+
+**数据自动同步**：模型目录从渠道模型映射自动同步，无需手动添加。
+
+### 2.9 系统设置 (SystemSettings)
 
 **功能**：系统级配置与运维。
 

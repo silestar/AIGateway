@@ -9,6 +9,7 @@
     "groups": "分组",
     "stats": "统计",
     "logs": "日志",
+    "models": "模型",
     "plugins": "插件",
     "system": "系统",
     "systemSettings": "设置",
@@ -170,9 +171,9 @@
     "channelPriorityTip": "渠道的优先级由其自身的权重决定（值越大越优先），无需在分组内重复设置。同分组内按渠道权重大小依次尝试，高权重渠道不可用时自动降级到低权重渠道。",
     "removeChannel": "移除",
     "quotaRPM": "RPM 限制",
-    "quotaRPMHint": "该分组下所有密钥共享的每分钟最大请求数，0 表示不限制",
+    "quotaRPMHint": "该分组下每个密钥各自的每分钟最大请求数，0 表示不限制",
     "quotaTPM": "TPM 限制",
-    "quotaTPMHint": "该分组下所有密钥共享的每分钟最大 Token 数，0 表示不限制",
+    "quotaTPMHint": "该分组下每个密钥各自的每分钟最大 Token 数，0 表示不限制",
     "accessibleChannels": "可访问的渠道分组",
     "deleteBlocked": "该分组正在被使用，无法删除"
   },
@@ -267,7 +268,14 @@
     "addChannelConfig": "添加渠道配置",
     "channelIdRequired": "请输入渠道 ID",
     "channelConfigExists": "该渠道已存在配置",
-    "deleteChannelConfigConfirm": "确定删除该渠道级配置？"
+    "deleteChannelConfigConfirm": "确定删除该渠道级配置？",
+    "registryTitle": "插件注册中心",
+    "registryEmpty": "注册中心暂无可用插件",
+    "registryNotConfigured": "未配置插件注册中心地址，请在系统设置中配置 plugin_registry_url",
+    "registryLoadFailed": "加载注册中心失败",
+    "registryInstallBtn": "安装",
+    "registryInstalled": "已安装",
+    "registryInstallSuccess": "插件安装成功"
   },
   "settings": {
     "title": "系统设置",
@@ -452,5 +460,21 @@
     "perPage": "每页",
     "exporting": "导出中...",
     "clickToCopy": "点击复制"
+  },
+  "models": {
+    "title": "模型管理",
+    "selectedModels": "已选模型",
+    "mappedModels": "自定义映射模型",
+    "modelName": "模型名称",
+    "visible": "对外可见",
+    "hidden": "已隐藏",
+    "refCount": "引用渠道数",
+    "visibilityOn": "此模型将在 /v1/models 返回",
+    "visibilityOff": "此模型已从 /v1/models 隐藏",
+    "noModels": "暂无模型数据",
+    "noModelsHint": "请先在渠道中配置模型映射，模型将自动同步到此处",
+    "mappedFrom": "映射自",
+    "refresh": "刷新",
+    "total": "共 {count} 个模型"
   }
 }

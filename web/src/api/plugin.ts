@@ -26,6 +26,17 @@ export interface ChannelPluginConfig {
   updated_at: string
 }
 
+export interface RegistryEntry {
+  name: string
+  version: string
+  description: string
+  author: string
+  download_url: string
+  homepage?: string
+  tags?: string
+  min_agw_version?: string
+}
+
 export const pluginApi = {
   list() {
     return api.get('/plugins')
@@ -56,5 +67,12 @@ export const pluginApi = {
   },
   deleteChannelConfig(pluginId: number, channelId: number) {
     return api.delete(`/plugins/${pluginId}/channel-configs/${channelId}`)
+  },
+  // 注册中心
+  registryList() {
+    return api.get('/plugins/registry/list')
+  },
+  registryInstall(name: string, download_url: string) {
+    return api.post('/plugins/registry/install', { name, download_url })
   },
 }
