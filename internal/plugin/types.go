@@ -56,6 +56,18 @@ type Plugin struct {
 
 func (Plugin) TableName() string { return "plugins" }
 
+// ChannelPluginSetting 渠道级插件配置（同一插件在不同渠道可有不同配置）
+type ChannelPluginSetting struct {
+	ID        uint      `gorm:"primaryKey;autoIncrement" json:"id"`
+	ChannelID uint      `gorm:"not null;index:idx_channel_plugin" json:"channel_id"`
+	PluginID  uint      `gorm:"not null;index:idx_channel_plugin" json:"plugin_id"`
+	Config    string    `gorm:"type:text" json:"config"` // 渠道级配置 JSON（覆盖插件全局 config）
+	CreatedAt time.Time `gorm:"autoCreateTime" json:"created_at"`
+	UpdatedAt time.Time `gorm:"autoUpdateTime" json:"updated_at"`
+}
+
+func (ChannelPluginSetting) TableName() string { return "channel_plugin_settings" }
+
 // HookRequest 钩子请求（主系统 → 插件）
 type HookRequest struct {
 	KeysID        uint                   `json:"keys_id"`

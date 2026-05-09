@@ -259,7 +259,17 @@
     "saveConfig": "Save Config",
     "noPlugins": "No plugins",
     "market": "Browse Market",
-    "marketDisabled": "Market service not configured"
+    "marketDisabled": "Market service not configured",
+    "advancedMode": "Advanced Mode (JSON)",
+    "simpleMode": "Simple Mode (Form)",
+    "globalConfig": "Global Config",
+    "channelConfig": "Channel Config",
+    "channelId": "Channel ID",
+    "noChannelConfig": "No channel-level config",
+    "addChannelConfig": "Add Channel Config",
+    "channelIdRequired": "Please enter channel ID",
+    "channelConfigExists": "Config already exists for this channel",
+    "deleteChannelConfigConfirm": "Delete this channel-level config?"
   },
   "settings": {
     "title": "System Settings",

@@ -19,6 +19,7 @@ type Config struct {
 	AccountManager AccountManagerConfig `mapstructure:"account_manager"`
 	Log            LogConfig            `mapstructure:"log"`
 	Proxy          ProxyConfig          `mapstructure:"proxy"`
+	Plugin         PluginConfig         `mapstructure:"plugin"`
 }
 
 type ServerConfig struct {
@@ -76,6 +77,13 @@ type ProxyConfig struct {
 	ReadTimeout     int `mapstructure:"read_timeout"`    // 秒
 	MaxIdleConns    int `mapstructure:"max_idle_conns"`
 	IdleConnTimeout int `mapstructure:"idle_conn_timeout"` // 秒
+}
+
+type PluginConfig struct {
+	MarketplaceURL  string `mapstructure:"marketplace_url"`   // 插件市场 API 地址，为空时不启用
+	MarketplaceToken string `mapstructure:"marketplace_token"` // 市场认证 Token
+	PluginDir       string `mapstructure:"plugin_dir"`       // 本地插件存储目录
+	SidecarTimeout  int    `mapstructure:"sidecar_timeout"`  // Sidecar 钩子调用超时（秒）
 }
 
 // Load 加载配置：config.yaml → .env → 环境变量，后者覆盖前者
@@ -150,6 +158,12 @@ func (c *Config) GetHotReloadableConfig() map[string]interface{} {
 			"global_health_check_interval":   c.AccountManager.GlobalHealthCheckInterval,
 			"account_status_cache_ttl":       c.AccountManager.AccountStatusCacheTTL,
 			"account_key_cache_ttl":          c.AccountManager.AccountKeyCacheTTL,
+		},
+		"plugin": map[string]interface{}{
+			"marketplace_url":   c.Plugin.MarketplaceURL,
+			"marketplace_token": c.Plugin.MarketplaceToken,
+			"plugin_dir":        c.Plugin.PluginDir,
+			"sidecar_timeout":   c.Plugin.SidecarTimeout,
 		},
 	}
 }
@@ -246,6 +260,23 @@ func (c *Config) UpdateHotReloadableConfig(updates map[string]interface{}) error
 		}
 	}
 
+	if pluginRaw, ok := updates["plugin"]; ok {
+		if pl, ok := pluginRaw.(map[string]interface{}); ok {
+			if v, ok := pl["marketplace_url"].(string); ok {
+				c.Plugin.MarketplaceURL = v
+			}
+			if v, ok := pl["marketplace_token"].(string); ok {
+				c.Plugin.MarketplaceToken = v
+			}
+			if v, ok := pl["plugin_dir"].(string); ok {
+				c.Plugin.PluginDir = v
+			}
+			if v, ok := toInt(pl["sidecar_timeout"]); ok {
+				c.Plugin.SidecarTimeout = v
+			}
+		}
+	}
+
 	// 写回 config.yaml
 	return c.writeConfigFile()
 }
@@ -286,6 +317,11 @@ func (c *Config) writeConfigFile() error {
 	v.Set("account_manager.global_health_check_interval", c.AccountManager.GlobalHealthCheckInterval)
 	v.Set("account_manager.account_status_cache_ttl", c.AccountManager.AccountStatusCacheTTL)
 	v.Set("account_manager.account_key_cache_ttl", c.AccountManager.AccountKeyCacheTTL)
+
+	v.Set("plugin.marketplace_url", c.Plugin.MarketplaceURL)
+	v.Set("plugin.marketplace_token", c.Plugin.MarketplaceToken)
+	v.Set("plugin.plugin_dir", c.Plugin.PluginDir)
+	v.Set("plugin.sidecar_timeout", c.Plugin.SidecarTimeout)
 
 	return v.WriteConfig()
 }
@@ -352,6 +388,11 @@ func setDefaults(v *viper.Viper) {
 	v.SetDefault("proxy.read_timeout", 60)
 	v.SetDefault("proxy.max_idle_conns", 100)
 	v.SetDefault("proxy.idle_conn_timeout", 90)
+
+	v.SetDefault("plugin.marketplace_url", "")
+	v.SetDefault("plugin.marketplace_token", "")
+	v.SetDefault("plugin.plugin_dir", "./plugins")
+	v.SetDefault("plugin.sidecar_timeout", 5)
 }
 
 // GetSecretKey 获取加密密钥，优先环境变量

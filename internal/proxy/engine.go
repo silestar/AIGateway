@@ -17,6 +17,7 @@ import (
 	"github.com/bokelife/aigateway/internal/account"
 	"github.com/bokelife/aigateway/internal/channel"
 	"github.com/bokelife/aigateway/internal/config"
+	"github.com/bokelife/aigateway/internal/plugin"
 	adapterregistry "github.com/bokelife/aigateway/pkg/adapter/registry"
 	"github.com/bokelife/aigateway/pkg/usage"
 )
@@ -26,11 +27,12 @@ type Engine struct {
 	logger     *zap.Logger
 	cfg        config.ProxyConfig
 	accountMgr account.AccountManager
+	pluginMgr  plugin.PluginManager
 	client     *http.Client
 }
 
 // NewEngine 创建代理引擎
-func NewEngine(cfg config.ProxyConfig, accountMgr account.AccountManager, logger *zap.Logger) *Engine {
+func NewEngine(cfg config.ProxyConfig, accountMgr account.AccountManager, pluginMgr plugin.PluginManager, logger *zap.Logger) *Engine {
 	transport := &http.Transport{
 		DialContext: (&net.Dialer{
 			Timeout: time.Duration(cfg.ConnectTimeout) * time.Second,
@@ -44,6 +46,7 @@ func NewEngine(cfg config.ProxyConfig, accountMgr account.AccountManager, logger
 		logger:     logger,
 		cfg:        cfg,
 		accountMgr: accountMgr,
+		pluginMgr:  pluginMgr,
 		client: &http.Client{
 			Transport: transport,
 			Timeout:   time.Duration(cfg.ReadTimeout) * time.Second,
@@ -88,6 +91,45 @@ func (e *Engine) Forward(ctx context.Context, ch *channel.Channel, acc *account.
 	}
 	upstreamReq.Header.Set("Authorization", "Bearer "+plainKey)
 	upstreamReq.Header.Set("Content-Type", "application/json")
+
+	// === 插件钩子：pre_request ===
+	if e.pluginMgr != nil {
+		hookReq := &plugin.HookRequest{
+			ChannelID: ch.ID,
+			AccountID: acc.ID,
+		}
+		// 从请求体提取 model、headers 和 body
+		if originalReq.Body != nil {
+			if bodyBytes, readErr := io.ReadAll(originalReq.Body); readErr == nil {
+				originalReq.Body = io.NopCloser(bytes.NewReader(bodyBytes))
+				var bodyMap map[string]interface{}
+				if json.Unmarshal(bodyBytes, &bodyMap) == nil {
+					if m, ok := bodyMap["model"].(string); ok {
+						hookReq.Model = m
+					}
+					hookReq.Request = &plugin.HookRequestBody{
+						Body: bodyMap,
+					}
+				}
+				// 触发 pre_request 钩子
+				hookResp, hookErr := e.pluginMgr.TriggerHook(ctx, plugin.HookPreRequest, hookReq)
+				if hookErr != nil {
+					e.logger.Warn("pre_request hook error", zap.Error(hookErr))
+				} else if hookResp != nil && hookResp.Action == plugin.ActionReject {
+					return &ProxyResult{
+						StatusCode:      hookResp.StatusCode,
+						Body:            []byte(fmt.Sprintf(`{"error":{"code":"plugin_reject","message":"%s"}}`, hookResp.Message)),
+						DisconnectType:  "plugin_reject",
+					}, nil
+				} else if hookResp != nil && hookResp.ModifiedRequest != nil && hookResp.ModifiedRequest.Body != nil {
+					if modifiedBody, marshalErr := json.Marshal(hookResp.ModifiedRequest.Body); marshalErr == nil {
+						upstreamReq.Body = io.NopCloser(bytes.NewReader(modifiedBody))
+						upstreamReq.ContentLength = int64(len(modifiedBody))
+					}
+				}
+			}
+		}
+	}
 
 	resp, err := e.client.Do(upstreamReq)
 	if err != nil {
@@ -148,6 +190,38 @@ func (e *Engine) Forward(ctx context.Context, ch *channel.Channel, acc *account.
 
 	// 从上游响应头提取处理耗时
 	upstreamLatencyMs := extractUpstreamLatency(resp.Header)
+
+	// === 插件钩子：post_response ===
+	if e.pluginMgr != nil {
+		hookReq := &plugin.HookRequest{
+			ChannelID: ch.ID,
+			AccountID: acc.ID,
+		}
+		var respBodyMap map[string]interface{}
+		if json.Unmarshal(body, &respBodyMap) == nil {
+			if m, ok := respBodyMap["model"].(string); ok {
+				hookReq.Model = m
+			}
+		}
+		hookReq.Response = &plugin.HookResponseBody{
+			StatusCode: resp.StatusCode,
+			Body:       respBodyMap,
+		}
+		hookResp, hookErr := e.pluginMgr.TriggerHook(ctx, plugin.HookPostResponse, hookReq)
+		if hookErr != nil {
+			e.logger.Warn("post_response hook error", zap.Error(hookErr))
+		} else if hookResp != nil && hookResp.ModifiedResponse != nil {
+			// 插件修改了响应
+			if hookResp.ModifiedResponse.Body != nil {
+				if modifiedBody, marshalErr := json.Marshal(hookResp.ModifiedResponse.Body); marshalErr == nil {
+					body = modifiedBody
+				}
+			}
+			if hookResp.ModifiedResponse.StatusCode != 0 {
+				resp.StatusCode = hookResp.ModifiedResponse.StatusCode
+			}
+		}
+	}
 
 	return &ProxyResult{
 		StatusCode:        resp.StatusCode,

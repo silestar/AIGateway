@@ -26,21 +26,25 @@ type Manager struct {
 }
 
 // NewManager 创建插件管理器
-func NewManager(db *gorm.DB, logger *zap.Logger, pluginsDir string) *Manager {
+func NewManager(db *gorm.DB, logger *zap.Logger, pluginsDir string, sidecarTimeout int) *Manager {
 	if pluginsDir == "" {
 		pluginsDir = "plugins"
+	}
+	timeout := 5 * time.Second
+	if sidecarTimeout > 0 {
+		timeout = time.Duration(sidecarTimeout) * time.Second
 	}
 	return &Manager{
 		db:         db,
 		logger:     logger,
 		pluginsDir: pluginsDir,
-		client: &http.Client{Timeout: 5 * time.Second},
+		client:     &http.Client{Timeout: timeout},
 	}
 }
 
 // AutoMigrate 自动迁移
 func (m *Manager) AutoMigrate() error {
-	return m.db.AutoMigrate(&Plugin{})
+	return m.db.AutoMigrate(&Plugin{}, &ChannelPluginSetting{})
 }
 
 // Install 安装插件
@@ -374,4 +378,64 @@ func (m *Manager) HealthCheck(ctx context.Context) {
 			resp.Body.Close()
 		}
 	}
+}
+
+// GetChannelPluginConfig 获取渠道级插件配置，没有则返回空字符串
+func (m *Manager) GetChannelPluginConfig(ctx context.Context, channelID, pluginID uint) (string, error) {
+	var setting ChannelPluginSetting
+	err := m.db.WithContext(ctx).Where("channel_id = ? AND plugin_id = ?", channelID, pluginID).First(&setting).Error
+	if err != nil {
+		if err == gorm.ErrRecordNotFound {
+			return "", nil
+		}
+		return "", err
+	}
+	return setting.Config, nil
+}
+
+// SetChannelPluginConfig 设置渠道级插件配置
+func (m *Manager) SetChannelPluginConfig(ctx context.Context, channelID, pluginID uint, config string) error {
+	var setting ChannelPluginSetting
+	err := m.db.WithContext(ctx).Where("channel_id = ? AND plugin_id = ?", channelID, pluginID).First(&setting).Error
+	if err != nil && err != gorm.ErrRecordNotFound {
+		return err
+	}
+	if err == gorm.ErrRecordNotFound {
+		return m.db.WithContext(ctx).Create(&ChannelPluginSetting{
+			ChannelID: channelID,
+			PluginID:  pluginID,
+			Config:    config,
+		}).Error
+	}
+	return m.db.WithContext(ctx).Model(&setting).Update("config", config).Error
+}
+
+// DeleteChannelPluginConfig 删除渠道级插件配置
+func (m *Manager) DeleteChannelPluginConfig(ctx context.Context, channelID, pluginID uint) error {
+	return m.db.WithContext(ctx).Where("channel_id = ? AND plugin_id = ?", channelID, pluginID).Delete(&ChannelPluginSetting{}).Error
+}
+
+// ListChannelPluginConfigs 列出某插件的所有渠道级配置
+func (m *Manager) ListChannelPluginConfigs(ctx context.Context, pluginID uint) ([]ChannelPluginSetting, error) {
+	var settings []ChannelPluginSetting
+	err := m.db.WithContext(ctx).Where("plugin_id = ?", pluginID).Find(&settings).Error
+	return settings, err
+}
+
+// GetEffectiveConfig 获取插件在某渠道的生效配置（渠道级覆盖全局）
+func (m *Manager) GetEffectiveConfig(ctx context.Context, channelID, pluginID uint) (string, error) {
+	// 先查渠道级配置
+	channelConfig, err := m.GetChannelPluginConfig(ctx, channelID, pluginID)
+	if err != nil {
+		return "", err
+	}
+	if channelConfig != "" {
+		return channelConfig, nil
+	}
+	// 没有渠道级配置，用全局配置
+	var plugin Plugin
+	if err := m.db.WithContext(ctx).First(&plugin, pluginID).Error; err != nil {
+		return "", err
+	}
+	return plugin.Config, nil
 }

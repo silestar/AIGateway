@@ -77,9 +77,10 @@ func main() {
 	keysSvc.SetCache(cache)
 	keysSvc.SetCrypto(cryptoService)
 	channelSvc := channel.NewService(db)
+	pluginMgr := plugin.NewManager(db, logger, cfg.Plugin.PluginDir, cfg.Plugin.SidecarTimeout)
 	accountMgr := account.NewManager(db, cache, cryptoService, channelSvc, cfg.AccountManager, logger)
 	groupRouter := group.NewRouter(db, keysSvc, accountMgr, logger, cache)
-	proxyEngine := proxy.NewEngine(cfg.Proxy, accountMgr, logger)
+	proxyEngine := proxy.NewEngine(cfg.Proxy, accountMgr, pluginMgr, logger)
 
 	// 统计管理器 + 异步日志写入器
 	statsMgr := stats.NewManager(db, logger)
@@ -93,9 +94,6 @@ func main() {
 		LogDir:     cfg.Log.Dir,
 		MaxAgeDays: cfg.Log.MaxAgeDays,
 	}, db)
-
-	// 插件管理器
-	pluginMgr := plugin.NewManager(db, logger, "plugins")
 
 	// 启动账号池后台任务
 	accountMgr.SetOnProbeDone(func(channelID, accountID uint, success bool, logType string, elapsedMs int, statusCode int, errMsg string, promptTokens int, completionTokens int) {
@@ -152,6 +150,7 @@ func main() {
 		c.Set("detailWriter", detailWriter)
 		c.Set("logger", logger)
 		c.Set("cache", cache)
+		c.Set("pluginMgr", pluginMgr)
 		c.Next()
 	})
 
@@ -324,6 +323,38 @@ func handleChatCompletions(c *gin.Context) {
 			"error": gin.H{"code": "no_available_channel", "message": err.Error()},
 		})
 		return
+	}
+
+	// 5.1 插件钩子：account_select — 插件可过滤排除特定账号
+	if pMgr, ok := c.Get("pluginMgr"); ok {
+		if pluginMgr, ok := pMgr.(plugin.PluginManager); ok && pluginMgr != nil {
+			hookReq := &plugin.HookRequest{
+				KeysID:  cons.ID,
+				Model:   modelName,
+			}
+			hookResp, hookErr := pluginMgr.TriggerHook(c.Request.Context(), plugin.HookAccountSelect, hookReq)
+			if hookErr == nil && hookResp != nil && hookResp.Action == plugin.ActionFilter && len(hookResp.ExcludeIDs) > 0 {
+				// 插件要求排除某些账号，检查当前选中的账号是否在排除列表中
+				excluded := false
+				for _, id := range hookResp.ExcludeIDs {
+					if id == result.Account.ID {
+						excluded = true
+						break
+					}
+				}
+				if excluded {
+					// 当前账号被排除，用 SelectAccountWithExclude 重新选择
+					newAcc, selectErr := accountMgr.SelectAccountWithExclude(c.Request.Context(), cons.ID, result.Channel.ID, hookResp.ExcludeIDs)
+					if selectErr != nil {
+						c.JSON(http.StatusServiceUnavailable, gin.H{
+							"error": gin.H{"code": "no_available_account_after_plugin_filter", "message": "no available account after plugin filter"},
+						})
+						return
+					}
+					result.Account = newAcc
+				}
+			}
+		}
 	}
 
 	// 5.5 模型映射替换：如果路由返回的 ActualModelName 与请求不同，替换请求体中的 model

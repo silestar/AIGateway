@@ -257,7 +257,17 @@
     "saveConfig": "保存配置",
     "noPlugins": "暂无插件",
     "market": "浏览市场",
-    "marketDisabled": "市场服务未配置"
+    "marketDisabled": "市场服务未配置",
+    "advancedMode": "高级模式（JSON）",
+    "simpleMode": "简单模式（表单）",
+    "globalConfig": "全局配置",
+    "channelConfig": "渠道配置",
+    "channelId": "渠道 ID",
+    "noChannelConfig": "暂无渠道级配置",
+    "addChannelConfig": "添加渠道配置",
+    "channelIdRequired": "请输入渠道 ID",
+    "channelConfigExists": "该渠道已存在配置",
+    "deleteChannelConfigConfirm": "确定删除该渠道级配置？"
   },
   "settings": {
     "title": "系统设置",

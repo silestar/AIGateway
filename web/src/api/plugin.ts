@@ -17,6 +17,15 @@ export interface PluginItem {
   updated_at: string
 }
 
+export interface ChannelPluginConfig {
+  id: number
+  channel_id: number
+  plugin_id: number
+  config: string
+  created_at: string
+  updated_at: string
+}
+
 export const pluginApi = {
   list() {
     return api.get('/plugins')
@@ -37,5 +46,15 @@ export const pluginApi = {
   },
   delete(id: number) {
     return api.delete(`/plugins/${id}`)
+  },
+  // 渠道级插件配置
+  listChannelConfigs(pluginId: number) {
+    return api.get(`/plugins/${pluginId}/channel-configs`)
+  },
+  setChannelConfig(pluginId: number, channelId: number, config: string) {
+    return api.put(`/plugins/${pluginId}/channel-configs/${channelId}`, { config })
+  },
+  deleteChannelConfig(pluginId: number, channelId: number) {
+    return api.delete(`/plugins/${pluginId}/channel-configs/${channelId}`)
   },
 }
