@@ -19,7 +19,6 @@ func NewSystemHandler(cfg *config.Config) *SystemHandler {
 // RegisterRoutes 注册系统路由
 func (h *SystemHandler) RegisterRoutes(rg *gin.RouterGroup) {
 	system := rg.Group("/system")
-	system.GET("/info", h.Info)
 	system.GET("/config", h.GetConfig)
 	system.PUT("/config", h.UpdateConfig)
 }

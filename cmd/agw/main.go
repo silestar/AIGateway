@@ -187,7 +187,7 @@ func main() {
 	registerRoutes(router, cfg, catalogSvc, logger)
 
 	// 9. 认证 + 管理API
-	authHandler := agwapi.NewAuthHandler(cfg.Server.APIToken)
+	authHandler := agwapi.NewAuthHandler(cfg.Server.APIToken, cfg)
 	// 调试：打印 apiToken 长度
 	if cfg.Server.APIToken != "" {
 		logger.Info("api_token loaded", zap.Int("length", len(cfg.Server.APIToken)))
