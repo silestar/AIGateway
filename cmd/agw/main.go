@@ -405,15 +405,47 @@ func handleChatCompletions(c *gin.Context) {
 		c.Header("Cache-Control", "no-cache")
 		c.Header("Connection", "keep-alive")
 
-		streamResult, err := proxyEngine.ForwardStream(c.Request.Context(), result.Channel, result.Account, c.Request, flusher, c.Writer)
-		latencyMs = int(time.Since(startTime).Milliseconds())
+		// 流式请求：在未向客户端发送任何数据前失败时，允许重试一次
+		currentStreamResult := result
+		const maxStreamRetries = 1
+		var streamResult *proxy.StreamResult
+
+		for attempt := 0; attempt <= maxStreamRetries; attempt++ {
+			streamResult, err = proxyEngine.ForwardStream(c.Request.Context(), currentStreamResult.Channel, currentStreamResult.Account, c.Request, flusher, c.Writer)
+			latencyMs = int(time.Since(startTime).Milliseconds())
+
+			if err != nil {
+				// 只有在未向客户端发送任何数据时才可安全重试
+				if !c.Writer.Written() && attempt < maxStreamRetries {
+					accountMgr.ReportResult(c.Request.Context(), currentStreamResult.Account.ID, false, 0)
+					currentStreamResult.RetryChain.MarkError(shortenError(err.Error()), latencyMs, http.StatusBadGateway)
+					logger.Warn("stream forward failed (pre-write), retrying",
+						zap.Int("attempt", attempt+1),
+						zap.Uint("channel", currentStreamResult.Channel.ID),
+						zap.Uint("account", currentStreamResult.Account.ID),
+						zap.Error(err))
+
+					retryResult, retryErr := groupRouter.RerouteAfterFailure(c.Request.Context(), currentStreamResult)
+					if retryErr != nil {
+						// 重试路由也失败，放弃
+						logger.Warn("stream retry route failed", zap.Error(retryErr))
+						break
+					}
+					currentStreamResult = retryResult
+					continue
+				}
+				// 已写数据 或 重试也失败 → 不可恢复，直接返回错误
+				break
+			}
+			// 成功
+			break
+		}
 
 		if err != nil {
+			result.RetryChain = currentStreamResult.RetryChain
 			result.RetryChain.MarkError(shortenError(err.Error()), latencyMs, http.StatusBadGateway)
 			statusCode = http.StatusBadGateway
 			logger.Error("stream forward error", zap.Error(err))
-
-			// 记录失败日志（无响应摘要）
 			asyncWriter.Record(buildRequestLog(cons.ID, modelName, result.ActualModelName, result, isStream, statusCode, latencyMs, clientIP, nil, shortenError(err.Error()), traceIDStr, nil))
 
 			c.JSON(http.StatusBadGateway, gin.H{
@@ -421,16 +453,18 @@ func handleChatCompletions(c *gin.Context) {
 			})
 			return
 		}
+
+		result.RetryChain = currentStreamResult.RetryChain
 		result.RetryChain.MarkSuccess(latencyMs, http.StatusOK)
 		statusCode = http.StatusOK
 		if streamResult != nil {
 			usage = streamResult.Usage
-		respSummary = &ResponseSummary{
-			ResponseModel:     streamResult.ResponseModel,
-			FinishReason:      streamResult.FinishReason,
-			SystemFingerprint: streamResult.SystemFingerprint,
-			UpstreamLatencyMs: streamResult.UpstreamLatencyMs,
-		}
+			respSummary = &ResponseSummary{
+				ResponseModel:     streamResult.ResponseModel,
+				FinishReason:      streamResult.FinishReason,
+				SystemFingerprint: streamResult.SystemFingerprint,
+				UpstreamLatencyMs: streamResult.UpstreamLatencyMs,
+			}
 			// 缓存流式完整响应体供 detail writer 使用
 			c.Set("streamResultBody", streamResult.Body)
 		}
