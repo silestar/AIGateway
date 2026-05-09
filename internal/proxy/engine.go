@@ -158,6 +158,7 @@ func (e *Engine) Forward(ctx context.Context, ch *channel.Channel, acc *account.
 		FinishReason:      finishReason,
 		SystemFingerprint: sysFP,
 		UpstreamLatencyMs: upstreamLatencyMs,
+		DisconnectType:   "normal",
 	}, nil
 }
 
@@ -171,6 +172,8 @@ type StreamResult struct {
 	UpstreamLatencyMs int    `json:"upstream_latency_ms,omitempty"` // 上游处理耗时(ms)
 	// Body 流式响应的完整内容（上限 5MB），供 detail writer 写入文件
 	Body []byte `json:"-"`
+	// DisconnectType 请求终止原因（仅内部排查，不返回客户端）
+	DisconnectType string `json:"disconnect_type,omitempty"`
 }
 
 // ForwardStream 流式转发请求，边读边转发，结束后返回 StreamResult
@@ -224,6 +227,13 @@ func (e *Engine) ForwardStream(ctx context.Context, ch *channel.Channel, acc *ac
 	const maxBodySize = 5 * 1024 * 1024 // 5MB
 	var bodyOverflow bool
 	for {
+		// 检查客户端是否断开
+		select {
+		case <-ctx.Done():
+			return nil, fmt.Errorf("client disconnected: %w", ctx.Err())
+		default:
+		}
+
 		n, readErr := resp.Body.Read(buf)
 		if n > 0 {
 			chunk := buf[:n]

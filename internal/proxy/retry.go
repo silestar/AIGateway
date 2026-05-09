@@ -79,6 +79,7 @@ type ProxyResult struct {
 	ResponseModel         string `json:"response_model,omitempty"`
 	FinishReason          string `json:"finish_reason,omitempty"`
 	SystemFingerprint     string `json:"system_fingerprint,omitempty"`
-	UpstreamLatencyMs     int    `json:"upstream_latency_ms,omitempty"` // 上游处理耗时(ms)
+	UpstreamLatencyMs     int    `json:"upstream_latency_ms,omitempty"`      // 上游处理耗时(ms)
+	DisconnectType        string `json:"disconnect_type,omitempty"` // 请求终止原因
 }
 

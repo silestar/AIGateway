@@ -76,8 +76,8 @@ func main() {
 	keysSvc := keys.NewService(db)
 	keysSvc.SetCache(cache)
 	keysSvc.SetCrypto(cryptoService)
-	accountMgr := account.NewManager(db, cache, cryptoService, cfg.AccountManager, logger)
 	channelSvc := channel.NewService(db)
+	accountMgr := account.NewManager(db, cache, cryptoService, channelSvc, cfg.AccountManager, logger)
 	groupRouter := group.NewRouter(db, keysSvc, accountMgr, logger, cache)
 	proxyEngine := proxy.NewEngine(cfg.Proxy, accountMgr, logger)
 
@@ -98,25 +98,30 @@ func main() {
 	pluginMgr := plugin.NewManager(db, logger, "plugins")
 
 	// 启动账号池后台任务
-	accountMgr.SetOnProbeDone(func(channelID, accountID uint, success bool, logType string) {
+	accountMgr.SetOnProbeDone(func(channelID, accountID uint, success bool, logType string, elapsedMs int, statusCode int, errMsg string, promptTokens int, completionTokens int) {
 		chID := channelID
 		accID := accountID
-		statusCode := 0
 		if success {
 			statusCode = 200
+		} else if statusCode == 0 {
+			statusCode = 0
 		}
-		errMsg := ""
-		log := &stats.RequestLog{
-			Timestamp:  time.Now(),
-			ChannelID:  &chID,
-			AccountID:  &accID,
-			ModelName:  logType,
-			StatusCode: statusCode,
-			LogType:    logType,
-			TraceID:    middleware.GenerateTraceID(logType),
-		}
-		if !success {
+		if errMsg == "" && !success {
 			errMsg = logType + " failed"
+		}
+		log := &stats.RequestLog{
+			Timestamp:       time.Now(),
+			ChannelID:       &chID,
+			AccountID:       &accID,
+			ModelName:       logType,
+			StatusCode:      statusCode,
+			LatencyMs:       elapsedMs,
+			LogType:         logType,
+			TraceID:         middleware.GenerateTraceID(logType),
+			PromptTokens:    promptTokens,
+			CompletionTokens: completionTokens,
+		}
+		if errMsg != "" {
 			log.ErrorMsg = &errMsg
 		}
 		asyncWriter.Record(log)
@@ -399,44 +404,88 @@ func handleChatCompletions(c *gin.Context) {
 			c.Set("streamResultBody", streamResult.Body)
 		}
 	} else {
-		proxyResult, err := proxyEngine.Forward(c.Request.Context(), result.Channel, result.Account, c.Request)
-		latencyMs = int(time.Since(startTime).Milliseconds())
+		// 非流式请求 — 带完整重试循环
+		var proxyResult *proxy.ProxyResult
+		maxRetries := 3 // TODO: 从配置读取
+		retryCount := 0
+		currentResult := result
 
-		if err != nil {
-			result.RetryChain.MarkError(shortenError(err.Error()), latencyMs, http.StatusBadGateway)
-			// 同渠道内尝试下一个账号
-			accountMgr.ReportResult(c.Request.Context(), result.Account.ID, false, 0)
-			statusCode = http.StatusBadGateway
-
-			// 记录失败日志（无响应摘要）
-			asyncWriter.Record(buildRequestLog(cons.ID, modelName, result.ActualModelName, result, isStream, statusCode, latencyMs, clientIP, nil, shortenError(err.Error()), traceIDStr, nil))
-
-			c.JSON(http.StatusBadGateway, gin.H{
-				"error": gin.H{"code": "upstream_error", "message": shortenError(err.Error())},
-			})
-			return
-		}
-		result.RetryChain.MarkSuccess(latencyMs, proxyResult.StatusCode)
-		statusCode = proxyResult.StatusCode
-		usage = proxyResult.Usage
-		accountMgr.ReportResult(c.Request.Context(), result.Account.ID, true, proxyResult.StatusCode)
-		respSummary = &ResponseSummary{
-			ResponseModel:     proxyResult.ResponseModel,
-			FinishReason:      proxyResult.FinishReason,
-			SystemFingerprint: proxyResult.SystemFingerprint,
-			UpstreamLatencyMs: proxyResult.UpstreamLatencyMs,
-		}
-
-		// 复制响应头
-		for k, vv := range proxyResult.Headers {
-			for _, v := range vv {
-				c.Writer.Header().Add(k, v)
+		for {
+			// 检查客户端是否断开
+			select {
+				case <-c.Request.Context().Done():
+					_ = c.Request.Context().Err()
+					statusCode = http.StatusGatewayTimeout
+				result.RetryChain.MarkError("client disconnected", latencyMs, statusCode)
+				errMsg := "client disconnected"
+				asyncWriter.Record(buildRequestLog(cons.ID, modelName, result.ActualModelName, result, isStream, statusCode, latencyMs, clientIP, nil, errMsg, traceIDStr, nil))
+				c.JSON(http.StatusGatewayTimeout, gin.H{"error": gin.H{"code": "client_disconnected", "message": errMsg}})
+				return
+			default:
 			}
+
+			// 检查重试上限
+			if retryCount > 0 && retryCount >= maxRetries {
+				errMsg := "max retry attempts exceeded"
+				statusCode = http.StatusBadGateway
+				result.RetryChain.MarkError(errMsg, latencyMs, statusCode)
+				asyncWriter.Record(buildRequestLog(cons.ID, modelName, result.ActualModelName, result, isStream, statusCode, latencyMs, clientIP, nil, errMsg, traceIDStr, nil))
+				c.JSON(http.StatusBadGateway, gin.H{"error": gin.H{"code": "max_retries_exceeded", "message": errMsg}})
+				return
+			}
+
+			if retryCount > 0 {
+				// 重试：重新路由获取下一个账号/渠道
+				currentResult, err = groupRouter.RerouteAfterFailure(c.Request.Context(), currentResult)
+				if err != nil {
+					errMsg := err.Error()
+					statusCode = http.StatusBadGateway
+					asyncWriter.Record(buildRequestLog(cons.ID, modelName, result.ActualModelName, result, isStream, statusCode, latencyMs, clientIP, nil, errMsg, traceIDStr, nil))
+					c.JSON(http.StatusBadGateway, gin.H{"error": gin.H{"code": "no_available_account", "message": errMsg}})
+					return
+				}
+			}
+
+			proxyResult, err = proxyEngine.Forward(c.Request.Context(), currentResult.Channel, currentResult.Account, c.Request)
+			latencyMs = int(time.Since(startTime).Milliseconds())
+
+			if err != nil {
+				// 记录失败 + 进入重试循环
+				currentResult.RetryChain.MarkError(shortenError(err.Error()), latencyMs, http.StatusBadGateway)
+				accountMgr.ReportResult(c.Request.Context(), currentResult.Account.ID, false, 0)
+				logger.Warn("forward attempt failed, retrying",
+					zap.Int("retry", retryCount),
+					zap.Uint("channel", currentResult.Channel.ID),
+					zap.Uint("account", currentResult.Account.ID),
+					zap.Error(err))
+				retryCount++
+				continue
+			}
+
+			// 成功！
+			result.RetryChain = currentResult.RetryChain // 同步 retry_chain
+			result.RetryChain.MarkSuccess(latencyMs, proxyResult.StatusCode)
+			statusCode = proxyResult.StatusCode
+			usage = proxyResult.Usage
+			accountMgr.ReportResult(c.Request.Context(), currentResult.Account.ID, true, proxyResult.StatusCode)
+			respSummary = &ResponseSummary{
+				ResponseModel:     proxyResult.ResponseModel,
+				FinishReason:      proxyResult.FinishReason,
+				SystemFingerprint: proxyResult.SystemFingerprint,
+				UpstreamLatencyMs: proxyResult.UpstreamLatencyMs,
+			}
+
+			// 复制响应头
+			for k, vv := range proxyResult.Headers {
+				for _, v := range vv {
+					c.Writer.Header().Add(k, v)
+				}
+			}
+			c.Writer.WriteHeader(proxyResult.StatusCode)
+			c.Writer.Write(proxyResult.Body)
+			c.Set("proxyResultBody", proxyResult.Body)
+			break
 		}
-		c.Writer.WriteHeader(proxyResult.StatusCode)
-		c.Writer.Write(proxyResult.Body)
-		// 缓存响应体供 detail writer 后续读取
-		c.Set("proxyResultBody", proxyResult.Body)
 	}
 
 	// 更新速率/配额计数器

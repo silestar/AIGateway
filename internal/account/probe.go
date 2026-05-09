@@ -103,14 +103,29 @@ func (m *Manager) probeChannel(ctx context.Context, ch *channel.Channel, traceID
 			}
 		}
 
-		// 探测
-		success := m.probeAccount(ctx, ch, &acc)
-		m.recordProbeLog(ctx, ch.ID, acc.ID, success, "probe")
-		if success {
-			// 恢复账号
-			m.recoverAccount(ctx, &acc)
-			recovered++
-		} else {
+		// 探测（复用渠道可用性检查）
+		startTime := time.Now()
+		plainKey, keyErr := m.GetDecryptedAPIKey(ctx, acc.ID)
+		if keyErr != nil {
+			elapsedMs := int(time.Since(startTime).Milliseconds())
+			m.recordProbeLog(ctx, ch.ID, acc.ID, false, "probe", elapsedMs, 0, keyErr.Error(), 0, 0)
+			continue
+		}
+		testResult, testErr := m.channelSvc.TestAccount(ctx, ch.ID, acc.ID, plainKey)
+		elapsedMs := int(time.Since(startTime).Milliseconds())
+
+		if testErr != nil || !testResult.Success {
+			statusCode := 0
+			errMsg := "probe failed"
+			if testResult != nil {
+				statusCode = testResult.Status
+				if testResult.Error != "" {
+					errMsg = testResult.Error
+				}
+			} else if testErr != nil {
+				errMsg = testErr.Error()
+			}
+			m.recordProbeLog(ctx, ch.ID, acc.ID, false, "probe", elapsedMs, statusCode, errMsg, 0, 0)
 			// 探测失败 → 增加探测失败计数
 			newProbeFailures := acc.ProbeFailures + 1
 			updates := map[string]interface{}{
@@ -121,15 +136,20 @@ func (m *Manager) probeChannel(ctx context.Context, ch *channel.Channel, traceID
 				cooldownDuration := m.getCooldownDuration(1) // 使用一级冷却时长
 				cooldownUntil := time.Now().Add(cooldownDuration)
 				updates["probe_cooldown_until"] = cooldownUntil
-			m.logger.Warn("account probe failures reached limit, entering cooldown",
-				zap.Uint("account_id", acc.ID),
-				zap.Uint("channel_id", ch.ID),
-				zap.Int("probe_failures", newProbeFailures),
-				zap.Time("cooldown_until", cooldownUntil),
-				zap.String("trace_id", traceID),
-			)
+				m.logger.Warn("account probe failures reached limit, entering cooldown",
+					zap.Uint("account_id", acc.ID),
+					zap.Uint("channel_id", ch.ID),
+					zap.Int("probe_failures", newProbeFailures),
+					zap.Time("cooldown_until", cooldownUntil),
+					zap.String("trace_id", traceID),
+				)
 			}
 			m.db.WithContext(ctx).Model(&Account{}).Where("id = ?", acc.ID).Updates(updates)
+		} else {
+			// 探测成功 → 恢复账号
+			m.recordProbeLog(ctx, ch.ID, acc.ID, true, "probe", elapsedMs, testResult.Status, "", testResult.PromptTokens, testResult.CompletionTokens)
+			m.recoverAccount(ctx, &acc)
+			recovered++
 		}
 	}
 
@@ -184,10 +204,31 @@ func (m *Manager) healthCheckChannel(ctx context.Context, ch *channel.Channel, t
 	}
 	defer m.cache.Del(lockKey)
 
-	// 探测
-	success := m.probeAccount(ctx, ch, &acc)
-	m.recordProbeLog(ctx, ch.ID, acc.ID, success, "health_check")
-	if success {
+	// 探测（复用渠道可用性检查）
+	startTime := time.Now()
+	plainKey, keyErr := m.GetDecryptedAPIKey(ctx, acc.ID)
+	if keyErr != nil {
+		elapsedMs := int(time.Since(startTime).Milliseconds())
+		m.recordProbeLog(ctx, ch.ID, acc.ID, false, "health_check", elapsedMs, 0, keyErr.Error(), 0, 0)
+		return
+	}
+	testResult, testErr := m.channelSvc.TestAccount(ctx, ch.ID, acc.ID, plainKey)
+	elapsedMs := int(time.Since(startTime).Milliseconds())
+
+	if testErr != nil || !testResult.Success {
+		statusCode := 0
+		errMsg := "health check failed"
+		if testResult != nil {
+			statusCode = testResult.Status
+			if testResult.Error != "" {
+				errMsg = testResult.Error
+			}
+		} else if testErr != nil {
+			errMsg = testErr.Error()
+		}
+		m.recordProbeLog(ctx, ch.ID, acc.ID, false, "health_check", elapsedMs, statusCode, errMsg, 0, 0)
+	} else {
+		m.recordProbeLog(ctx, ch.ID, acc.ID, true, "health_check", elapsedMs, testResult.Status, "", testResult.PromptTokens, testResult.CompletionTokens)
 		m.recoverAccount(ctx, &acc)
 		m.resetCooldownCycles(ctx, ch.ID)
 	}
@@ -245,8 +286,8 @@ func (m *Manager) recoverAccount(ctx context.Context, acc *Account) {
 }
 
 // recordProbeLog 记录探测日志（通过回调通知外部写入）
-func (m *Manager) recordProbeLog(ctx context.Context, channelID, accountID uint, success bool, logType string) {
+func (m *Manager) recordProbeLog(ctx context.Context, channelID, accountID uint, success bool, logType string, elapsedMs int, statusCode int, errMsg string, promptTokens int, completionTokens int) {
 	if m.onProbeDone != nil {
-		m.onProbeDone(channelID, accountID, success, logType)
+		m.onProbeDone(channelID, accountID, success, logType, elapsedMs, statusCode, errMsg, promptTokens, completionTokens)
 	}
 }

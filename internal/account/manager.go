@@ -5,8 +5,6 @@ import (
 	"crypto/rand"
 	"encoding/hex"
 	"fmt"
-	"net/http"
-	"strings"
 	"time"
 
 	"go.uber.org/zap"
@@ -19,27 +17,29 @@ import (
 
 // Manager 账号管理器实现
 type Manager struct {
-	db          *gorm.DB
-	cache       Cache
-	cryptoSvc   *crypto.CryptoService
-	cfg         config.AccountManagerConfig
-	logger      *zap.Logger
-	onProbeDone func(channelID, accountID uint, success bool, logType string)
+	db         *gorm.DB
+	cache      Cache
+	cryptoSvc  *crypto.CryptoService
+	channelSvc channel.ChannelService
+	cfg        config.AccountManagerConfig
+	logger     *zap.Logger
+	onProbeDone func(channelID, accountID uint, success bool, logType string, elapsedMs int, statusCode int, errMsg string, promptTokens int, completionTokens int)
 }
 
 // NewManager 创建账号管理器
-func NewManager(db *gorm.DB, cache Cache, cryptoSvc *crypto.CryptoService, cfg config.AccountManagerConfig, logger *zap.Logger) *Manager {
+func NewManager(db *gorm.DB, cache Cache, cryptoSvc *crypto.CryptoService, channelSvc channel.ChannelService, cfg config.AccountManagerConfig, logger *zap.Logger) *Manager {
 	return &Manager{
-		db:        db,
-		cache:     cache,
-		cryptoSvc: cryptoSvc,
-		cfg:       cfg,
-		logger:    logger,
+		db:         db,
+		cache:      cache,
+		cryptoSvc:  cryptoSvc,
+		channelSvc: channelSvc,
+		cfg:        cfg,
+		logger:     logger,
 	}
 }
 
 // SetOnProbeDone 设置探测完成回调
-func (m *Manager) SetOnProbeDone(fn func(channelID, accountID uint, success bool, logType string)) {
+func (m *Manager) SetOnProbeDone(fn func(channelID, accountID uint, success bool, logType string, elapsedMs int, statusCode int, errMsg string, promptTokens int, completionTokens int)) {
 	m.onProbeDone = fn
 }
 
@@ -88,6 +88,37 @@ func (m *Manager) SelectAccount(ctx context.Context, keysID, channelID uint) (*A
 	m.cache.Incr(countKey)
 
 	return &acc, nil
+}
+
+// SelectAccountWithExclude 选择账号时排除指定 ID（用于重试循环）
+// 逻辑与 SelectAccount 相同，但在查询 active 账号时排除 excludeIDs
+func (m *Manager) SelectAccountWithExclude(ctx context.Context, keysID, channelID uint, excludeIDs []uint) (*Account, error) {
+	// 重试时不使用粘性绑定（已失败账号的粘性已被清除）
+	var accounts []Account
+	if err := m.db.WithContext(ctx).
+		Where("channel_id = ? AND status = ? AND id NOT IN ?", channelID, "active", excludeIDs).
+		Order("priority DESC").
+		Find(&accounts).Error; err != nil {
+		return nil, fmt.Errorf("query accounts: %w", err)
+	}
+	if len(accounts) == 0 {
+		return nil, fmt.Errorf("no active account for channel %d (excluded %d)", channelID, len(excludeIDs))
+	}
+
+	acc := accounts[0]
+
+	// 设置粘性绑定
+	affinityKey := fmt.Sprintf("keys_account_affinity:%d:%d", keysID, channelID)
+	affinityTTL := time.Duration(m.cfg.AffinityTTL) * time.Second
+	_ = m.cache.Set(affinityKey, fmt.Sprintf("%d", acc.ID), affinityTTL)
+
+	return &acc, nil
+}
+
+// ClearAccountAffinity 清除指定 key+channel 的粘性绑定
+func (m *Manager) ClearAccountAffinity(keysID, channelID uint) {
+	affinityKey := fmt.Sprintf("keys_account_affinity:%d:%d", keysID, channelID)
+	_ = m.cache.Del(affinityKey)
 }
 
 // IsAccountRateLimited 检查账号是否达到渠道级速率限制（RPM/TPM/每日请求）
@@ -381,70 +412,4 @@ func (m *Manager) getTotalCount(ctx context.Context, channelID uint) int64 {
 	var count int64
 	m.db.WithContext(ctx).Model(&Account{}).Where("channel_id = ?", channelID).Count(&count)
 	return count
-}
-
-// probeAccount 探测账号可用性
-func (m *Manager) probeAccount(ctx context.Context, ch *channel.Channel, acc *Account) bool {
-	plainKey, err := m.GetDecryptedAPIKey(ctx, acc.ID)
-	if err != nil {
-		m.logger.Error("probe: decrypt key failed",
-			zap.Uint("account_id", acc.ID),
-			zap.Error(err),
-		)
-		return false
-	}
-
-	// 构造探测 URL：使用渠道 BaseURL + /v1/models 端点（最小开销）
-	baseURL := strings.TrimRight(ch.BaseURL, "/")
-	probeURL := baseURL + "/v1/models"
-
-	// 带超时的探测请求（10秒）
-	ctx, cancel := context.WithTimeout(ctx, 10*time.Second)
-	defer cancel()
-
-	req, err := http.NewRequestWithContext(ctx, "GET", probeURL, nil)
-	if err != nil {
-		m.logger.Error("probe: create request failed",
-			zap.Uint("account_id", acc.ID),
-			zap.String("url", probeURL),
-			zap.Error(err),
-		)
-		return false
-	}
-	req.Header.Set("Authorization", "Bearer "+plainKey)
-
-	client := &http.Client{Timeout: 10 * time.Second}
-	resp, err := client.Do(req)
-	if err != nil {
-		m.logger.Warn("probe: request failed",
-			zap.Uint("account_id", acc.ID),
-			zap.String("url", probeURL),
-			zap.Error(err),
-		)
-		return false
-	}
-	defer resp.Body.Close()
-
-	// 2xx/401（认证通过但无权限 → key 有效）：探测成功
-	// 403/429（明确拒绝）：探测失败
-	if resp.StatusCode >= 200 && resp.StatusCode < 300 {
-		m.logger.Info("probe: account reachable",
-			zap.Uint("account_id", acc.ID),
-			zap.Int("status_code", resp.StatusCode),
-		)
-		return true
-	}
-	if resp.StatusCode == 401 {
-		// 401 说明 API Key 有效但无 /v1/models 权限，也算成功
-		m.logger.Info("probe: account reachable (401, key valid but no models access)",
-			zap.Uint("account_id", acc.ID),
-		)
-		return true
-	}
-
-	m.logger.Warn("probe: account unreachable",
-		zap.Uint("account_id", acc.ID),
-		zap.Int("status_code", resp.StatusCode),
-	)
-	return false
 }

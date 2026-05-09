@@ -124,6 +124,8 @@ type ChannelService interface {
 	SaveModels(ctx context.Context, id uint, models []ChannelModel) error
 	// 新增方法
 	TestChannel(ctx context.Context, id uint, apiKey string) (*TestResult, error)
+	// TestAccount 测试指定账号（不限状态）
+	TestAccount(ctx context.Context, channelID, accountID uint, apiKey string) (*TestResult, error)
 	BatchTestModels(ctx context.Context, id uint, modelNames []string, apiKey string) ([]BatchTestResultItem, error)
 	UpdateTestModel(ctx context.Context, id uint, testModel string) error
 	CopyChannel(ctx context.Context, id uint) (*Channel, error)

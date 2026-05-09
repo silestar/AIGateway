@@ -38,7 +38,12 @@ type RouteResult struct {
 	Channel         *channel.Channel
 	Account         *account.Account
 	RetryChain      *proxy.RetryChain
-	ActualModelName string // 映射后的实际上游模型名（与请求中的 model 不同时表示有别名映射）
+	ActualModelName string // 映射后的实际上游模型名
+
+	// 内部状态（用于重试循环，不序列化给外部）
+	excludedAccountIDs map[uint][]uint // channelID → 已排除的 accountIDs
+	modelName          string
+	keysID             uint
 }
 
 // Route 核心路由：密钥+模型名 → 渠道+账号
@@ -166,11 +171,41 @@ func (r *Router) Route(ctx context.Context, keysID uint, modelName string) (*Rou
 				Account:         acc,
 				RetryChain:      retryChain,
 				ActualModelName: actualName,
+				excludedAccountIDs: make(map[uint][]uint),
+				modelName:          modelName,
+				keysID:             keysID,
 			}, nil
 		}
 	}
 
 	return nil, fmt.Errorf("no available channel for model %s", modelName)
+}
+
+// RerouteAfterFailure 获取下一个可用的账号/渠道（同渠道优先→跨渠道降级）
+// 调用前需先执行 accountMgr.ClearAccountAffinity + ReportResult
+func (r *Router) RerouteAfterFailure(ctx context.Context, failedResult *RouteResult) (*RouteResult, error) {
+	// 1. 清除失败账号的粘性绑定 + 加入排除列表
+	r.accountMgr.ClearAccountAffinity(failedResult.keysID, failedResult.Channel.ID)
+	failedResult.excludedAccountIDs[failedResult.Channel.ID] = append(
+		failedResult.excludedAccountIDs[failedResult.Channel.ID],
+		failedResult.Account.ID,
+	)
+
+	// 2. 尝试当前渠道内的下一个账号
+	acc, err := r.accountMgr.SelectAccountWithExclude(ctx, failedResult.keysID, failedResult.Channel.ID,
+		failedResult.excludedAccountIDs[failedResult.Channel.ID])
+	if err == nil {
+		// 同渠道有下一个账号
+		r.accountMgr.GetDecryptedAPIKey(ctx, acc.ID) // 预热缓存
+		failedResult.RetryChain.AddAttempt(failedResult.Channel.ID, acc.ID)
+		failedResult.Account = acc
+		return failedResult, nil
+	}
+
+	// 3. 当前渠道账号已耗尽 → 降级：重新运行完整 Route（但排除已失败渠道？不，Route 本身会 fallthrough）
+	// 简化：直接重新调用 Route（Route 内部会从第一个渠道分组重新遍历，但由于 ReportResult 已禁用失败账号，
+	// SelectAccount 不会再选中它）
+	return r.Route(ctx, failedResult.keysID, failedResult.modelName)
 }
 
 // ========== 渠道分组 CRUD ==========

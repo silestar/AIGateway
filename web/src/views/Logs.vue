@@ -705,10 +705,17 @@ const tableColumns = computed<DataTableColumns<RequestLog>>(() => [
     title: t('requestLogs.colTokens'),
     key: 'tokens',
     width: 120,
-    render: (row) => {
-      const fmtNum = (n: number) => n > 0 ? n.toLocaleString('en-US') : '-'
+render: (row) => {
+      const fmtNum = (n: number) => n > 0 ? n.toLocaleString('en-US') : null
+      const hasPrompt = fmtNum(row.prompt_tokens)
+      const hasCompletion = fmtNum(row.completion_tokens)
+      let tokenText = '-'
+      if (hasPrompt && hasCompletion) tokenText = hasPrompt + ' / ' + hasCompletion
+      else if (hasPrompt) tokenText = hasPrompt
+      else if (hasCompletion) tokenText = hasCompletion
+      const tokenFont = { fontSize: '12px', fontFamily: "'JetBrains Mono', monospace" }
       const children: any[] = [
-        h('div', { style: { fontSize: '12px', fontFamily: "'JetBrains Mono', monospace" } }, `${fmtNum(row.prompt_tokens)} / ${fmtNum(row.completion_tokens)}`),
+        h('div', { style: tokenFont }, tokenText),
       ]
       if (row.cache_tokens > 0) {
         children.push(h('div', { style: { fontSize: '10px', color: '#52c41a' } }, `缓存↓ ${row.cache_tokens}`))

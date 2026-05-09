@@ -243,6 +243,45 @@ func (s *service) SaveModels(ctx context.Context, id uint, models []ChannelModel
 	return tx.Commit().Error
 }
 
+// TestAccount 测试指定账号（不限状态，用于探测/巡检）
+func (s *service) TestAccount(ctx context.Context, channelID, accountID uint, apiKey string) (*TestResult, error) {
+	var ch Channel
+	if err := s.db.WithContext(ctx).First(&ch, channelID).Error; err != nil {
+		return nil, fmt.Errorf("渠道不存在")
+	}
+
+	if ch.BaseURL == "" {
+		return nil, fmt.Errorf("该渠道未配置上游地址（Base URL）")
+	}
+
+	// 确定测试模型
+	testModel := ch.TestModel
+	if testModel == "" {
+		var cm ChannelModel
+		if err := s.db.WithContext(ctx).Where("channel_id = ? AND status = ?", channelID, "enabled").Order("display_model_name").First(&cm).Error; err != nil {
+			return nil, fmt.Errorf("该渠道没有已配置的模型，请先配置模型或指定测试模型")
+		}
+		testModel = cm.ActualModelName
+		if testModel == "" {
+			testModel = cm.DisplayModelName
+		}
+	}
+
+	result, err := s.sendTestRequest(ctx, &ch, testModel, apiKey)
+	if err != nil {
+		return nil, err
+	}
+
+	// 更新渠道测试记录
+	now := time.Now()
+	s.db.WithContext(ctx).Model(&Channel{}).Where("id = ?", channelID).Updates(map[string]interface{}{
+		"last_test_latency": result.Latency,
+		"last_tested_at":    now,
+	})
+
+	return result, nil
+}
+
 // TestChannel 测试渠道可用性（发送一次轻量请求）
 func (s *service) TestChannel(ctx context.Context, id uint, apiKey string) (*TestResult, error) {
 	var ch Channel

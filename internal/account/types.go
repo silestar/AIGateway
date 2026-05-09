@@ -28,6 +28,8 @@ func (Account) TableName() string { return "channel_accounts" }
 type AccountManager interface {
 	// 核心路由用
 	SelectAccount(ctx context.Context, keysID, channelID uint) (*Account, error)
+	SelectAccountWithExclude(ctx context.Context, keysID, channelID uint, excludeIDs []uint) (*Account, error)
+	ClearAccountAffinity(keysID, channelID uint)
 	IsAccountRateLimited(accountID uint, maxRPM, maxTPM, maxDailyRequests int) (string, bool)
 	GetDecryptedAPIKey(ctx context.Context, accountID uint) (string, error)
 	ReportResult(ctx context.Context, accountID uint, success bool, statusCode int) error
