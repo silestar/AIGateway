@@ -117,7 +117,7 @@ func (m *Manager) Install(ctx context.Context, zipPath string) (*Plugin, error) 
 		Port:         manifest.Port,
 		Hooks:        string(hooksJSON),
 		ConfigSchema: string(manifest.ConfigSchema),
-		Status:       "installed",
+		Status:       StatusInstalled,
 	}
 
 	if err := m.db.WithContext(ctx).Create(plugin).Error; err != nil {
@@ -135,7 +135,7 @@ func (m *Manager) Start(ctx context.Context, pluginID uint) error {
 		return fmt.Errorf("find plugin: %w", err)
 	}
 
-	if plugin.Status == "running" {
+	if plugin.Status == StatusRunning {
 		return fmt.Errorf("plugin already running")
 	}
 
@@ -152,13 +152,68 @@ func (m *Manager) Start(ctx context.Context, pluginID uint) error {
 		return fmt.Errorf("start plugin process: %w", err)
 	}
 
+	pid := cmd.Process.Pid
+
 	// 更新状态
 	m.db.WithContext(ctx).Model(&plugin).Updates(map[string]interface{}{
-		"pid":    cmd.Process.Pid,
-		"status": "running",
+		"pid":    pid,
+		"status": StatusRunning,
 	})
 
-	m.logger.Info("plugin started", zap.String("name", plugin.Name), zap.Int("pid", cmd.Process.Pid))
+	m.logger.Info("plugin started", zap.String("name", plugin.Name), zap.Int("pid", pid))
+
+	// 启动后健康确认：同步轮询 /health 端点（最多 3 次，间隔 1 秒）
+	healthOK := false
+	for i := 0; i < 3; i++ {
+		time.Sleep(1 * time.Second)
+		healthURL := fmt.Sprintf("http://127.0.0.1:%d/health", plugin.Port)
+		resp, err := m.client.Get(healthURL)
+		if err == nil {
+			resp.Body.Close()
+			if resp.StatusCode == http.StatusOK {
+				healthOK = true
+				break
+			}
+		}
+	}
+	if !healthOK {
+		// 健康确认失败，停止进程并标记 stopped
+		if proc, err := os.FindProcess(pid); err == nil {
+			proc.Kill()
+		}
+		m.db.WithContext(ctx).Model(&plugin).Updates(map[string]interface{}{
+			"pid":    0,
+			"status": StatusError,
+		})
+		m.logger.Warn("plugin health check failed after start, stopped",
+			zap.String("name", plugin.Name),
+			zap.Int("pid", pid),
+		)
+	}
+
+	// 异步监听进程退出，自动更新状态
+	go func() {
+		err := cmd.Wait()
+		exitCode := 0
+		exitMsg := "exited normally"
+		if err != nil {
+			exitMsg = err.Error()
+			if exitErr, ok := err.(*exec.ExitError); ok {
+				exitCode = exitErr.ExitCode()
+			}
+		}
+		m.db.Model(&Plugin{}).Where("id = ?", plugin.ID).Updates(map[string]interface{}{
+			"pid":    0,
+			"status": StatusStopped,
+		})
+		m.logger.Info("plugin process exited",
+			zap.String("name", plugin.Name),
+			zap.Int("pid", pid),
+			zap.Int("exit_code", exitCode),
+			zap.String("reason", exitMsg),
+		)
+	}()
+
 	return nil
 }
 
@@ -187,7 +242,7 @@ func (m *Manager) Stop(ctx context.Context, pluginID uint) error {
 
 	m.db.WithContext(ctx).Model(&plugin).Updates(map[string]interface{}{
 		"pid":    0,
-		"status": "stopped",
+		"status": StatusStopped,
 	})
 
 	m.logger.Info("plugin stopped", zap.String("name", plugin.Name))
@@ -218,7 +273,7 @@ func (m *Manager) Uninstall(ctx context.Context, pluginID uint) error {
 func (m *Manager) TriggerHook(ctx context.Context, hook HookName, req *HookRequest) (*HookResponse, error) {
 	// 查找订阅该钩子的运行中插件
 	var plugins []Plugin
-	m.db.WithContext(ctx).Where("status = ?", "running").Find(&plugins)
+	m.db.WithContext(ctx).Where("status = ?", StatusRunning).Find(&plugins)
 
 	for _, p := range plugins {
 		var hooks []string
@@ -251,16 +306,12 @@ func (m *Manager) TriggerHook(ctx context.Context, hook HookName, req *HookReque
 			m.logger.Warn("call plugin hook failed", zap.String("plugin", p.Name), zap.Error(err))
 			continue
 		}
-		defer resp.Body.Close()
-
-		if resp.StatusCode == http.StatusUnauthorized {
-			m.logger.Warn("plugin auth failed", zap.String("plugin", p.Name))
-			continue
-		}
 
 		var hookResp HookResponse
-		if err := json.NewDecoder(resp.Body).Decode(&hookResp); err != nil {
-			m.logger.Warn("decode hook response failed", zap.String("plugin", p.Name), zap.Error(err))
+		decodeErr := json.NewDecoder(resp.Body).Decode(&hookResp)
+		resp.Body.Close() // 循环内手动关闭，不用 defer
+		if decodeErr != nil {
+			m.logger.Warn("decode hook response failed", zap.String("plugin", p.Name), zap.Error(decodeErr))
 			continue
 		}
 
@@ -309,7 +360,7 @@ func (m *Manager) UpdateConfig(ctx context.Context, id uint, config string) erro
 // HealthCheck 健康检查
 func (m *Manager) HealthCheck(ctx context.Context) {
 	var plugins []Plugin
-	m.db.WithContext(ctx).Where("status = ?", "running").Find(&plugins)
+	m.db.WithContext(ctx).Where("status = ?", StatusRunning).Find(&plugins)
 
 	for _, p := range plugins {
 		url := fmt.Sprintf("http://127.0.0.1:%d/health", p.Port)

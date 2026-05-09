@@ -6,6 +6,15 @@ import (
 	"time"
 )
 
+// PluginStatus 插件状态常量
+const (
+	StatusInstalled = "installed"
+	StatusRunning   = "running"
+	StatusStopped   = "stopped"
+	StatusUnhealthy = "unhealthy"
+	StatusError     = "error"
+)
+
 // HookName 钩子名称（对齐设计文档）
 type HookName string
 

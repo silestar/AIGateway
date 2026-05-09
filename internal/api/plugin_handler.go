@@ -2,6 +2,7 @@ package api
 
 import (
 	"net/http"
+	"os"
 
 	"github.com/gin-gonic/gin"
 	"github.com/bokelife/aigateway/internal/plugin"
@@ -21,7 +22,7 @@ func NewPluginHandler(pluginMgr *plugin.Manager) *PluginHandler {
 func (h *PluginHandler) RegisterRoutes(rg *gin.RouterGroup) {
 	p := rg.Group("/plugins")
 	p.GET("", h.List)
-	p.POST("", h.Create)
+	p.POST("/upload", h.Create)
 	p.GET("/:id", h.GetById)
 	p.PUT("/:id/status", h.UpdateStatus)
 	p.DELETE("/:id", h.Delete)
@@ -46,8 +47,16 @@ func (h *PluginHandler) Create(c *gin.Context) {
 		return
 	}
 
-	// 保存临时文件
-	tmpPath := "/tmp/plugin_upload.zip"
+	// 保存到随机临时文件，避免并发覆盖
+	tmpFile, err := os.CreateTemp("", "plugin_*.zip")
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, errorResponse("temp_failed", err.Error()))
+		return
+	}
+	tmpPath := tmpFile.Name()
+	tmpFile.Close()
+	defer os.Remove(tmpPath) // 处理完成后清理
+
 	if err := c.SaveUploadedFile(file, tmpPath); err != nil {
 		c.JSON(http.StatusInternalServerError, errorResponse("save_failed", err.Error()))
 		return
