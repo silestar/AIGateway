@@ -597,7 +597,7 @@ func (m *Manager) GetTopModels(ctx context.Context, limit int) ([]TopModelEntry,
 	var models []TopModelEntry
 	err := m.db.WithContext(ctx).Model(&RequestLog{}).
 		Select("model_name, COUNT(*) as total_requests").
-		Where("log_type = ? AND DATE(timestamp) = ?", "consumption", today).
+		Where("log_type = ? AND DATE(timestamp) = ? AND model_name != ''", "consumption", today).
 		Group("model_name").
 		Order("total_requests DESC").
 		Limit(limit).

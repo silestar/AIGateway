@@ -123,6 +123,7 @@ func (h *StatsHandler) Models(c *gin.Context) {
 	h.statsMgr.DB().WithContext(c.Request.Context()).
 		Model(&stats.KeysDailyStats{}).
 		Select("model_name, SUM(total_requests) as total_requests").
+		Where("model_name != ''").
 		Group("model_name").
 		Order("total_requests DESC").
 		Scan(&modelStats)

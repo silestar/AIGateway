@@ -5,53 +5,40 @@
       <n-gi>
         <div class="stat-card">
           <div class="stat-icon">📊</div>
-          <div class="stat-content">
-            <div class="stat-label">{{ t('dashboard.todayRequests') }}</div>
-            <div class="stat-value">{{ overview.total_requests_today || 0 }}</div>
-          </div>
-          <div v-if="!overview.total_requests_today" class="stat-hint">{{ t('dashboard.noData') }}</div>
+          <div class="stat-label">{{ t('dashboard.todayRequests') }}</div>
+          <div class="stat-value">{{ overview.total_requests_today || 0 }}</div>
         </div>
       </n-gi>
       <n-gi>
         <div class="stat-card">
           <div class="stat-icon">✅</div>
-          <div class="stat-content">
-            <div class="stat-label">{{ t('dashboard.successRate') }}</div>
-            <div class="stat-value" :style="{ color: successRateColor }">
-              {{ overview.success_rate != null ? overview.success_rate.toFixed(1) + '%' : '—' }}
-            </div>
+          <div class="stat-label">{{ t('dashboard.successRate') }}</div>
+          <div class="stat-value" :style="{ color: successRateColor }">
+            {{ overview.success_rate != null ? overview.success_rate.toFixed(1) + '%' : '—' }}
           </div>
-          <div v-if="overview.total_requests_today === 0" class="stat-hint">{{ t('dashboard.noData') }}</div>
         </div>
       </n-gi>
       <n-gi>
         <div class="stat-card">
           <div class="stat-icon">⚡</div>
-          <div class="stat-content">
-            <div class="stat-label">{{ t('dashboard.avgLatency') }}</div>
-            <div class="stat-value" :style="{ color: latencyColor }">
-              {{ overview.avg_latency_ms != null ? Math.round(overview.avg_latency_ms) + 'ms' : '—' }}
-            </div>
+          <div class="stat-label">{{ t('dashboard.avgLatency') }}</div>
+          <div class="stat-value" :style="{ color: latencyColor }">
+            {{ overview.avg_latency_ms != null ? Math.round(overview.avg_latency_ms) + 'ms' : '—' }}
           </div>
-          <div v-if="overview.total_requests_today === 0" class="stat-hint">{{ t('dashboard.noData') }}</div>
         </div>
       </n-gi>
       <n-gi>
         <div class="stat-card">
           <div class="stat-icon">🔑</div>
-          <div class="stat-content">
-            <div class="stat-label">{{ t('dashboard.activeKeys') }}</div>
-            <div class="stat-value">{{ overview.active_keys || 0 }}</div>
-          </div>
+          <div class="stat-label">{{ t('dashboard.activeKeys') }}</div>
+          <div class="stat-value">{{ overview.active_keys || 0 }}</div>
         </div>
       </n-gi>
       <n-gi>
         <div class="stat-card">
           <div class="stat-icon">🔌</div>
-          <div class="stat-content">
-            <div class="stat-label">{{ t('dashboard.activeChannels') }}</div>
-            <div class="stat-value">{{ overview.active_channels || 0 }}</div>
-          </div>
+          <div class="stat-label">{{ t('dashboard.activeChannels') }}</div>
+          <div class="stat-value">{{ overview.active_channels || 0 }}</div>
         </div>
       </n-gi>
     </n-grid>
@@ -280,40 +267,30 @@ onUnmounted(() => {
 
 <style scoped>
 .stat-card {
-  background: rgba(30, 35, 55, 0.5);
-  border: 1px solid rgba(255, 255, 255, 0.08);
-  border-radius: 12px;
+  background: var(--bg-card);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-lg, 12px);
   padding: 20px 24px;
-  min-height: 100px;
-  display: flex;
-  flex-direction: column;
-  justify-content: center;
   transition: all 0.25s ease;
-  backdrop-filter: blur(8px);
 }
 .stat-card:hover {
-  border-color: rgba(105, 177, 255, 0.3);
-  box-shadow: 0 4px 24px rgba(105, 177, 255, 0.08);
+  border-color: var(--border-light);
+  box-shadow: var(--shadow-hover);
 }
 .stat-icon {
   font-size: 20px;
   margin-bottom: 8px;
 }
 .stat-label {
-  color: #a0a8b8;
+  color: var(--text-secondary);
   font-size: 13px;
   margin-bottom: 6px;
 }
 .stat-value {
-  color: #f0f2f5;
+  color: var(--text-primary);
   font-size: 28px;
   font-weight: 700;
   line-height: 1.2;
-}
-.stat-hint {
-  color: #666;
-  font-size: 12px;
-  margin-top: 4px;
 }
 .chart-card :deep(.n-card-header) {
   padding: 12px 20px;

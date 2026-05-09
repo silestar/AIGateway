@@ -389,11 +389,11 @@ function handleLogout() { localStorage.removeItem('agw_token'); router.push('/lo
 
 const menuOptions = computed(() => [
   { label: t('menu.dashboard'), key: '/', icon: (): string => '📊' },
+  { label: t('menu.logs'), key: '/logs', icon: (): string => '📋' },
+  { label: t('menu.stats'), key: '/stats', icon: (): string => '📈' },
   { label: t('menu.keys'), key: '/keys', icon: (): string => '🔑' },
   { label: t('menu.channels'), key: '/channels', icon: (): string => '🔌' },
   { label: t('menu.groups'), key: '/groups', icon: (): string => '📁' },
-  { label: t('menu.stats'), key: '/stats', icon: (): string => '📈' },
-  { label: t('menu.logs'), key: '/logs', icon: (): string => '📋' },
   { label: t('menu.models'), key: '/models', icon: (): string => '🤖' },
   { label: t('menu.plugins'), key: '/plugins', icon: (): string => '🧩' },
   {
