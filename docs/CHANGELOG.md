@@ -64,3 +64,11 @@
 - 管理端 API：`GET /api/models/catalog`、`PUT /api/models/catalog/:id/visibility`
 - 前端模型管理页面：左右两列（已选模型 / 自定义映射模型）+ 可见性开关
 - 密钥分组配额语义修正："共享"→"各自的"（每密钥独立限额）
+
+### 阶段九：仪表盘升级
+- 后端 Dashboard API 扩展：`GET /api/stats/dashboard?days=7|30` 新增 `hourly_trend`、`top_models`、`top_channels`、`recent_errors` 字段
+- Manager 新增 4 个聚合查询方法：`GetHourlyTrend`、`GetTopModels`、`GetTopChannels`、`GetRecentErrors`
+- 前端仪表盘完全重写：5 列统计卡片（成功率/延迟颜色规则）、ECharts 折线趋势图（7天/30天切换）、环形饼图（模型分布）、横向柱状图（渠道负载）、异常请求表格（点击跳转日志）
+- 自动刷新：30 秒轮询
+- 颜色规则：成功率 >95% 绿/>80% 黄/<80% 红；延迟 <2s 绿/<5s 黄/>5s 红
+- 中英文 i18n 扩展

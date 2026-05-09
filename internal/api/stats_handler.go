@@ -35,6 +35,9 @@ func (h *StatsHandler) RegisterRoutes(rg *gin.RouterGroup) {
 // Dashboard 仪表盘概览
 func (h *StatsHandler) Dashboard(c *gin.Context) {
 	days := intQuery(c, "days", 7)
+	hours := days * 24 // 趋势图按天折算小时数
+
+	// 1. 今日概览
 	overview, err := h.statsMgr.GetOverview(c.Request.Context(), days)
 	if err != nil {
 		c.JSON(http.StatusInternalServerError, errorResponse("internal_error", err.Error()))
@@ -47,16 +50,32 @@ func (h *StatsHandler) Dashboard(c *gin.Context) {
 		successRate = float64(today.SuccessRequests) / float64(today.TotalRequests) * 100
 	}
 
+	// 2. 小时趋势
+	hourlyTrend, _ := h.statsMgr.GetHourlyTrend(c.Request.Context(), hours)
+
+	// 3. Top 模型
+	topModels, _ := h.statsMgr.GetTopModels(c.Request.Context(), 5)
+
+	// 4. Top 渠道
+	topChannels, _ := h.statsMgr.GetTopChannels(c.Request.Context(), 10)
+
+	// 5. 最近异常
+	recentErrors, _ := h.statsMgr.GetRecentErrors(c.Request.Context(), 5)
+
 	c.JSON(http.StatusOK, gin.H{
 		"data": gin.H{
 			"date":                today.Date,
 			"total_requests_today": today.TotalRequests,
 			"success_rate":         successRate,
 			"avg_latency_ms":      today.AvgLatencyMs,
-			"total_tokens":         today.TotalTokens,
-			"active_keys":    today.ActiveKeys,
+			"total_tokens":        today.TotalTokens,
+			"active_keys":         today.ActiveKeys,
 			"active_channels":     today.ActiveChannels,
 			"last_7_days":         overview.Last7Days,
+			"hourly_trend":        hourlyTrend,
+			"top_models":          topModels,
+			"top_channels":        topChannels,
+			"recent_errors":       recentErrors,
 		},
 	})
 }

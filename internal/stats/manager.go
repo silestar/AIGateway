@@ -2,6 +2,7 @@ package stats
 
 import (
 	"context"
+	"fmt"
 	"strings"
 	"sync"
 	"time"
@@ -535,4 +536,194 @@ func (m *Manager) GetChannelRealtime(ctx context.Context, channelID uint) (*Chan
 	stats.TopModels = topModels
 
 	return &stats, nil
+}
+
+// ========== 仪表盘聚合查询 ==========
+
+// HourlyTrendEntry 小时趋势条目
+type HourlyTrendEntry struct {
+	Hour    string `json:"hour"`
+	Success int64  `json:"success"`
+	Fail    int64  `json:"fail"`
+}
+
+// GetHourlyTrend 获取近 N 小时请求趋势（按小时聚合）
+func (m *Manager) GetHourlyTrend(ctx context.Context, hours int) ([]HourlyTrendEntry, error) {
+	if hours <= 0 {
+		hours = 24
+	}
+	cutoff := time.Now().Add(-time.Duration(hours) * time.Hour).Format("2006-01-02 15:04:00")
+
+	type row struct {
+		Hour    string
+		Success int64
+		Fail    int64
+	}
+	var rows []row
+	err := m.db.WithContext(ctx).Model(&RequestLog{}).
+		Select("strftime('%Y-%m-%d %H:00', timestamp) as hour, SUM(CASE WHEN status_code >= 200 AND status_code < 300 THEN 1 ELSE 0 END) as success, SUM(CASE WHEN status_code < 200 OR status_code >= 300 THEN 1 ELSE 0 END) as fail").
+		Where("timestamp >= ? AND log_type = ?", cutoff, "consumption").
+		Group("hour").
+		Order("hour ASC").
+		Scan(&rows).Error
+	if err != nil {
+		return nil, err
+	}
+
+	result := make([]HourlyTrendEntry, 0, len(rows))
+	for _, r := range rows {
+		result = append(result, HourlyTrendEntry{
+			Hour:    r.Hour,
+			Success: r.Success,
+			Fail:    r.Fail,
+		})
+	}
+	return result, nil
+}
+
+// TopModelEntry 模型排行条目
+type TopModelEntry struct {
+	ModelName     string `json:"model_name"`
+	TotalRequests int64  `json:"total_requests"`
+}
+
+// GetTopModels 获取 Top N 模型排行
+func (m *Manager) GetTopModels(ctx context.Context, limit int) ([]TopModelEntry, error) {
+	if limit <= 0 {
+		limit = 5
+	}
+	today := time.Now().Format("2006-01-02")
+
+	var models []TopModelEntry
+	err := m.db.WithContext(ctx).Model(&RequestLog{}).
+		Select("model_name, COUNT(*) as total_requests").
+		Where("log_type = ? AND DATE(timestamp) = ?", "consumption", today).
+		Group("model_name").
+		Order("total_requests DESC").
+		Limit(limit).
+		Scan(&models).Error
+	return models, err
+}
+
+// TopChannelEntry 渠道排行条目
+type TopChannelEntry struct {
+	ChannelID     uint    `json:"channel_id"`
+	ChannelName   string  `json:"channel_name"`
+	TotalRequests int64   `json:"total_requests"`
+	SuccessRate   float64 `json:"success_rate"`
+	AvgLatencyMs  float64 `json:"avg_latency_ms"`
+}
+
+// GetTopChannels 获取 Top N 渠道负载排行
+func (m *Manager) GetTopChannels(ctx context.Context, limit int) ([]TopChannelEntry, error) {
+	if limit <= 0 {
+		limit = 10
+	}
+	today := time.Now().Format("2006-01-02")
+
+	type row struct {
+		ChannelID     uint
+		TotalRequests int64
+		SuccessCount  int64
+		AvgLatencyMs  float64
+	}
+	var rows []row
+	err := m.db.WithContext(ctx).Model(&RequestLog{}).
+		Select("channel_id, COUNT(*) as total_requests, SUM(CASE WHEN status_code >= 200 AND status_code < 300 THEN 1 ELSE 0 END) as success_count, CASE WHEN COUNT(*) > 0 THEN AVG(latency_ms) ELSE 0 END as avg_latency_ms").
+		Where("log_type = ? AND DATE(timestamp) = ? AND channel_id IS NOT NULL", "consumption", today).
+		Group("channel_id").
+		Order("total_requests DESC").
+		Limit(limit).
+		Scan(&rows).Error
+	if err != nil {
+		return nil, err
+	}
+
+	// 批量查询渠道名称
+	channelIDs := make([]uint, 0, len(rows))
+	for _, r := range rows {
+		channelIDs = append(channelIDs, r.ChannelID)
+	}
+
+	type channelNameRow struct {
+		ID   uint
+		Name string
+	}
+	var channelNames []channelNameRow
+	if len(channelIDs) > 0 {
+		m.db.WithContext(ctx).Table("channels").
+			Select("id, name").
+			Where("id IN ?", channelIDs).
+			Scan(&channelNames)
+	}
+
+	nameMap := make(map[uint]string, len(channelNames))
+	for _, c := range channelNames {
+		nameMap[c.ID] = c.Name
+	}
+
+	result := make([]TopChannelEntry, 0, len(rows))
+	for _, r := range rows {
+		sr := 0.0
+		if r.TotalRequests > 0 {
+			sr = float64(r.SuccessCount) / float64(r.TotalRequests) * 100
+		}
+		name := nameMap[r.ChannelID]
+		if name == "" {
+			name = fmt.Sprintf("Channel #%d", r.ChannelID)
+		}
+		result = append(result, TopChannelEntry{
+			ChannelID:     r.ChannelID,
+			ChannelName:   name,
+			TotalRequests: r.TotalRequests,
+			SuccessRate:   sr,
+			AvgLatencyMs:  r.AvgLatencyMs,
+		})
+	}
+	return result, nil
+}
+
+// RecentErrorEntry 最近异常请求条目
+type RecentErrorEntry struct {
+	ID         uint    `json:"id"`
+	Timestamp  string  `json:"timestamp"`
+	ModelName  string  `json:"model_name"`
+	ChannelID  *uint   `json:"channel_id"`
+	StatusCode int     `json:"status_code"`
+	LatencyMs  int     `json:"latency_ms"`
+	ErrorMsg   *string `json:"error_msg"`
+	TraceID    string  `json:"trace_id"`
+}
+
+// GetRecentErrors 获取最近 N 条异常请求（status_code 非 2xx 或延迟超阈值）
+func (m *Manager) GetRecentErrors(ctx context.Context, limit int) ([]RecentErrorEntry, error) {
+	if limit <= 0 {
+		limit = 5
+	}
+	latencyThreshold := 10000 // 10s 视为异常
+
+	var logs []RequestLog
+	err := m.db.WithContext(ctx).
+		Where("log_type = ? AND (status_code < 200 OR status_code >= 300 OR latency_ms > ?)", "consumption", latencyThreshold).
+		Order("timestamp DESC").
+		Limit(limit).
+		Find(&logs).Error
+	if err != nil {
+		return nil, err
+	}
+
+	result := make([]RecentErrorEntry, 0, len(logs))
+	for _, l := range logs {
+		result = append(result, RecentErrorEntry{
+			ID:         l.ID,
+			Timestamp:  l.Timestamp.Format("2006-01-02 15:04:05"),
+			ModelName:  l.ModelName,
+			ChannelID:  l.ChannelID,
+			StatusCode: l.StatusCode,
+			LatencyMs:  l.LatencyMs,
+			ErrorMsg:   l.ErrorMsg,
+			TraceID:    l.TraceID,
+		})
+	}
+	return result, nil
 }

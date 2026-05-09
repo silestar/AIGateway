@@ -184,9 +184,21 @@
     "successRate": "Success Rate",
     "avgLatency": "Avg Latency",
     "activeKeys": "Active Keys",
+    "activeChannels": "Active Channels",
     "requestTrend": "Request Trend",
     "modelDistribution": "Model Distribution",
-    "noData": "No data yet"
+    "channelLoad": "Channel Load",
+    "recentErrors": "Recent Errors",
+    "noData": "No data today",
+    "noErrors": "No errors ✨",
+    "days": "d",
+    "success": "Success",
+    "failed": "Failed",
+    "colTime": "Time",
+    "colModel": "Model",
+    "colStatusCode": "Status",
+    "colLatency": "Latency",
+    "colError": "Error"
   },
   "stats": {
     "title": "Statistics",

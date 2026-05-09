@@ -182,9 +182,21 @@
     "successRate": "成功率",
     "avgLatency": "平均延迟",
     "activeKeys": "活跃密钥",
+    "activeChannels": "活跃渠道",
     "requestTrend": "请求趋势",
     "modelDistribution": "模型请求分布",
-    "noData": "暂无数据"
+    "channelLoad": "渠道负载排行",
+    "recentErrors": "最近异常请求",
+    "noData": "今日暂无数据",
+    "noErrors": "暂无异常请求 ✨",
+    "days": "天",
+    "success": "成功",
+    "failed": "失败",
+    "colTime": "时间",
+    "colModel": "模型",
+    "colStatusCode": "状态码",
+    "colLatency": "延迟",
+    "colError": "错误信息"
   },
   "stats": {
     "title": "统计分析",

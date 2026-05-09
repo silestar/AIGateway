@@ -1024,7 +1024,61 @@
 
 ## 5. 统计分析
 
-### 5.1 系统总览
+### 5.1 仪表盘概览
+
+**`GET /api/stats/dashboard`**
+
+> 仪表盘页面核心数据端点，一次返回全部所需数据。前端每 30 秒自动轮询。
+
+查询参数：
+
+| 参数 | 类型 | 必填 | 说明 |
+|------|------|:--:|------|
+| `days` | int | 否 | 趋势图天数，默认 7，可选 7 或 30 |
+
+响应：
+
+```json
+{
+  "data": {
+    "date": "2026-05-09",
+    "total_requests_today": 15230,
+    "success_rate": 97.2,
+    "avg_latency_ms": 750.5,
+    "total_tokens": 22500000,
+    "active_keys": 45,
+    "active_channels": 12,
+    "last_7_days": [
+      { "date": "2026-05-03", "total_requests": 12000, "success_requests": 11600, "fail_requests": 400 }
+    ],
+    "hourly_trend": [
+      { "hour": "2026-05-09 08:00", "success": 520, "fail": 12 }
+    ],
+    "top_models": [
+      { "model_name": "gpt-4o", "total_requests": 8500 }
+    ],
+    "top_channels": [
+      { "channel_id": 1, "channel_name": "OpenAI主渠道", "total_requests": 6000, "success_rate": 98.5, "avg_latency_ms": 620 }
+    ],
+    "recent_errors": [
+      { "id": 1234, "timestamp": "2026-05-09 15:30:05", "model_name": "gpt-4o", "channel_id": 2, "status_code": 429, "latency_ms": 1200, "error_msg": "Rate limit exceeded", "trace_id": "abc123" }
+    ]
+  }
+}
+```
+
+**颜色规则**（前端实现）：
+
+| 指标 | 绿色 | 黄色 | 红色 |
+|------|------|------|------|
+| 成功率 | >95% | >80% | <80% |
+| 平均延迟 | <2s | <5s | >5s |
+
+**异常请求定义**：`status_code` 非 2xx，或 `latency_ms` > 10000（10 秒）。
+
+---
+
+### 5.2 系统总览
 
 **`GET /api/stats/overview`**
 
