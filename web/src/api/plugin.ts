@@ -10,7 +10,7 @@ export interface PluginItem {
   port: number
   hooks: string
   config_schema: string
-  status: 'installed' | 'running' | 'stopped' | 'unhealthy' | 'error'
+  status: 'uploaded' | 'installed' | 'running' | 'stopped' | 'unhealthy' | 'error'
   config: string
   pid: number
   created_at: string

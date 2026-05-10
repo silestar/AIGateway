@@ -305,7 +305,9 @@
     "installBtn": "安装",
     "uploadFailed": "上传失败",
     "installSuccess": "安装成功",
-    "type": "类型"
+    "type": "类型",
+    "uploading": "上传中...",
+    "statusUploaded": "已上传"
   },
   "settings": {
     "title": "系统设置",

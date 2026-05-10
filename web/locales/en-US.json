@@ -307,7 +307,9 @@
     "installBtn": "Install",
     "uploadFailed": "Upload failed",
     "installSuccess": "Installed successfully",
-    "type": "Type"
+    "type": "Type",
+    "uploading": "Uploading...",
+    "statusUploaded": "Uploaded"
   },
   "settings": {
     "title": "System Settings",

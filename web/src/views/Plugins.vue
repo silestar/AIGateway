@@ -4,7 +4,7 @@
       <div style="display:flex;align-items:center;justify-content:space-between">
         <h2 class="page-title" style="margin:0">{{ t('plugins.title') }}</h2>
         <n-space>
-          <n-button tertiary @click="openRegistry">
+          <n-button v-if="registryEnabled" tertiary @click="openRegistry">
             <template #icon><n-icon><StoreIcon /></n-icon></template>
             {{ t('plugins.market') }}
           </n-button>
@@ -12,10 +12,11 @@
             :show-file-list="false"
             accept=".zip"
             :custom-request="handleUpload"
+            :disabled="uploading"
           >
-            <n-button type="primary">
+            <n-button type="primary" :loading="uploading">
               <template #icon><n-icon><UploadIcon /></n-icon></template>
-              {{ t('plugins.upload') }}
+              {{ uploading ? t('plugins.uploading') : t('plugins.upload') }}
             </n-button>
           </n-upload>
         </n-space>
@@ -63,35 +64,48 @@
 
           <template #action>
             <n-space justify="end">
-              <n-button size="small" @click="openConfig(plugin)">
-                {{ t('plugins.config') }}
-              </n-button>
+              <!-- 未安装状态：只显示安装按钮 -->
               <n-button
-                v-if="plugin.status !== 'running'"
+                v-if="plugin.status === 'uploaded'"
                 size="small"
                 type="primary"
                 :loading="actionLoading[plugin.id]"
-                @click="handleStart(plugin)"
+                @click="handleInstallPlugin(plugin)"
               >
-                {{ t('plugins.start') }}
+                {{ t('plugins.installBtn') }}
               </n-button>
-              <n-button
-                v-else
-                size="small"
-                type="warning"
-                :loading="actionLoading[plugin.id]"
-                @click="handleStop(plugin)"
-              >
-                {{ t('plugins.stop') }}
-              </n-button>
-              <n-button
-                size="small"
-                type="error"
-                ghost
-                @click="handleUninstall(plugin)"
-              >
-                {{ t('plugins.uninstall') }}
-              </n-button>
+              <!-- 已安装状态：显示配置/启动/停止/卸载 -->
+              <template v-else>
+                <n-button size="small" @click="openConfig(plugin)">
+                  {{ t('plugins.config') }}
+                </n-button>
+                <n-button
+                  v-if="plugin.status !== 'running'"
+                  size="small"
+                  type="primary"
+                  :loading="actionLoading[plugin.id]"
+                  @click="handleStart(plugin)"
+                >
+                  {{ t('plugins.start') }}
+                </n-button>
+                <n-button
+                  v-else
+                  size="small"
+                  type="warning"
+                  :loading="actionLoading[plugin.id]"
+                  @click="handleStop(plugin)"
+                >
+                  {{ t('plugins.stop') }}
+                </n-button>
+                <n-button
+                  size="small"
+                  type="error"
+                  ghost
+                  @click="handleUninstall(plugin)"
+                >
+                  {{ t('plugins.uninstall') }}
+                </n-button>
+              </template>
             </n-space>
           </template>
         </n-card>
@@ -189,30 +203,6 @@
       </template>
     </n-modal>
 
-    <!-- 上传预览弹窗 -->
-    <n-modal v-model:show="uploadPreviewShow" preset="card" :title="t('plugins.uploadPreview')" style="width:500px">
-      <n-descriptions v-if="uploadPreview" :column="1" label-placement="left" size="small" :label-style="{width:'80px'}">
-        <n-descriptions-item :label="t('plugins.pluginName')">{{ uploadPreview.name }}</n-descriptions-item>
-        <n-descriptions-item :label="t('plugins.version')">{{ uploadPreview.version }}</n-descriptions-item>
-        <n-descriptions-item :label="t('plugins.description')">{{ uploadPreview.description || '-' }}</n-descriptions-item>
-        <n-descriptions-item :label="t('plugins.author')">{{ uploadPreview.author || '-' }}</n-descriptions-item>
-        <n-descriptions-item :label="t('plugins.type')">
-          <n-tag size="small" :type="uploadPreview.type === 'sidecar' ? 'info' : 'default'">{{ uploadPreview.type || 'sidecar' }}</n-tag>
-        </n-descriptions-item>
-        <n-descriptions-item v-if="uploadPreview.hooks && uploadPreview.hooks.length > 0" :label="t('plugins.hooks')">
-          <n-space size="small">
-            <n-tag v-for="hook in uploadPreview.hooks" :key="hook" size="tiny" type="info">{{ hook }}</n-tag>
-          </n-space>
-        </n-descriptions-item>
-      </n-descriptions>
-      <template #action>
-        <n-space justify="end">
-          <n-button @click="uploadPreviewShow = false">{{ t('common.cancel') }}</n-button>
-          <n-button type="primary" :loading="installLoading" @click="handleInstall">{{ t('plugins.installBtn') }}</n-button>
-        </n-space>
-      </template>
-    </n-modal>
-
     <!-- 注册中心弹窗 -->
     <n-modal v-model:show="registryModalShow" preset="card" :title="t('plugins.registryTitle')" style="width:700px">
       <n-spin :show="registryLoading">
@@ -265,6 +255,7 @@ import {
 } from 'naive-ui'
 import { CloudUploadOutline as UploadIcon, AppsOutline as StoreIcon } from '@vicons/ionicons5'
 import { pluginApi, type PluginItem, type ChannelPluginConfig, type RegistryEntry } from '../api/plugin'
+import { systemApi } from '../api/system'
 
 const { t } = useI18n()
 const message = useMessage()
@@ -272,6 +263,7 @@ const dialog = useDialog()
 
 const plugins = ref<PluginItem[]>([])
 const loading = ref(false)
+const uploading = ref(false)
 const actionLoading = reactive<Record<number, boolean>>({})
 const configModalShow = ref(false)
 const configText = ref('')
@@ -303,6 +295,7 @@ function capitalize(s: string): string {
 
 function statusTagType(status: string): 'default' | 'success' | 'warning' | 'error' | 'info' {
   const map: Record<string, 'default' | 'success' | 'warning' | 'error' | 'info'> = {
+    uploaded: 'info',
     installed: 'default',
     running: 'success',
     stopped: 'warning',
@@ -355,41 +348,71 @@ async function fetchPlugins() {
   }
 }
 
-// 上传预览相关
-const uploadPreviewShow = ref(false)
-const uploadPreview = ref<any>(null)
-const uploadId = ref('')
-const installLoading = ref(false)
+// 插件市场是否启用（根据系统配置的 plugin_registry_url）
+const registryEnabled = ref(false)
+
+async function checkRegistryEnabled() {
+  try {
+    const { data } = await systemApi.getConfig()
+    const config = data?.data || data || {}
+    const pluginConfig = config.plugin || {}
+    registryEnabled.value = !!pluginConfig.plugin_registry_url
+  } catch {
+    registryEnabled.value = false
+  }
+}
+
+// 上传后直接加入列表（状态为 uploaded），用户点安装才入库
 
 async function handleUpload({ file, onFinish, onError }: any) {
   const formData = new FormData()
   formData.append('file', file.file)
+  uploading.value = true
   try {
     const { data } = await pluginApi.upload(formData)
     const preview = data?.data
-    uploadId.value = preview.upload_id
-    uploadPreview.value = preview
-    uploadPreviewShow.value = true
+    // 直接添加到列表，状态为 uploaded
+    const item: any = {
+      id: -(Date.now()), // 临时负 ID，区分已入库插件
+      name: preview.name,
+      version: preview.version,
+      description: preview.description || '',
+      author: preview.author || '',
+      binary: '',
+      port: preview.port || 0,
+      hooks: JSON.stringify(preview.hooks || []),
+      config_schema: JSON.stringify(preview.config_schema || {}),
+      status: 'uploaded',
+      config: '',
+      pid: 0,
+      created_at: '',
+      updated_at: '',
+      _uploadId: preview.upload_id, // 内部字段，安装时使用
+    }
+    plugins.value.push(item)
+    message.success(t('plugins.uploadSuccess'))
     onFinish()
   } catch (e: any) {
     message.error(t('plugins.uploadFailed') + ': ' + (e?.response?.data?.error?.message || e.message))
     onError()
+  } finally {
+    uploading.value = false
   }
 }
 
-async function handleInstall() {
-  installLoading.value = true
+async function handleInstallPlugin(plugin: PluginItem) {
+  const uploadId = (plugin as any)._uploadId
+  if (!uploadId) return
+  actionLoading[plugin.id] = true
   try {
-    await pluginApi.install(uploadId.value)
+    await pluginApi.install(uploadId)
     message.success(t('plugins.installSuccess'))
-    uploadPreviewShow.value = false
-    uploadPreview.value = null
-    uploadId.value = ''
+    // 刷新列表（替换临时项为真实数据）
     await fetchPlugins()
   } catch (e: any) {
     message.error(t('plugins.installFailed') + ': ' + (e?.response?.data?.error?.message || e.message))
   } finally {
-    installLoading.value = false
+    actionLoading[plugin.id] = false
   }
 }
 
@@ -638,5 +661,8 @@ async function handleRegistryInstall(entry: RegistryEntry) {
   }
 }
 
-onMounted(fetchPlugins)
+onMounted(() => {
+  fetchPlugins()
+  checkRegistryEnabled()
+})
 </script>
