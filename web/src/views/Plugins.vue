@@ -189,6 +189,30 @@
       </template>
     </n-modal>
 
+    <!-- 上传预览弹窗 -->
+    <n-modal v-model:show="uploadPreviewShow" preset="card" :title="t('plugins.uploadPreview')" style="width:500px">
+      <n-descriptions v-if="uploadPreview" :column="1" label-placement="left" size="small" :label-style="{width:'80px'}">
+        <n-descriptions-item :label="t('plugins.pluginName')">{{ uploadPreview.name }}</n-descriptions-item>
+        <n-descriptions-item :label="t('plugins.version')">{{ uploadPreview.version }}</n-descriptions-item>
+        <n-descriptions-item :label="t('plugins.description')">{{ uploadPreview.description || '-' }}</n-descriptions-item>
+        <n-descriptions-item :label="t('plugins.author')">{{ uploadPreview.author || '-' }}</n-descriptions-item>
+        <n-descriptions-item :label="t('plugins.type')">
+          <n-tag size="small" :type="uploadPreview.type === 'sidecar' ? 'info' : 'default'">{{ uploadPreview.type || 'sidecar' }}</n-tag>
+        </n-descriptions-item>
+        <n-descriptions-item v-if="uploadPreview.hooks && uploadPreview.hooks.length > 0" :label="t('plugins.hooks')">
+          <n-space size="small">
+            <n-tag v-for="hook in uploadPreview.hooks" :key="hook" size="tiny" type="info">{{ hook }}</n-tag>
+          </n-space>
+        </n-descriptions-item>
+      </n-descriptions>
+      <template #action>
+        <n-space justify="end">
+          <n-button @click="uploadPreviewShow = false">{{ t('common.cancel') }}</n-button>
+          <n-button type="primary" :loading="installLoading" @click="handleInstall">{{ t('plugins.installBtn') }}</n-button>
+        </n-space>
+      </template>
+    </n-modal>
+
     <!-- 注册中心弹窗 -->
     <n-modal v-model:show="registryModalShow" preset="card" :title="t('plugins.registryTitle')" style="width:700px">
       <n-spin :show="registryLoading">
@@ -331,17 +355,41 @@ async function fetchPlugins() {
   }
 }
 
+// 上传预览相关
+const uploadPreviewShow = ref(false)
+const uploadPreview = ref<any>(null)
+const uploadId = ref('')
+const installLoading = ref(false)
+
 async function handleUpload({ file, onFinish, onError }: any) {
   const formData = new FormData()
   formData.append('file', file.file)
   try {
-    await pluginApi.upload(formData)
-    message.success(t('plugins.uploadSuccess'))
-    await fetchPlugins()
+    const { data } = await pluginApi.upload(formData)
+    const preview = data?.data
+    uploadId.value = preview.upload_id
+    uploadPreview.value = preview
+    uploadPreviewShow.value = true
     onFinish()
   } catch (e: any) {
-    message.error(t('plugins.installFailed') + ': ' + (e?.response?.data?.error?.message || e.message))
+    message.error(t('plugins.uploadFailed') + ': ' + (e?.response?.data?.error?.message || e.message))
     onError()
+  }
+}
+
+async function handleInstall() {
+  installLoading.value = true
+  try {
+    await pluginApi.install(uploadId.value)
+    message.success(t('plugins.installSuccess'))
+    uploadPreviewShow.value = false
+    uploadPreview.value = null
+    uploadId.value = ''
+    await fetchPlugins()
+  } catch (e: any) {
+    message.error(t('plugins.installFailed') + ': ' + (e?.response?.data?.error?.message || e.message))
+  } finally {
+    installLoading.value = false
   }
 }
 

@@ -46,6 +46,9 @@ export const pluginApi = {
       headers: { 'Content-Type': 'multipart/form-data' },
     })
   },
+  install(uploadId: string) {
+    return api.post('/plugins/install', { upload_id: uploadId })
+  },
   getById(id: number) {
     return api.get(`/plugins/${id}`)
   },

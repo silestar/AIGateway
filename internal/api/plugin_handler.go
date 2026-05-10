@@ -57,7 +57,8 @@ func NewPluginHandler(pluginMgr *plugin.Manager, cfg *config.Config) *PluginHand
 func (h *PluginHandler) RegisterRoutes(rg *gin.RouterGroup) {
 	p := rg.Group("/plugins")
 	p.GET("", h.List)
-	p.POST("/upload", h.Create)
+	p.POST("/upload", h.Upload)        // 上传 ZIP → 只解析返回预览
+	p.POST("/install", h.Install)      // 根据 upload_id 执行安装
 	p.GET("/:id", h.GetById)
 	p.PUT("/:id/status", h.UpdateStatus)
 	p.DELETE("/:id", h.Delete)
@@ -83,30 +84,63 @@ func (h *PluginHandler) List(c *gin.Context) {
 	c.JSON(http.StatusOK, gin.H{"data": plugins, "total": len(plugins)})
 }
 
-// Create 安装插件（上传 ZIP）
-func (h *PluginHandler) Create(c *gin.Context) {
+// Upload 上传插件 ZIP（只解析返回预览，不安装）
+func (h *PluginHandler) Upload(c *gin.Context) {
 	file, err := c.FormFile("file")
 	if err != nil {
 		c.JSON(http.StatusBadRequest, errorResponse("invalid_file", "请上传 ZIP 文件"))
 		return
 	}
 
-	// 保存到随机临时文件，避免并发覆盖
-	tmpFile, err := os.CreateTemp("", "plugin_*.zip")
+	// 保存到随机临时文件
+	tmpFile, err := os.CreateTemp("", "plugin_upload_*.zip")
 	if err != nil {
 		c.JSON(http.StatusInternalServerError, errorResponse("temp_failed", err.Error()))
 		return
 	}
 	tmpPath := tmpFile.Name()
 	tmpFile.Close()
-	defer os.Remove(tmpPath) // 处理完成后清理
+	defer os.Remove(tmpPath)
 
 	if err := c.SaveUploadedFile(file, tmpPath); err != nil {
 		c.JSON(http.StatusInternalServerError, errorResponse("save_failed", err.Error()))
 		return
 	}
 
-	p, err := h.pluginMgr.Install(c.Request.Context(), tmpPath)
+	// 解析 manifest，保存到待安装目录
+	manifest, uploadID, err := h.pluginMgr.Upload(c.Request.Context(), tmpPath)
+	if err != nil {
+		c.JSON(http.StatusBadRequest, errorResponse("upload_failed", err.Error()))
+		return
+	}
+
+	// 返回预览信息 + upload_id
+	c.JSON(http.StatusOK, gin.H{
+		"data": gin.H{
+			"upload_id":    uploadID,
+			"name":         manifest.Name,
+			"version":      manifest.Version,
+			"description":  manifest.Description,
+			"author":       manifest.Author,
+			"type":         manifest.Type,
+			"hooks":        manifest.Hooks,
+			"port":         manifest.Port,
+			"config_schema": manifest.ConfigSchema,
+		},
+	})
+}
+
+// Install 根据 upload_id 安装插件
+func (h *PluginHandler) Install(c *gin.Context) {
+	var req struct {
+		UploadID string `json:"upload_id" binding:"required"`
+	}
+	if err := c.ShouldBindJSON(&req); err != nil {
+		c.JSON(http.StatusBadRequest, errorResponse("invalid_request", err.Error()))
+		return
+	}
+
+	p, err := h.pluginMgr.InstallFromUpload(c.Request.Context(), req.UploadID)
 	if err != nil {
 		c.JSON(http.StatusBadRequest, errorResponse("install_failed", err.Error()))
 		return

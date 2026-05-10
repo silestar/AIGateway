@@ -19,7 +19,6 @@ import (
 	"github.com/silestar/AIGateway/internal/channel"
 	"github.com/silestar/AIGateway/internal/config"
 	"github.com/silestar/AIGateway/internal/plugin"
-	"github.com/silestar/AIGateway/pkg/sdk"
 	adapterregistry "github.com/silestar/AIGateway/pkg/adapter/registry"
 	"github.com/silestar/AIGateway/pkg/usage"
 )
@@ -48,36 +47,34 @@ func NewEngine(cfg config.ProxyConfig, accountMgr account.AccountManager, plugin
 			Timeout: time.Duration(cfg.ConnectTimeout) * time.Second,
 		}).DialContext,
 		DialTLSContext: func(ctx context.Context, network, addr string) (net.Conn, error) {
-			// 1. 建立原始 TCP 连接（在 TLS 握手之前）
+			// 1. 从 context 获取 channel 信息（由上游调用者设置）
+			channelID, _ := ctx.Value(ctxKeyChannelID).(uint)
+
+			// 2. 检查该渠道是否有 running 的 connection_decorator 插件
+			if pluginMgr != nil {
+				if pluginAddr := pluginMgr.GetConnectionDecoratorAddr(channelID); pluginAddr != "" {
+					// 尝试通过插件代理连接
+					conn, err := dialViaDecorator(ctx, pluginAddr, addr)
+					if err == nil {
+						return conn, nil
+					}
+					// 插件不可用 → 回退标准 TLS
+					logger.Warn("connection decorator unavailable, fallback to standard TLS",
+						zap.String("addr", addr), zap.String("plugin_addr", pluginAddr), zap.Error(err))
+				}
+			}
+
+			// 3. 标准路径：建立原始 TCP 连接
 			dialer := &net.Dialer{}
 			rawConn, err := dialer.DialContext(ctx, network, addr)
 			if err != nil {
 				return nil, err
 			}
 
-			// 2. 准备 TLS 配置
+			// 4. 标准 TLS 握手
 			tlsCfg := &tls.Config{
 				MinVersion: tls.VersionTLS12,
 			}
-
-			// 3. 从 context 获取 channel/account 信息（由上游调用者设置）
-			channelID, _ := ctx.Value(ctxKeyChannelID).(uint)
-			accountID, _ := ctx.Value(ctxKeyAccountID).(uint)
-
-			// 4. 遍历 ConnectionDecorator — 它们可以在 TLS 握手前介入
-			for _, decorator := range sdk.GetConnectionDecorators() {
-				// TODO: 从 plugin/channel_plugin_settings 获取该渠道级的 config
-				decorated, decErr := decorator.Decorate(ctx, channelID, accountID, nil, rawConn, tlsCfg)
-				if decErr != nil {
-					rawConn.Close()
-					return nil, fmt.Errorf("connection decorator error: %w", decErr)
-				}
-				if decorated != nil {
-					return decorated, nil
-				}
-			}
-
-			// 5. 没有装饰器接管 → 标准 TLS 握手
 			tlsConn := tls.Client(rawConn, tlsCfg)
 			if err := tlsConn.HandshakeContext(ctx); err != nil {
 				rawConn.Close()
@@ -549,4 +546,43 @@ func extractUpstreamLatency(headers http.Header) int {
 		}
 	}
 	return 0
+}
+
+// dialViaDecorator 通过 connection_decorator 插件代理连接
+// 使用简化的 CONNECT 协议：发送目标地址，插件完成 TLS 握手后返回已建立的连接
+func dialViaDecorator(ctx context.Context, pluginAddr, targetAddr string) (net.Conn, error) {
+	// 连接插件进程
+	conn, err := net.DialTimeout("tcp", pluginAddr, 3*time.Second)
+	if err != nil {
+		return nil, fmt.Errorf("connect to decorator plugin: %w", err)
+	}
+
+	// 发送 CONNECT 指令
+	connectReq := fmt.Sprintf("CONNECT %s\r\n\r\n", targetAddr)
+	if _, err := conn.Write([]byte(connectReq)); err != nil {
+		conn.Close()
+		return nil, fmt.Errorf("send CONNECT to decorator: %w", err)
+	}
+
+	// 读取插件响应（预期：200 OK\r\n\r\n）
+	buf := make([]byte, 256)
+	if err := conn.SetReadDeadline(time.Now().Add(5 * time.Second)); err != nil {
+		conn.Close()
+		return nil, fmt.Errorf("set deadline: %w", err)
+	}
+	n, err := conn.Read(buf)
+	if err != nil {
+		conn.Close()
+		return nil, fmt.Errorf("read decorator response: %w", err)
+	}
+	conn.SetReadDeadline(time.Time{}) // 清除 deadline
+
+	resp := string(buf[:n])
+	if !strings.HasPrefix(resp, "200") {
+		conn.Close()
+		return nil, fmt.Errorf("decorator rejected: %s", strings.TrimSpace(resp))
+	}
+
+	// 连接已建立，后续由插件双向转发
+	return conn, nil
 }

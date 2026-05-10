@@ -1,5 +1,26 @@
 # Changelog
 
+## [0.3.0] - 2026-05-10
+
+### 插件安装流程优化
+- 上传 ZIP 后不再自动安装，改为先展示预览信息（名称/版本/描述/类型/钩子）
+- 新增 `POST /plugins/upload` API（只解析返回预览 + upload_id）
+- 新增 `POST /plugins/install` API（根据 upload_id 执行实际安装）
+- 前端上传后弹出预览弹窗，用户确认后点击「安装」才入库
+
+### connection_decorator 改为 sidecar TCP 代理模式
+- 移除 system 类型和 `pkg/sdk.ConnectionDecorator` 接口/注册表
+- 移除 `cmd/agw/main.go` 中 TLS 插件的 blank import
+- 代理引擎 `DialTLSContext` 改为查询数据库获取启用的 connection_decorator 插件地址
+- 新增 `plugin.Manager.GetConnectionDecoratorAddr(channelID)` 方法
+- 新增 `dialViaDecorator()` 函数：通过简化 CONNECT 协议连接插件代理
+- 插件不可用时自动回退标准 TLS 握手
+- TLS 指纹伪装插件重写为独立 sidecar TCP 代理进程（CONNECT 协议 + utls）
+
+### 插件管理器还原
+- 移除 system 类型的 Install/Start/Stop/Uninstall 特殊处理
+- 所有插件统一走 sidecar 模式
+
 ## [0.2.0] - 2026-05-10
 
 ### 模型配置页面全面整合

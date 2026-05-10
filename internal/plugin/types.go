@@ -139,6 +139,8 @@ type PluginManager interface {
 	TriggerHook(ctx context.Context, hook HookName, req *HookRequest) (*HookResponse, error)
 	// 列出所有插件
 	List(ctx context.Context) ([]Plugin, error)
+	// 获取渠道启用的 connection_decorator 插件地址
+	GetConnectionDecoratorAddr(channelID uint) string
 	// 获取单个插件
 	GetByID(ctx context.Context, id uint) (*Plugin, error)
 	// 更新插件配置

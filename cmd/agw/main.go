@@ -26,8 +26,6 @@ import (
 	"github.com/silestar/AIGateway/internal/models"
 	"github.com/silestar/AIGateway/internal/plugin"
 
-	// System plugins — blank imports trigger init() registration
-	_ "github.com/silestar/AIGateway/plugins/tls-fingerprint-masquerade"
 	"github.com/silestar/AIGateway/internal/proxy"
 	"github.com/silestar/AIGateway/internal/stats"
 	"github.com/silestar/AIGateway/internal/storage/sqlite"

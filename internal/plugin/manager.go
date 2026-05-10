@@ -49,6 +49,82 @@ func (m *Manager) AutoMigrate() error {
 	return m.db.AutoMigrate(&Plugin{}, &ChannelPluginSetting{})
 }
 
+// Upload 解析 ZIP 中的 manifest.json，返回预览信息（不安装）
+func (m *Manager) Upload(ctx context.Context, zipPath string) (*Manifest, string, error) {
+	reader, err := zip.OpenReader(zipPath)
+	if err != nil {
+		return nil, "", fmt.Errorf("open zip: %w", err)
+	}
+	defer reader.Close()
+
+	// 查找 manifest.json
+	var manifestData []byte
+	for _, f := range reader.File {
+		rc, err := f.Open()
+		if err != nil {
+			continue
+		}
+		if filepath.Base(f.Name) == "manifest.json" {
+			manifestData, _ = io.ReadAll(rc)
+		}
+		rc.Close()
+	}
+
+	if manifestData == nil {
+		return nil, "", fmt.Errorf("manifest.json not found in zip")
+	}
+
+	var manifest Manifest
+	if err := json.Unmarshal(manifestData, &manifest); err != nil {
+		return nil, "", fmt.Errorf("parse manifest: %w", err)
+	}
+
+	// 检查是否已安装同名插件
+	var count int64
+	m.db.WithContext(ctx).Model(&Plugin{}).Where("name = ?", manifest.Name).Count(&count)
+	if count > 0 {
+		return nil, "", fmt.Errorf("plugin '%s' already installed", manifest.Name)
+	}
+
+	// 保存 ZIP 到待安装目录
+	pendingDir := filepath.Join(m.pluginsDir, ".pending")
+	os.MkdirAll(pendingDir, 0755)
+	uploadID := fmt.Sprintf("%d", time.Now().UnixNano())
+	pendingPath := filepath.Join(pendingDir, uploadID+".zip")
+
+	// 复制 ZIP 到待安装目录
+	src, err := os.Open(zipPath)
+	if err != nil {
+		return nil, "", fmt.Errorf("open source zip: %w", err)
+	}
+	defer src.Close()
+
+	dst, err := os.Create(pendingPath)
+	if err != nil {
+		return nil, "", fmt.Errorf("create pending zip: %w", err)
+	}
+	defer dst.Close()
+
+	if _, err := io.Copy(dst, src); err != nil {
+		os.Remove(pendingPath)
+		return nil, "", fmt.Errorf("copy zip: %w", err)
+	}
+
+	return &manifest, uploadID, nil
+}
+
+// InstallFromUpload 根据上传 ID 执行安装
+func (m *Manager) InstallFromUpload(ctx context.Context, uploadID string) (*Plugin, error) {
+	pendingPath := filepath.Join(m.pluginsDir, ".pending", uploadID+".zip")
+	defer os.Remove(pendingPath) // 安装完成后清理临时 ZIP
+
+	if _, err := os.Stat(pendingPath); os.IsNotExist(err) {
+		return nil, fmt.Errorf("upload not found or expired, please re-upload")
+	}
+
+	return m.Install(ctx, pendingPath)
+}
+
 // Install 安装插件
 func (m *Manager) Install(ctx context.Context, zipPath string) (*Plugin, error) {
 	// 1. 解压 ZIP
@@ -83,46 +159,42 @@ func (m *Manager) Install(ctx context.Context, zipPath string) (*Plugin, error) 
 	}
 
 	// 3. 确定当前服务器架构对应的二进制文件名
-	isSystemPlugin := manifest.Type == "system"
 	binaryName, err := resolveBinaryName(&manifest)
 	if err != nil {
 		return nil, err // 架构不匹配，拒绝安装
 	}
 
 	// 4. 创建插件目录并解压（只解压匹配架构的二进制 + manifest）
-	// System 类型插件不需要二进制文件，跳过解压
 	pluginDir := filepath.Join(m.pluginsDir, manifest.Name)
 	os.MkdirAll(pluginDir, 0755)
 
-	binaryFound := isSystemPlugin // system 类型无需二进制
-	if !isSystemPlugin {
-		for _, f := range reader.File {
-			baseName := filepath.Base(f.Name)
+	binaryFound := false
+	for _, f := range reader.File {
+		baseName := filepath.Base(f.Name)
 
-			// 跳过非目标架构的二进制文件
-			if isPluginBinary(baseName, &manifest) && baseName != binaryName {
-				continue
-			}
+		// 跳过非目标架构的二进制文件
+		if isPluginBinary(baseName, &manifest) && baseName != binaryName {
+			continue
+		}
 
-			rc, err := f.Open()
-			if err != nil {
-				continue
-			}
+		rc, err := f.Open()
+		if err != nil {
+			continue
+		}
 
-			outPath := filepath.Join(pluginDir, baseName)
-			outFile, err := os.Create(outPath)
-			if err != nil {
-				rc.Close()
-				continue
-			}
-			io.Copy(outFile, rc)
-			outFile.Chmod(0755) // 可执行
-			outFile.Close()
+		outPath := filepath.Join(pluginDir, baseName)
+		outFile, err := os.Create(outPath)
+		if err != nil {
 			rc.Close()
+			continue
+		}
+		io.Copy(outFile, rc)
+		outFile.Chmod(0755) // 可执行
+		outFile.Close()
+		rc.Close()
 
-			if baseName == binaryName {
-				binaryFound = true
-			}
+		if baseName == binaryName {
+			binaryFound = true
 		}
 	}
 
@@ -132,17 +204,13 @@ func (m *Manager) Install(ctx context.Context, zipPath string) (*Plugin, error) 
 
 	// 5. 入库
 	hooksJSON, _ := json.Marshal(manifest.Hooks)
-	binaryPath := filepath.Join(pluginDir, binaryName)
-	if isSystemPlugin {
-		binaryPath = "builtin" // system 插件没有独立二进制
-	}
 	plugin := &Plugin{
 		Name:         manifest.Name,
 		Version:      manifest.Version,
 		Description:  manifest.Description,
 		Author:       manifest.Author,
 		PluginType:   manifest.Type,
-		Binary:       binaryPath,
+		Binary:       filepath.Join(pluginDir, binaryName),
 		Port:         manifest.Port,
 		Hooks:        string(hooksJSON),
 		ConfigSchema: string(manifest.ConfigSchema),
@@ -167,15 +235,6 @@ func (m *Manager) Start(ctx context.Context, pluginID uint) error {
 
 	if plugin.Status == StatusRunning {
 		return fmt.Errorf("plugin already running")
-	}
-
-	// System 类型插件已编译进主程序，无需独立进程，直接标记为 running
-	if plugin.PluginType == "system" {
-		m.db.WithContext(ctx).Model(&plugin).Updates(map[string]interface{}{
-			"status": StatusRunning,
-		})
-		m.logger.Info("system plugin activated", zap.String("name", plugin.Name))
-		return nil
 	}
 
 	// 启动子进程
@@ -266,16 +325,6 @@ func (m *Manager) Stop(ctx context.Context, pluginID uint) error {
 		return fmt.Errorf("find plugin: %w", err)
 	}
 
-	// System 类型插件没有独立进程，直接标记为 stopped
-	if plugin.PluginType == "system" {
-		m.db.WithContext(ctx).Model(&plugin).Updates(map[string]interface{}{
-			"pid":    0,
-			"status": StatusStopped,
-		})
-		m.logger.Info("system plugin deactivated", zap.String("name", plugin.Name))
-		return nil
-	}
-
 	// 尝试优雅关闭
 	url := fmt.Sprintf("http://127.0.0.1:%d/admin/shutdown", plugin.Port)
 	req, _ := http.NewRequestWithContext(ctx, http.MethodPost, url, nil)
@@ -311,10 +360,8 @@ func (m *Manager) Uninstall(ctx context.Context, pluginID uint) error {
 		return fmt.Errorf("find plugin: %w", err)
 	}
 
-	// 删除目录（system 插件没有独立目录，跳过）
-	if plugin.Binary != "builtin" {
-		os.RemoveAll(filepath.Dir(plugin.Binary))
-	}
+	// 删除目录
+	os.RemoveAll(filepath.Dir(plugin.Binary))
 
 	// 删除记录
 	m.db.WithContext(ctx).Delete(&plugin)
@@ -396,6 +443,40 @@ func (m *Manager) List(ctx context.Context) ([]Plugin, error) {
 	var plugins []Plugin
 	err := m.db.WithContext(ctx).Order("id ASC").Find(&plugins).Error
 	return plugins, err
+}
+
+// GetConnectionDecoratorAddr 查询指定渠道启用的 connection_decorator 插件地址
+// 返回 "127.0.0.1:{port}" 格式，如果没有则返回空字符串
+func (m *Manager) GetConnectionDecoratorAddr(channelID uint) string {
+	if channelID == 0 {
+		return ""
+	}
+
+	// 查找 hooks 包含 connection_decorator 且 status=running 的插件
+	var plugins []Plugin
+	m.db.Where("status = ? AND hooks LIKE ?", StatusRunning, "%connection_decorator%").Find(&plugins)
+	if len(plugins) == 0 {
+		return ""
+	}
+
+	// 遍历找到该渠道已启用的插件
+	for _, p := range plugins {
+		var setting ChannelPluginSetting
+		err := m.db.Where("channel_id = ? AND plugin_id = ?", channelID, p.ID).First(&setting).Error
+		if err != nil {
+			continue // 没有渠道级配置 → 跳过
+		}
+
+		// 解析渠道配置，检查 enabled
+		var cfg struct {
+			Enabled bool `json:"enabled"`
+		}
+		if json.Unmarshal([]byte(setting.Config), &cfg) == nil && cfg.Enabled {
+			return fmt.Sprintf("127.0.0.1:%d", p.Port)
+		}
+	}
+
+	return ""
 }
 
 // GetByID 获取单个插件
@@ -559,11 +640,6 @@ func (m *Manager) discoverChannelType(ctx context.Context, plugin Plugin) {
 // 优先查 binaries 映射，未命中则 fallback 到 binary 字段
 // 如果两者都无法匹配当前架构，返回错误拒绝安装
 func resolveBinaryName(m *Manifest) (string, error) {
-	// System 类型插件不需要独立二进制文件
-	if m.Type == "system" {
-		return "", nil
-	}
-
 	archKey := runtime.GOOS + "/" + runtime.GOARCH
 
 	// 优先：binaries 映射

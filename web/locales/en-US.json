@@ -301,7 +301,13 @@
     "registryLoadFailed": "Failed to load plugin registry",
     "registryInstallBtn": "Install",
     "registryInstalled": "Installed",
-    "registryInstallSuccess": "Plugin installed successfully"
+    "registryInstallSuccess": "Plugin installed successfully",
+    "uploadPreview": "Upload Preview",
+    "pluginName": "Plugin Name",
+    "installBtn": "Install",
+    "uploadFailed": "Upload failed",
+    "installSuccess": "Installed successfully",
+    "type": "Type"
   },
   "settings": {
     "title": "System Settings",

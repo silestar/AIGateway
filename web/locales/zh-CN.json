@@ -299,7 +299,13 @@
     "registryLoadFailed": "加载注册中心失败",
     "registryInstallBtn": "安装",
     "registryInstalled": "已安装",
-    "registryInstallSuccess": "插件安装成功"
+    "registryInstallSuccess": "插件安装成功",
+    "uploadPreview": "上传预览",
+    "pluginName": "插件名称",
+    "installBtn": "安装",
+    "uploadFailed": "上传失败",
+    "installSuccess": "安装成功",
+    "type": "类型"
   },
   "settings": {
     "title": "系统设置",
