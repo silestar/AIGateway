@@ -131,4 +131,6 @@ type ChannelService interface {
 	CopyChannel(ctx context.Context, id uint) (*Channel, error)
 	// SetOnModelsChange 设置模型变更回调（用于同步 model_catalog）
 	SetOnModelsChange(fn func())
+	// GetCustomModelNames 获取所有渠道已配置的自定义模型名（display != actual）
+	GetCustomModelNames(ctx context.Context) ([]string, error)
 }

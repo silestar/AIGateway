@@ -10,9 +10,9 @@ import (
 	"go.uber.org/zap"
 	"gorm.io/gorm"
 
-	"github.com/bokelife/aigateway/internal/channel"
-	"github.com/bokelife/aigateway/internal/config"
-	"github.com/bokelife/aigateway/internal/crypto"
+	"github.com/silestar/AIGateway/internal/channel"
+	"github.com/silestar/AIGateway/internal/config"
+	"github.com/silestar/AIGateway/internal/crypto"
 )
 
 // Manager 账号管理器实现

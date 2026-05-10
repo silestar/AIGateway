@@ -7,7 +7,7 @@ import (
 	"io"
 	"net/http"
 
-	"github.com/bokelife/aigateway/pkg/adapter"
+	"github.com/silestar/AIGateway/pkg/adapter"
 )
 
 // Adapter OpenAI Chat Completions 透传适配器

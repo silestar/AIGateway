@@ -7,8 +7,8 @@ import (
 
 	"go.uber.org/zap"
 
-	"github.com/bokelife/aigateway/internal/channel"
-	"github.com/bokelife/aigateway/pkg/middleware"
+	"github.com/silestar/AIGateway/internal/channel"
+	"github.com/silestar/AIGateway/pkg/middleware"
 )
 
 // StartProbeScheduler 启动按需探测调度器

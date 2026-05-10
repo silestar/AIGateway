@@ -28,7 +28,7 @@
 ### Docker 部署（推荐）
 
 ```bash
-git clone https://github.com/bokelife/aigateway.git
+git clone https://github.com/silestar/AIGateway.git
 cd aigateway
 docker compose up -d
 ```

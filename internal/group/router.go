@@ -7,10 +7,10 @@ import (
 	"go.uber.org/zap"
 	"gorm.io/gorm"
 
-	"github.com/bokelife/aigateway/internal/account"
-	"github.com/bokelife/aigateway/internal/channel"
-	"github.com/bokelife/aigateway/internal/keys"
-	"github.com/bokelife/aigateway/internal/proxy"
+	"github.com/silestar/AIGateway/internal/account"
+	"github.com/silestar/AIGateway/internal/channel"
+	"github.com/silestar/AIGateway/internal/keys"
+	"github.com/silestar/AIGateway/internal/proxy"
 )
 
 // Router 分组路由实现

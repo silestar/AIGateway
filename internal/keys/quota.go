@@ -5,7 +5,7 @@ import (
 	"fmt"
 	"time"
 
-	"github.com/bokelife/aigateway/internal/account"
+	"github.com/silestar/AIGateway/internal/account"
 )
 
 // QuotaError 配额超限错误

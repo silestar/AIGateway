@@ -4,8 +4,8 @@ import (
 	"context"
 	"time"
 
-	"github.com/bokelife/aigateway/internal/account"
-	"github.com/bokelife/aigateway/internal/crypto"
+	"github.com/silestar/AIGateway/internal/account"
+	"github.com/silestar/AIGateway/internal/crypto"
 )
 
 // Keys 密钥模型

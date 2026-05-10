@@ -49,7 +49,7 @@ const modelColumns = [
 const channelsData = ref<any[]>([])
 
 const channelColumns = [
-  { title: t('stats.channelId'), key: 'channel_id' },
+  { title: t('stats.channel'), key: 'channel', render: (row: any) => `#${row.channel_id} ${row.channel_name || ''}` },
   { title: t('stats.total'), key: 'total_requests' },
   { title: t('stats.successRate'), key: 'success_rate', render: (row: any) => h(NTag, { type: row.success_rate > 95 ? 'success' : row.success_rate > 80 ? 'warning' : 'error', size: 'small' }, { default: () => `${row.success_rate?.toFixed(1)}%` }) },
   { title: t('stats.avgLatency'), key: 'avg_latency_ms', render: (row: any) => `${row.avg_latency_ms}ms` },

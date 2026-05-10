@@ -4,7 +4,7 @@ import (
 	"net/http"
 
 	"github.com/gin-gonic/gin"
-	"github.com/bokelife/aigateway/internal/config"
+	"github.com/silestar/AIGateway/internal/config"
 )
 
 // SystemHandler 系统配置 API

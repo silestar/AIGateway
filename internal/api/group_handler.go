@@ -4,7 +4,7 @@ import (
 	"net/http"
 
 	"github.com/gin-gonic/gin"
-	"github.com/bokelife/aigateway/internal/group"
+	"github.com/silestar/AIGateway/internal/group"
 )
 
 // GroupHandler 分组管理 API

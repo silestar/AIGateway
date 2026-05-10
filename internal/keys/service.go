@@ -7,8 +7,8 @@ import (
 	"encoding/hex"
 	"fmt"
 
-	"github.com/bokelife/aigateway/internal/account"
-	"github.com/bokelife/aigateway/internal/crypto"
+	"github.com/silestar/AIGateway/internal/account"
+	"github.com/silestar/AIGateway/internal/crypto"
 	"gorm.io/gorm"
 )
 

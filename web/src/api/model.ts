@@ -17,4 +17,7 @@ export const modelApi = {
   updateVisibility(id: number, visible: boolean) {
     return api.put(`/models/catalog/${id}/visibility`, { visible })
   },
+  batchUpdateVisibility(ids: number[], visible: boolean) {
+    return api.put('/models/catalog/visibility/batch', { ids, visible })
+  },
 }

@@ -9,7 +9,7 @@ import (
 	"go.uber.org/zap"
 	"go.uber.org/zap/zapcore"
 
-	"github.com/bokelife/aigateway/internal/config"
+	"github.com/silestar/AIGateway/internal/config"
 )
 
 // dailyWriter 实现跨日滚动的日志写入器

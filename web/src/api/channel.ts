@@ -133,4 +133,8 @@ export const channelApi = {
   listChannelTypes() {
     return api.get<{ data: ChannelTypeInfo[] }>('/plugins/channel-types')
   },
+  // 获取所有渠道已配置的自定义模型名（display != actual，用于自动补全）
+  getCustomModelNames() {
+    return api.get<{ data: string[] }>('/channels/custom-model-names')
+  },
 }

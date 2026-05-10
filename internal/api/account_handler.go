@@ -3,7 +3,7 @@ import (
 	"net/http"
 
 	"github.com/gin-gonic/gin"
-	"github.com/bokelife/aigateway/internal/account"
+	"github.com/silestar/AIGateway/internal/account"
 )
 
 // AccountHandler 账号管理 API

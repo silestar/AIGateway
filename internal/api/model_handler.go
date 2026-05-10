@@ -4,7 +4,7 @@ import (
 	"net/http"
 
 	"github.com/gin-gonic/gin"
-	"github.com/bokelife/aigateway/internal/models"
+	"github.com/silestar/AIGateway/internal/models"
 )
 
 // ModelHandler 模型管理 API
@@ -22,6 +22,7 @@ func (h *ModelHandler) RegisterRoutes(rg *gin.RouterGroup) {
 	m := rg.Group("/models")
 	m.GET("/catalog", h.ListCatalog)
 	m.PUT("/catalog/:id/visibility", h.UpdateVisibility)
+	m.PUT("/catalog/visibility/batch", h.BatchUpdateVisibility)
 }
 
 // ListCatalog 获取模型目录（管理端）
@@ -53,4 +54,21 @@ func (h *ModelHandler) UpdateVisibility(c *gin.Context) {
 		return
 	}
 	c.JSON(http.StatusOK, gin.H{"data": gin.H{"id": id, "visible": req.Visible}})
+}
+
+// BatchUpdateVisibility 批量切换模型可见性
+func (h *ModelHandler) BatchUpdateVisibility(c *gin.Context) {
+	var req struct {
+		IDs     []uint `json:"ids" binding:"required"`
+		Visible bool   `json:"visible"`
+	}
+	if err := c.ShouldBindJSON(&req); err != nil {
+		c.JSON(http.StatusBadRequest, errorResponse("invalid_body", err.Error()))
+		return
+	}
+	if err := h.catalogSvc.BatchUpdateVisibility(c.Request.Context(), req.IDs, req.Visible); err != nil {
+		c.JSON(http.StatusInternalServerError, errorResponse("update_failed", err.Error()))
+		return
+	}
+	c.JSON(http.StatusOK, gin.H{"data": gin.H{"ids": req.IDs, "visible": req.Visible}})
 }

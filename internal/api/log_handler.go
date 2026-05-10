@@ -5,9 +5,9 @@ import (
 	"strings"
 
 	"github.com/gin-gonic/gin"
-	"github.com/bokelife/aigateway/internal/config"
-	agwlog "github.com/bokelife/aigateway/internal/log"
-	"github.com/bokelife/aigateway/internal/stats"
+	"github.com/silestar/AIGateway/internal/config"
+	agwlog "github.com/silestar/AIGateway/internal/log"
+	"github.com/silestar/AIGateway/internal/stats"
 )
 
 // LogHandler 日志 API

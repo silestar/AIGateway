@@ -11,8 +11,8 @@ import (
 
 	"gorm.io/gorm"
 
-	"github.com/bokelife/aigateway/pkg/usage"
-	adapterregistry "github.com/bokelife/aigateway/pkg/adapter/registry"
+	"github.com/silestar/AIGateway/pkg/usage"
+	adapterregistry "github.com/silestar/AIGateway/pkg/adapter/registry"
 )
 
 type service struct {
@@ -619,4 +619,18 @@ func (s *service) CopyChannel(ctx context.Context, id uint) (*Channel, error) {
 	}
 
 	return newCh, nil
+}
+
+// GetCustomModelNames 获取所有渠道已配置的自定义模型名（display != actual，去重）
+func (s *service) GetCustomModelNames(ctx context.Context) ([]string, error) {
+	var names []string
+	err := s.db.WithContext(ctx).
+		Model(&ChannelModel{}).
+		Where("display_model_name != actual_model_name").
+		Distinct("display_model_name").
+		Pluck("display_model_name", &names).Error
+	if err != nil {
+		return nil, err
+	}
+	return names, nil
 }

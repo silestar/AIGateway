@@ -9,7 +9,7 @@ import (
 	"time"
 
 	"github.com/gin-gonic/gin"
-	"github.com/bokelife/aigateway/internal/config"
+	"github.com/silestar/AIGateway/internal/config"
 )
 
 // AuthHandler 管理端认证 Handler

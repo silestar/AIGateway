@@ -4,7 +4,7 @@ import (
 	"encoding/json"
 	"time"
 
-	"github.com/bokelife/aigateway/pkg/usage"
+	"github.com/silestar/AIGateway/pkg/usage"
 )
 
 // RetryChainEntry 重试链条目

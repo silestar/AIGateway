@@ -6,9 +6,9 @@ import (
 	"time"
 
 	"github.com/gin-gonic/gin"
-	"github.com/bokelife/aigateway/internal/account"
-	"github.com/bokelife/aigateway/internal/channel"
-	"github.com/bokelife/aigateway/internal/stats"
+	"github.com/silestar/AIGateway/internal/account"
+	"github.com/silestar/AIGateway/internal/channel"
+	"github.com/silestar/AIGateway/internal/stats"
 )
 
 // ChannelHandler 渠道管理 API
@@ -27,6 +27,7 @@ func (h *ChannelHandler) RegisterRoutes(rg *gin.RouterGroup) {
 	channels := rg.Group("/channels")
 	channels.GET("", h.List)
 	channels.POST("", h.Create)
+	channels.GET("/custom-model-names", h.GetCustomModelNames) // 必须在 /:id 之前
 	channels.GET("/:id", h.GetById)
 	channels.PUT("/:id", h.Update)
 	channels.DELETE("/:id", h.Delete)
@@ -425,6 +426,19 @@ func (h *ChannelHandler) UpdateTestModel(c *gin.Context) {
 	}
 
 	c.JSON(http.StatusOK, gin.H{"data": gin.H{"id": id, "test_model": req.TestModel}})
+}
+
+// GetCustomModelNames 获取所有渠道已配置的自定义模型名（用于前端自动补全）
+func (h *ChannelHandler) GetCustomModelNames(c *gin.Context) {
+	names, err := h.svc.GetCustomModelNames(c.Request.Context())
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, errorResponse("internal_error", err.Error()))
+		return
+	}
+	if names == nil {
+		names = []string{}
+	}
+	c.JSON(http.StatusOK, gin.H{"data": names})
 }
 
 // CopyChannel 复制渠道

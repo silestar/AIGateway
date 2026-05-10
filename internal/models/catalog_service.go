@@ -15,6 +15,8 @@ type CatalogService interface {
 	ListCatalog(ctx context.Context) ([]ModelCatalog, error)
 	// UpdateVisibility 切换模型可见性
 	UpdateVisibility(ctx context.Context, id uint, visible bool) error
+	// BatchUpdateVisibility 批量切换模型可见性
+	BatchUpdateVisibility(ctx context.Context, ids []uint, visible bool) error
 	// GetVisibleModels 获取可见模型列表（/v1/models 使用）
 	GetVisibleModels(ctx context.Context) ([]ModelCatalog, error)
 }
@@ -135,6 +137,15 @@ func (s *catalogService) ListCatalog(ctx context.Context) ([]ModelCatalog, error
 // UpdateVisibility 切换模型可见性
 func (s *catalogService) UpdateVisibility(ctx context.Context, id uint, visible bool) error {
 	return s.db.WithContext(ctx).Model(&ModelCatalog{}).Where("id = ?", id).
+		Update("visible", visible).Error
+}
+
+// BatchUpdateVisibility 批量切换模型可见性
+func (s *catalogService) BatchUpdateVisibility(ctx context.Context, ids []uint, visible bool) error {
+	if len(ids) == 0 {
+		return nil
+	}
+	return s.db.WithContext(ctx).Model(&ModelCatalog{}).Where("id IN ?", ids).
 		Update("visible", visible).Error
 }
 

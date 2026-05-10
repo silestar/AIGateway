@@ -1,5 +1,29 @@
 # Changelog
 
+## [0.2.0] - 2026-05-10
+
+### 模型配置页面全面整合
+- 模型配置弹窗（ModelSelectModal）功能全部整合进渠道详情「模型配置」Tab 页，去掉了弹窗壳
+- 供应商+模型选择、筛选/搜索、自定义模型输入、已选标签、模型映射全部在 Tab 页内完成
+- 删除 ModelSelectModal.vue 文件
+
+### 跨渠道自定义模型名自动补全
+- 新增后端 API：`GET /channels/custom-model-names`，返回所有渠道已配置的自定义模型名（display != actual，去重）
+- 前端自动补全候选项合并三个来源：跨渠道自定义名 + 当前渠道已有映射 + 当前未保存映射
+
+### 模型设置双栏多选模式
+- 已配置模型采用双栏多选布局：左栏已启用 / 右栏已禁用
+- 两栏均支持全选和批量移动
+- 重置 / 保存按钮，仅在有变更时启用保存
+
+### connection_decorator 系统级插件钩子
+- 新增 `pkg/sdk/connection_decorator.go`：ConnectionDecorator 接口 + 全局注册表
+- HookName 扩展：`HookConnectionDecorator`
+- Plugin 模型扩展：`PluginType` 字段（sidecar/system）
+- Manifest 扩展：`Type` 字段
+- 代理引擎 NewEngine 中 DialTLSContext 注入 connection_decorator 调用
+- 插件接口规范文档补充 system 类型 + connection_decorator 钩子说明
+
 ## [0.1.2] - 2026-05-10
 
 ### 阶段一：基础设施层

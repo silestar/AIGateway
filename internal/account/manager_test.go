@@ -5,9 +5,9 @@ import (
 	"testing"
 	"time"
 
-	"github.com/bokelife/aigateway/internal/channel"
-	"github.com/bokelife/aigateway/internal/config"
-	"github.com/bokelife/aigateway/internal/crypto"
+	"github.com/silestar/AIGateway/internal/channel"
+	"github.com/silestar/AIGateway/internal/config"
+	"github.com/silestar/AIGateway/internal/crypto"
 
 	"go.uber.org/zap"
 	"gorm.io/driver/sqlite"

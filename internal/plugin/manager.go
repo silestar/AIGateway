@@ -14,7 +14,7 @@ import (
 	"runtime"
 	"time"
 
-	adapterregistry "github.com/bokelife/aigateway/pkg/adapter/registry"
+	adapterregistry "github.com/silestar/AIGateway/pkg/adapter/registry"
 	"go.uber.org/zap"
 	"gorm.io/gorm"
 )
@@ -83,42 +83,46 @@ func (m *Manager) Install(ctx context.Context, zipPath string) (*Plugin, error) 
 	}
 
 	// 3. 确定当前服务器架构对应的二进制文件名
+	isSystemPlugin := manifest.Type == "system"
 	binaryName, err := resolveBinaryName(&manifest)
 	if err != nil {
 		return nil, err // 架构不匹配，拒绝安装
 	}
 
 	// 4. 创建插件目录并解压（只解压匹配架构的二进制 + manifest）
+	// System 类型插件不需要二进制文件，跳过解压
 	pluginDir := filepath.Join(m.pluginsDir, manifest.Name)
 	os.MkdirAll(pluginDir, 0755)
 
-	binaryFound := false
-	for _, f := range reader.File {
-		baseName := filepath.Base(f.Name)
+	binaryFound := isSystemPlugin // system 类型无需二进制
+	if !isSystemPlugin {
+		for _, f := range reader.File {
+			baseName := filepath.Base(f.Name)
 
-		// 跳过非目标架构的二进制文件
-		if isPluginBinary(baseName, &manifest) && baseName != binaryName {
-			continue
-		}
+			// 跳过非目标架构的二进制文件
+			if isPluginBinary(baseName, &manifest) && baseName != binaryName {
+				continue
+			}
 
-		rc, err := f.Open()
-		if err != nil {
-			continue
-		}
+			rc, err := f.Open()
+			if err != nil {
+				continue
+			}
 
-		outPath := filepath.Join(pluginDir, baseName)
-		outFile, err := os.Create(outPath)
-		if err != nil {
+			outPath := filepath.Join(pluginDir, baseName)
+			outFile, err := os.Create(outPath)
+			if err != nil {
+				rc.Close()
+				continue
+			}
+			io.Copy(outFile, rc)
+			outFile.Chmod(0755) // 可执行
+			outFile.Close()
 			rc.Close()
-			continue
-		}
-		io.Copy(outFile, rc)
-		outFile.Chmod(0755) // 可执行
-		outFile.Close()
-		rc.Close()
 
-		if baseName == binaryName {
-			binaryFound = true
+			if baseName == binaryName {
+				binaryFound = true
+			}
 		}
 	}
 
@@ -128,12 +132,17 @@ func (m *Manager) Install(ctx context.Context, zipPath string) (*Plugin, error) 
 
 	// 5. 入库
 	hooksJSON, _ := json.Marshal(manifest.Hooks)
+	binaryPath := filepath.Join(pluginDir, binaryName)
+	if isSystemPlugin {
+		binaryPath = "builtin" // system 插件没有独立二进制
+	}
 	plugin := &Plugin{
 		Name:         manifest.Name,
 		Version:      manifest.Version,
 		Description:  manifest.Description,
 		Author:       manifest.Author,
-		Binary:       filepath.Join(pluginDir, binaryName),
+		PluginType:   manifest.Type,
+		Binary:       binaryPath,
 		Port:         manifest.Port,
 		Hooks:        string(hooksJSON),
 		ConfigSchema: string(manifest.ConfigSchema),
@@ -158,6 +167,15 @@ func (m *Manager) Start(ctx context.Context, pluginID uint) error {
 
 	if plugin.Status == StatusRunning {
 		return fmt.Errorf("plugin already running")
+	}
+
+	// System 类型插件已编译进主程序，无需独立进程，直接标记为 running
+	if plugin.PluginType == "system" {
+		m.db.WithContext(ctx).Model(&plugin).Updates(map[string]interface{}{
+			"status": StatusRunning,
+		})
+		m.logger.Info("system plugin activated", zap.String("name", plugin.Name))
+		return nil
 	}
 
 	// 启动子进程
@@ -248,6 +266,16 @@ func (m *Manager) Stop(ctx context.Context, pluginID uint) error {
 		return fmt.Errorf("find plugin: %w", err)
 	}
 
+	// System 类型插件没有独立进程，直接标记为 stopped
+	if plugin.PluginType == "system" {
+		m.db.WithContext(ctx).Model(&plugin).Updates(map[string]interface{}{
+			"pid":    0,
+			"status": StatusStopped,
+		})
+		m.logger.Info("system plugin deactivated", zap.String("name", plugin.Name))
+		return nil
+	}
+
 	// 尝试优雅关闭
 	url := fmt.Sprintf("http://127.0.0.1:%d/admin/shutdown", plugin.Port)
 	req, _ := http.NewRequestWithContext(ctx, http.MethodPost, url, nil)
@@ -283,8 +311,10 @@ func (m *Manager) Uninstall(ctx context.Context, pluginID uint) error {
 		return fmt.Errorf("find plugin: %w", err)
 	}
 
-	// 删除目录
-	os.RemoveAll(filepath.Dir(plugin.Binary))
+	// 删除目录（system 插件没有独立目录，跳过）
+	if plugin.Binary != "builtin" {
+		os.RemoveAll(filepath.Dir(plugin.Binary))
+	}
 
 	// 删除记录
 	m.db.WithContext(ctx).Delete(&plugin)
@@ -529,6 +559,11 @@ func (m *Manager) discoverChannelType(ctx context.Context, plugin Plugin) {
 // 优先查 binaries 映射，未命中则 fallback 到 binary 字段
 // 如果两者都无法匹配当前架构，返回错误拒绝安装
 func resolveBinaryName(m *Manifest) (string, error) {
+	// System 类型插件不需要独立二进制文件
+	if m.Type == "system" {
+		return "", nil
+	}
+
 	archKey := runtime.GOOS + "/" + runtime.GOARCH
 
 	// 优先：binaries 映射

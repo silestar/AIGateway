@@ -19,10 +19,11 @@ const (
 type HookName string
 
 const (
-	HookPreRequest    HookName = "pre_request"
-	HookPostResponse  HookName = "post_response"
-	HookOnLog         HookName = "on_log"
-	HookAccountSelect HookName = "account_select"
+	HookPreRequest         HookName = "pre_request"
+	HookPostResponse       HookName = "post_response"
+	HookOnLog              HookName = "on_log"
+	HookAccountSelect      HookName = "account_select"
+	HookConnectionDecorator HookName = "connection_decorator"
 )
 
 // HookAction 钩子响应动作
@@ -42,6 +43,7 @@ type Plugin struct {
 	Version     string     `gorm:"size:20;not null" json:"version"`
 	Description string     `gorm:"type:text" json:"description"`
 	Author      string     `gorm:"size:200" json:"author"`
+	PluginType  string     `gorm:"size:20;not null;default:'sidecar'" json:"plugin_type"` // sidecar / system
 	Binary      string     `gorm:"size:200;not null" json:"binary"`
 	Port        int        `gorm:"not null" json:"port"`
 	Hooks       string     `gorm:"type:text" json:"hooks"` // JSON array: ["pre_request","post_response"]
@@ -111,11 +113,12 @@ type HookResponse struct {
 
 // Manifest 插件描述文件
 type Manifest struct {
-	Name         string          `json:"name"`
-	Version      string          `json:"version"`
-	Description  string          `json:"description"`
-	Author       string          `json:"author"`
-	Binary       string          `json:"binary"`                  // 单架构二进制文件名（向后兼容）
+	Name         string            `json:"name"`
+	Version      string            `json:"version"`
+	Description  string            `json:"description"`
+	Author       string            `json:"author"`
+	Type         string            `json:"type,omitempty"`        // 插件类型：sidecar（默认）/ system
+	Binary       string            `json:"binary"`               // 单架构二进制文件名（向后兼容）
 	Binaries     map[string]string `json:"binaries,omitempty"`    // 多架构映射：GOOS/GOARCH → 二进制文件名
 	Port         int             `json:"port"`
 	Hooks        []string        `json:"hooks"`

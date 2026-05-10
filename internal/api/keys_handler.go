@@ -4,7 +4,7 @@ import (
 	"net/http"
 
 	"github.com/gin-gonic/gin"
-	"github.com/bokelife/aigateway/internal/keys"
+	"github.com/silestar/AIGateway/internal/keys"
 )
 
 // KeysHandler 密钥管理 API

@@ -5,9 +5,9 @@ import (
 	"fmt"
 	"testing"
 
-	"github.com/bokelife/aigateway/internal/account"
-	"github.com/bokelife/aigateway/internal/apikey"
-	"github.com/bokelife/aigateway/internal/channel"
+	"github.com/silestar/AIGateway/internal/account"
+	"github.com/silestar/AIGateway/internal/apikey"
+	"github.com/silestar/AIGateway/internal/channel"
 	"go.uber.org/zap"
 	"gorm.io/driver/sqlite"
 	"gorm.io/gorm"

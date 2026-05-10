@@ -9,10 +9,10 @@ import (
 	"sync"
 	"time"
 
-	adapterregistry "github.com/bokelife/aigateway/pkg/adapter/registry"
+	adapterregistry "github.com/silestar/AIGateway/pkg/adapter/registry"
 	"github.com/gin-gonic/gin"
-	"github.com/bokelife/aigateway/internal/config"
-	"github.com/bokelife/aigateway/internal/plugin"
+	"github.com/silestar/AIGateway/internal/config"
+	"github.com/silestar/AIGateway/internal/plugin"
 )
 
 // RegistryEntry 注册中心插件条目

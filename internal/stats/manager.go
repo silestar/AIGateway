@@ -147,7 +147,7 @@ func (m *Manager) GetOverview(ctx context.Context, days int) (*OverviewStats, er
 	cutoff := time.Now().AddDate(0, 0, -(days)).Format("2006-01-02")
 	if err := m.db.WithContext(ctx).
 		Where("date >= ?", cutoff).
-		Order("date ASC").
+		Order("date DESC").
 		Find(&history).Error; err != nil {
 		m.logger.Error("query system daily stats failed", zap.Error(err))
 	}

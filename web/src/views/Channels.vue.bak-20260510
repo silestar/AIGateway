@@ -84,131 +84,29 @@
 
         <!-- 模型配置 -->
         <n-tab-pane name="models" :tab="t('channels.models')">
-          <n-space vertical size="small">
-            <!-- 顶部工具栏 -->
-            <div style="display: flex; align-items: center; justify-content: space-between; flex-wrap: wrap; gap: 8px">
-              <n-space align="center" size="small">
-                <n-button type="primary" size="small" @click="fetchModels" :loading="fetchingModels">
-                  {{ t('channels.fetchModels') }}
-                </n-button>
-                <n-text depth="3" style="font-size: 12px">
-                  {{ t('channels.selectedModels') }}：{{ selectedModelIds.size }}
-                </n-text>
-              </n-space>
+          <n-space vertical>
+            <div style="display: flex; align-items: center; justify-content: space-between">
+              <n-button type="primary" @click="showModelModal = true">{{ t('channels.fetchModels') }}</n-button>
               <n-space align="center" size="small">
                 <n-text depth="3" style="font-size: 12px; white-space: nowrap">{{ t('channels.testModel') }}:</n-text>
-                <n-input v-model:value="editForm.test_model" :placeholder="t('channels.testModelPlaceholder')" size="small" style="width: 180px" />
+                <n-input v-model:value="editForm.test_model" :placeholder="t('channels.testModelPlaceholder')" size="small" style="width: 200px" />
                 <n-button size="small" @click="handleSaveTestModel">{{ t('common.save') }}</n-button>
               </n-space>
             </div>
-
-            <!-- 筛选行 -->
-            <div style="display: flex; align-items: center; gap: 12px">
-              <n-tabs v-model:value="modelFilter" type="segment" size="small" style="flex: 1">
-                <n-tab name="all">{{ t('channels.filterAll') }}</n-tab>
-                <n-tab name="new">{{ t('channels.filterNew') }}</n-tab>
-                <n-tab name="existing">{{ t('channels.filterExisting') }}</n-tab>
-              </n-tabs>
-              <n-input v-model:value="modelSearchQuery" :placeholder="t('channels.searchModels')" clearable size="small" style="width: 200px">
-                <template #prefix><span style="opacity: 0.5">🔍</span></template>
-              </n-input>
-            </div>
-
-            <!-- 主体：供应商 + 模型选择 + 已选标签 -->
-            <div v-if="fetchingModels" style="display: flex; justify-content: center; padding: 40px">
-              <n-spin size="large" />
-            </div>
-            <template v-else>
-              <!-- 无数据 -->
-              <n-empty v-if="availableModels.length === 0" :description="t('channels.noModelsTip')" style="padding: 30px 0" />
-
-              <template v-else>
-                <!-- 左侧供应商 + 右侧模型 -->
-                <div style="display: flex; gap: 0; border: 1px solid var(--n-border-color, rgba(255,255,255,0.1)); border-radius: 6px; overflow: hidden; height: 360px">
-                  <!-- 左侧供应商列表 -->
-                  <div style="width: 200px; min-width: 200px; flex-shrink: 0; overflow-y: auto; border-right: 1px solid var(--n-border-color, rgba(255,255,255,0.1)); background: rgba(255,255,255,0.02)">
-                    <div
-                      v-for="group in modelGroups"
-                      :key="group.owner"
-                      style="display: flex; align-items: center; justify-content: space-between; padding: 10px 12px; cursor: pointer; border-bottom: 1px solid rgba(255,255,255,0.04); transition: background-color 0.15s"
-                      :style="{ background: activeModelOwner === group.owner ? 'rgba(0, 210, 255, 0.1)' : '', borderLeft: activeModelOwner === group.owner ? '3px solid #00d2ff' : '3px solid transparent' }"
-                      @click="activeModelOwner = group.owner"
-                    >
-                      <span style="font-size: 13px; font-weight: 600; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; flex: 1; margin-right: 8px">{{ group.owner }}</span>
-                      <n-tag size="small" :type="group.selectedCount > 0 ? 'info' : 'default'">{{ group.selectedCount }}/{{ group.models.length }}</n-tag>
-                    </div>
-                  </div>
-
-                  <!-- 右侧模型列表 -->
-                  <div style="flex: 1; height: 360px; overflow-y: auto">
-                    <template v-if="activeModelGroup">
-                      <!-- 自定义模型输入 -->
-                      <div style="display: flex; gap: 6px; padding: 8px 12px; border-bottom: 1px solid rgba(255,255,255,0.06); position: sticky; top: 0; background: var(--n-card-color, #1a1a2e); z-index: 2">
-                        <n-input v-model:value="customModelName" :placeholder="t('channels.customModelPlaceholder')" size="small" clearable @keyup.enter="addCustomModel" />
-                        <n-button size="small" type="primary" ghost @click="addCustomModel" :disabled="!customModelName.trim()">{{ t('channels.addCustomModel') }}</n-button>
-                      </div>
-                      <div style="display: flex; align-items: center; justify-content: space-between; padding: 8px 12px; border-bottom: 1px solid rgba(255,255,255,0.06)">
-                        <n-text depth="3" style="font-size: 12px">{{ activeModelGroup.models.length }} {{ t('channels.modelCount') }}</n-text>
-                        <n-button text type="info" size="tiny" @click="toggleModelGroupAll(activeModelGroup)">
-                          {{ isModelGroupAllSelected(activeModelGroup) ? t('channels.deselectAll') : t('channels.selectAll') }}
-                        </n-button>
-                      </div>
-                      <div style="display: grid; grid-template-columns: repeat(2, 1fr); gap: 4px 8px; padding: 8px 12px">
-                        <div
-                          v-for="m in activeModelGroup.models"
-                          :key="m.id"
-                          style="display: flex; align-items: center; gap: 6px; padding: 5px 8px; border-radius: 4px; cursor: pointer; position: relative; overflow: hidden; transition: background-color 0.15s"
-                          :style="{ background: selectedModelIds.has(m.id) ? 'rgba(0, 210, 255, 0.06)' : '' }"
-                          @click="toggleModel(m.id, !selectedModelIds.has(m.id))"
-                        >
-                          <div v-if="selectedModelIds.has(m.id)" style="position: absolute; left: 0; top: 0; bottom: 0; width: 3px; background-color: #00d2ff; border-radius: 3px 0 0 3px"></div>
-                          <n-checkbox :checked="selectedModelIds.has(m.id)" @update:checked="(v: boolean) => toggleModel(m.id, v)" @click.stop />
-                          <n-tooltip trigger="hover" placement="top">
-                            <template #trigger>
-                              <span style="font-size: 13px; font-family: 'Menlo', 'Consolas', monospace; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; cursor: pointer; max-width: 220px">{{ m.id }}</span>
-                            </template>
-                            {{ m.id }}
-                          </n-tooltip>
-                        </div>
-                      </div>
-                    </template>
-                    <n-empty v-else :description="t('channels.selectOwner')" style="padding: 40px 0" />
-                  </div>
-                </div>
-              </template>
-            </template>
-
-            <!-- 已选模型标签 -->
-            <div v-if="selectedModelIds.size > 0" style="padding-top: 8px; border-top: 1px solid var(--n-border-color, rgba(255,255,255,0.1))">
-              <n-text depth="3" style="font-size: 13px; margin-bottom: 8px; display: block">{{ t('channels.selectedModels') }}（{{ selectedModelIds.size }}）</n-text>
+            <div v-if="upstreamModels.length > 0" class="model-tag-area">
+              <n-text depth="3" style="font-size: 13px; margin-bottom: 8px; display: block">{{ t('channels.upstreamModels') }}（{{ upstreamModels.length }}）</n-text>
               <n-space size="small">
-                <n-tag v-for="id in selectedModelIds" :key="id" closable size="small" @close="toggleModel(id, false)" @click="copyModelName(id)" style="cursor: pointer" :title="t('channels.clickToCopyModel')">{{ id }}</n-tag>
+                <n-tag v-for="name in upstreamModels" :key="name" size="small" @click="copyModelName(name)" style="cursor: pointer; font-family: 'Menlo', 'Consolas', monospace" :title="t('channels.clickToCopyModel')">{{ name }}</n-tag>
               </n-space>
             </div>
-
-            <!-- 模型映射 -->
-            <div style="padding-top: 8px; border-top: 1px solid var(--n-border-color, rgba(255,255,255,0.1))">
-              <n-space justify="space-between" align="center" style="margin-bottom: 8px">
-                <n-text depth="3" style="font-size: 13px">{{ t('channels.modelMapping') }}</n-text>
-                <n-button size="small" @click="addMapping">+ {{ t('channels.addMapping') }}</n-button>
-              </n-space>
-              <div v-for="(m, idx) in modelMappings" :key="idx" style="display: flex; align-items: center; gap: 8px; margin-bottom: 8px">
-                <n-auto-complete v-model:value="m.display" :options="customNameOptions" :placeholder="t('channels.displayName')" size="small" style="flex: 1" />
+            <n-empty v-else :description="t('channels.noModelsConfigured')" style="padding: 20px 0" />
+            <div v-if="modelMappings.length > 0" style="margin-top: 12px; padding-top: 12px; border-top: 1px solid var(--n-border-color, rgba(255,255,255,0.1))">
+              <n-text depth="3" style="font-size: 13px; margin-bottom: 8px; display: block">{{ t('channels.modelMapping') }}（{{ modelMappings.length }}）</n-text>
+              <div v-for="m in modelMappings" :key="m.display_model_name" style="display: flex; align-items: center; gap: 8px; margin-bottom: 6px">
+                <n-tag size="small" type="info" @click="copyText(m.display_model_name)" style="cursor: pointer" :title="t('channels.clickToCopyModel')">{{ m.display_model_name }}</n-tag>
                 <span style="color: var(--text-tertiary)">→</span>
-                <n-select v-model:value="m.actual" :options="selectedModelOptions" :placeholder="t('channels.actualName')" size="small" style="flex: 1" filterable />
-                <n-button size="small" quaternary type="error" @click="modelMappings.splice(idx, 1)">✕</n-button>
+                <n-tag size="small" @click="copyText(m.actual_model_name)" style="cursor: pointer" :title="t('channels.clickToCopyModel')">{{ m.actual_model_name }}</n-tag>
               </div>
-            </div>
-
-          <!-- 底部操作 -->
-            <div style="display: flex; justify-content: space-between; align-items: center; padding-top: 8px; border-top: 1px solid var(--n-border-color, rgba(255,255,255,0.1))">
-              <n-space align="center">
-                <n-text depth="3" style="font-size: 12px">{{ t('channels.selectedModels') }}：{{ selectedModelIds.size }}</n-text>
-                <n-button text type="info" size="small" @click="toggleModelSelectAll">{{ modelIsAllSelected ? t('channels.deselectAll') : t('channels.selectAll') }}</n-button>
-              </n-space>
-              <n-space>
-                <n-button type="primary" size="small" @click="handleModelSave" :disabled="selectedModelIds.size === 0">{{ t('channels.saveModels') }}</n-button>
-              </n-space>
             </div>
           </n-space>
         </n-tab-pane>
@@ -254,7 +152,10 @@
       </n-form>
     </n-modal>
 
-    <!-- 上游更新弹窗 -->
+    <!-- 模型选择弹窗 -->
+    <ModelSelectModal v-model:show="showModelModal" :channel-id="selectedChannel?.id ?? 0" :channel-name="selectedChannel?.name ?? ''" :existing-models="channelModels" @save="handleModelSave" />
+
+    <!-- 批量测试弹窗 -->
     <n-modal v-model:show="showBatchTest" preset="card" style="width: 700px">
       <template #header>
         <div style="display: flex; align-items: center; justify-content: space-between; width: 100%; padding-right: 32px">
@@ -320,9 +221,9 @@
 import { ref, reactive, computed, h, onMounted, watch } from 'vue'
 import { useI18n } from 'vue-i18n'
 import { useMessage, useDialog, NButton, NSpace, NTag, NInput, NAlert, NInputNumber, NTooltip, NDropdown, NCheckbox, NCheckboxGroup, NSpin } from 'naive-ui'
-import { channelApi, type ChannelListItem, type ChannelModel, type BatchTestResultItem, type ModelInfo } from '../api/channel'
+import { channelApi, type ChannelListItem, type ChannelModel, type BatchTestResultItem } from '../api/channel'
 import { accountApi, type Account } from '../api/account'
-
+import ModelSelectModal from '../components/ModelSelectModal.vue'
 
 // 渠道类型图标（SVG 文件引用）
 import iconOpenai from '../assets/icons/channel/openai.svg'
@@ -603,7 +504,7 @@ function handleMoreAction(key: string, row: ChannelListItem) {
       openBatchTest(row)
       break
     case 'fetch-models':
-      selectChannel(row, 'models')
+      selectChannel(row, 'models').then(() => { showModelModal.value = true })
       break
     case 'upstream-update':
       openUpstreamUpdate(row)
@@ -675,6 +576,7 @@ async function openUpstreamUpdate(row: ChannelListItem) {
 // ========== 弹窗状态 ==========
 const showCreateModal = ref(false)
 const showAddAccount = ref(false)
+const showModelModal = ref(false)
 const showBatchTest = ref(false)
 const showUpstreamUpdate = ref(false)
 
@@ -740,197 +642,16 @@ const upstreamChecked = ref(false)
 const upstreamRemovedModels = ref<ChannelModel[]>([])
 const upstreamChannelId = ref<number>(0)
 
-// ========== 模型配置页面整合（原 ModelSelectModal 逻辑）==========
-// 状态
-const fetchingModels = ref(false)
-const availableModels = ref<ModelInfo[]>([])
-const selectedModelIds = ref<Set<string>>(new Set())
-const modelMappings = ref<{ display: string; actual: string }[]>([])
-const customModelName = ref('')
-const modelSearchQuery = ref('')
-const modelFilter = ref('all')
-const activeModelOwner = ref('')
-
-// 已配置模型的名称集合（用 actual_model_name 匹配上游真实模型）
-const existingNameSet = computed(() => {
-  const enabled = new Set<string>()
-  const disabled = new Set<string>()
-  for (const m of channelModels.value) {
-    if (m.status === 'enabled') enabled.add(m.actual_model_name)
-    else disabled.add(m.actual_model_name)
-  }
-  return { enabled, disabled }
+// ========== 计算属性 ==========
+const upstreamModels = computed(() => {
+  const names = new Set<string>()
+  channelModels.value.filter(m => m.status === 'enabled').forEach(m => names.add(m.actual_model_name))
+  return Array.from(names)
 })
 
-interface ModelGroup { owner: string; models: ModelInfo[]; selectedCount: number }
-
-const modelGroups = computed<ModelGroup[]>(() => {
-  const q = modelSearchQuery.value.toLowerCase().trim()
-  const map = new Map<string, ModelInfo[]>()
-  for (const m of availableModels.value) {
-    const owner = m.owned_by || 'other'
-    if (modelFilter.value === 'new') {
-      if (existingNameSet.value.enabled.has(m.id) || existingNameSet.value.disabled.has(m.id)) continue
-    } else if (modelFilter.value === 'existing') {
-      if (!existingNameSet.value.enabled.has(m.id)) continue
-    }
-    if (q && !m.id.toLowerCase().includes(q) && !owner.toLowerCase().includes(q)) continue
-    if (!map.has(owner)) map.set(owner, [])
-    map.get(owner)!.push(m)
-  }
-  const groups = Array.from(map.entries()).map(([owner, models]) => ({ owner, models, selectedCount: models.filter(m => selectedModelIds.value.has(m.id)).length }))
-  if (groups.length > 0 && !groups.find(g => g.owner === activeModelOwner.value)) {
-    activeModelOwner.value = groups[0].owner
-  }
-  return groups
-})
-
-const activeModelGroup = computed(() => modelGroups.value.find(g => g.owner === activeModelOwner.value) || null)
-const selectedModelOptions = computed(() => Array.from(selectedModelIds.value).map(id => ({ label: id, value: id })))
-const modelIsAllSelected = computed(() => availableModels.value.length > 0 && availableModels.value.every(m => selectedModelIds.value.has(m.id)))
-
-// 自定义模型名补全（从 channelModels 映射 + 当前未保存映射 + 跨渠道自定义名）
-const customNameOptions = computed(() => {
-  const seen = new Set<string>()
-  const opts: { label: string; value: string }[] = []
-  for (const m of channelModels.value) {
-    if (m.display_model_name !== m.actual_model_name && !seen.has(m.display_model_name)) {
-      seen.add(m.display_model_name)
-      opts.push({ label: m.display_model_name, value: m.display_model_name })
-    }
-  }
-  for (const m of modelMappings.value) {
-    if (m.display && !seen.has(m.display)) {
-      seen.add(m.display)
-      opts.push({ label: m.display, value: m.display })
-    }
-  }
-  // 合并跨渠道自定义模型名
-  for (const name of crossChannelCustomNames.value) {
-    if (!seen.has(name)) {
-      seen.add(name)
-      opts.push({ label: name, value: name })
-    }
-  }
-  return opts
-})
-
-const crossChannelCustomNames = ref<string[]>([])
-
-async function fetchCrossChannelCustomNames() {
-  try {
-    const res = await channelApi.getCustomModelNames()
-    crossChannelCustomNames.value = res.data.data || []
-  } catch { crossChannelCustomNames.value = [] }
-}
-
-async function fetchModels() {
-  if (!selectedChannel.value?.id) return
-  fetchingModels.value = true
-  try {
-    const res = await channelApi.fetchModels(selectedChannel.value.id, '')
-    const raw: ModelInfo[] = res.data.data || []
-    const seen = new Set<string>()
-    availableModels.value = raw.filter(m => { if (seen.has(m.id)) return false; seen.add(m.id); return true })
-    if (availableModels.value.length > 0) {
-      activeModelOwner.value = (availableModels.value[0].owned_by || 'other')
-    }
-  } catch {
-    message.error(t('common.operationFailed'))
-  } finally {
-    fetchingModels.value = false
-  }
-}
-
-function toggleModel(id: string, checked: boolean) {
-  const newSet = new Set(selectedModelIds.value)
-  if (checked) newSet.add(id); else newSet.delete(id)
-  selectedModelIds.value = newSet
-}
-
-function isModelGroupAllSelected(group: ModelGroup) {
-  return group.models.length > 0 && group.models.every(m => selectedModelIds.value.has(m.id))
-}
-
-function toggleModelGroupAll(group: ModelGroup) {
-  if (isModelGroupAllSelected(group)) {
-    const newSet = new Set(selectedModelIds.value)
-    for (const m of group.models) newSet.delete(m.id)
-    selectedModelIds.value = newSet
-  } else {
-    const newSet = new Set(selectedModelIds.value)
-    for (const m of group.models) newSet.add(m.id)
-    selectedModelIds.value = newSet
-  }
-}
-
-function toggleModelSelectAll() {
-  if (modelIsAllSelected.value) {
-    selectedModelIds.value = new Set()
-  } else {
-    selectedModelIds.value = new Set(availableModels.value.map(m => m.id))
-  }
-}
-
-function addCustomModel() {
-  const name = customModelName.value.trim()
-  if (!name) return
-  const newSet = new Set(selectedModelIds.value)
-  newSet.add(name)
-  selectedModelIds.value = newSet
-  customModelName.value = ''
-  message.success(t('channels.customModelAdded', { name }))
-}
-
-function addMapping() {
-  modelMappings.value.push({ display: '', actual: '' })
-}
-
-// 修改 handleModelSave 为直接保存（不依赖 emit）
-function handleModelSave() {
-  if (!selectedChannel.value) return
-  // 校验映射：映射的目标模型必须在已选模型中
-  const invalidMappings = modelMappings.value.filter(m => m.display && m.actual && !selectedModelIds.value.has(m.actual))
-  if (invalidMappings.length > 0) {
-    const names = invalidMappings.map(m => m.actual).join('、')
-    dialog.warning({
-      title: t('channels.mappingInvalidTitle'),
-      content: t('channels.mappingInvalidContent', { names }),
-      positiveText: t('channels.autoFixMapping'),
-      negativeText: t('channels.backToEdit'),
-      onPositiveClick: () => {
-        const newSet = new Set(selectedModelIds.value)
-        for (const m of invalidMappings) newSet.add(m.actual)
-        selectedModelIds.value = newSet
-        doModelSave()
-      },
-    })
-    return
-  }
-  doModelSave()
-}
-
-async function doModelSave() {
-  if (!selectedChannel.value) return
-  const models: ChannelModel[] = []
-  const mappedActuals = new Set(modelMappings.value.filter(m => m.display && m.actual).map(m => m.actual))
-  for (const id of selectedModelIds.value) {
-    if (!mappedActuals.has(id)) {
-      models.push({ channel_id: selectedChannel.value.id, display_model_name: id, actual_model_name: id, status: 'enabled' })
-    }
-  }
-  for (const m of modelMappings.value) {
-    if (m.display && m.actual) {
-      models.push({ channel_id: selectedChannel.value.id, display_model_name: m.display, actual_model_name: m.actual, status: 'enabled' })
-    }
-  }
-  try {
-    await channelApi.saveModels(selectedChannel.value.id, models)
-    message.success(t('common.success'))
-    const res = await channelApi.getModelsByChannel(selectedChannel.value.id)
-    channelModels.value = res.data.data || []
-  } catch { message.error(t('common.operationFailed')) }
-}
+const modelMappings = computed(() =>
+  channelModels.value.filter(m => m.display_model_name !== m.actual_model_name && m.status === 'enabled')
+)
 
 const accounts = ref<Account[]>([])
 
@@ -1006,18 +727,9 @@ async function selectChannel(ch: ChannelListItem, tab?: string) {
   try {
     const res = await channelApi.getModelsByChannel(ch.id)
     channelModels.value = res.data.data || []
-    // 初始化模型选择状态
-    selectedModelIds.value = new Set(
-      channelModels.value.filter(m => m.status === 'enabled').map(m => m.actual_model_name)
-    )
-    modelMappings.value = channelModels.value
-      .filter(m => m.display_model_name !== m.actual_model_name)
-      .map(m => ({ display: m.display_model_name, actual: m.actual_model_name }))
   } catch {
     channelModels.value = []
   }
-  // 加载跨渠道自定义模型名
-  fetchCrossChannelCustomNames()
 }
 
 // ========== 渠道操作 ==========
@@ -1147,6 +859,16 @@ async function handleSaveTestModel() {
     await channelApi.updateTestModel(selectedChannel.value.id, editForm.test_model)
     message.success(t('common.success'))
     loadChannels()
+  } catch { message.error(t('common.operationFailed')) }
+}
+
+async function handleModelSave(models: ChannelModel[]) {
+  if (!selectedChannel.value) return
+  try {
+    await channelApi.saveModels(selectedChannel.value.id, models)
+    message.success(t('common.success'))
+    const res = await channelApi.getModelsByChannel(selectedChannel.value.id)
+    channelModels.value = res.data.data || []
   } catch { message.error(t('common.operationFailed')) }
 }
 
@@ -1299,6 +1021,8 @@ async function copyModelName(name: string) {
     message.success(t('common.copied'))
   } catch { message.error(t('common.copyFailed')) }
 }
+
+function copyText(text: string) { copyModelName(text) }
 
 // 账号表格列
 const accountColumns = computed(() => [

@@ -4,8 +4,8 @@ import (
 	"context"
 	"net/http"
 
-	"github.com/bokelife/aigateway/internal/account"
-	"github.com/bokelife/aigateway/internal/channel"
+	"github.com/silestar/AIGateway/internal/account"
+	"github.com/silestar/AIGateway/internal/channel"
 )
 
 // ProxyEngine 代理引擎接口

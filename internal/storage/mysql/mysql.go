@@ -8,7 +8,7 @@ import (
 
 	"gorm.io/gorm"
 
-	"github.com/bokelife/aigateway/internal/config"
+	"github.com/silestar/AIGateway/internal/config"
 )
 
 type MySQLStorage struct {

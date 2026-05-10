@@ -9,7 +9,7 @@ import (
 	"net/http"
 	"strings"
 
-	"github.com/bokelife/aigateway/pkg/adapter"
+	"github.com/silestar/AIGateway/pkg/adapter"
 )
 
 // Adapter Anthropic Messages API 适配器

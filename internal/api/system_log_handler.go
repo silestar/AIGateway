@@ -14,7 +14,7 @@ import (
 	"time"
 
 	"github.com/gin-gonic/gin"
-	"github.com/bokelife/aigateway/internal/config"
+	"github.com/silestar/AIGateway/internal/config"
 )
 
 // SystemLogHandler 系统日志 API（读取 zap JSON 日志文件）

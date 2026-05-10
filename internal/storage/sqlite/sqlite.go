@@ -9,13 +9,13 @@ import (
 	"gorm.io/gorm"
 	"gorm.io/gorm/logger"
 
-	"github.com/bokelife/aigateway/internal/config"
-	"github.com/bokelife/aigateway/internal/keys"
-	"github.com/bokelife/aigateway/internal/channel"
-	"github.com/bokelife/aigateway/internal/account"
-	"github.com/bokelife/aigateway/internal/stats"
-	"github.com/bokelife/aigateway/internal/plugin"
-	"github.com/bokelife/aigateway/internal/models"
+	"github.com/silestar/AIGateway/internal/config"
+	"github.com/silestar/AIGateway/internal/keys"
+	"github.com/silestar/AIGateway/internal/channel"
+	"github.com/silestar/AIGateway/internal/account"
+	"github.com/silestar/AIGateway/internal/stats"
+	"github.com/silestar/AIGateway/internal/plugin"
+	"github.com/silestar/AIGateway/internal/models"
 )
 
 type SQLiteStorage struct {

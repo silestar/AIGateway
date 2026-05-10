@@ -3,10 +3,10 @@ package adapterregistry
 import (
 	"fmt"
 
-	"github.com/bokelife/aigateway/pkg/adapter"
-	"github.com/bokelife/aigateway/pkg/adapter/anthropic"
-	"github.com/bokelife/aigateway/pkg/adapter/gemini"
-	"github.com/bokelife/aigateway/pkg/adapter/openai"
+	"github.com/silestar/AIGateway/pkg/adapter"
+	"github.com/silestar/AIGateway/pkg/adapter/anthropic"
+	"github.com/silestar/AIGateway/pkg/adapter/gemini"
+	"github.com/silestar/AIGateway/pkg/adapter/openai"
 )
 
 // ChannelTypeInfo 渠道类型信息（供 API 返回）

@@ -1,10 +1,11 @@
 package api
 
 import (
+	"fmt"
 	"net/http"
 
 	"github.com/gin-gonic/gin"
-	"github.com/bokelife/aigateway/internal/stats"
+	"github.com/silestar/AIGateway/internal/stats"
 )
 
 // StatsHandler 统计 API
@@ -133,20 +134,65 @@ func (h *StatsHandler) Models(c *gin.Context) {
 
 // Channels 渠道负载排行
 func (h *StatsHandler) Channels(c *gin.Context) {
-	var channelStats []struct {
-		ChannelID     uint   `json:"channel_id"`
-		TotalRequests int64  `json:"total_requests"`
+	type channelStatRow struct {
+		ChannelID     uint    `json:"channel_id"`
+		TotalRequests int64   `json:"total_requests"`
 		SuccessRate   float64 `json:"success_rate"`
-		AvgLatencyMs  int    `json:"avg_latency_ms"`
+		AvgLatencyMs  int     `json:"avg_latency_ms"`
 	}
+	var rows []channelStatRow
 	h.statsMgr.DB().WithContext(c.Request.Context()).
 		Model(&stats.ChannelDailyStats{}).
 		Select("channel_id, SUM(total_requests) as total_requests, CASE WHEN SUM(total_requests) > 0 THEN CAST(SUM(success_requests) AS REAL) / SUM(total_requests) * 100 ELSE 0 END as success_rate, CASE WHEN SUM(total_requests) > 0 THEN SUM(avg_latency_ms * total_requests) / SUM(total_requests) ELSE 0 END as avg_latency_ms").
 		Group("channel_id").
 		Order("total_requests DESC").
-		Scan(&channelStats)
+		Scan(&rows)
 
-	c.JSON(http.StatusOK, gin.H{"data": channelStats})
+	// 批量查询渠道名称
+	channelIDs := make([]uint, 0, len(rows))
+	for _, r := range rows {
+		channelIDs = append(channelIDs, r.ChannelID)
+	}
+	type nameRow struct {
+		ID   uint
+		Name string
+	}
+	var names []nameRow
+	if len(channelIDs) > 0 {
+		h.statsMgr.DB().WithContext(c.Request.Context()).
+			Table("channels").
+			Select("id, name").
+			Where("id IN ?", channelIDs).
+			Scan(&names)
+	}
+	nameMap := make(map[uint]string, len(names))
+	for _, n := range names {
+		nameMap[n.ID] = n.Name
+	}
+
+	type channelStatOut struct {
+		ChannelID     uint    `json:"channel_id"`
+		ChannelName   string  `json:"channel_name"`
+		TotalRequests int64   `json:"total_requests"`
+		SuccessRate   float64 `json:"success_rate"`
+		AvgLatencyMs  int     `json:"avg_latency_ms"`
+	}
+	out := make([]channelStatOut, 0, len(rows))
+	for _, r := range rows {
+		name := nameMap[r.ChannelID]
+		if name == "" {
+			name = fmt.Sprintf("#%d", r.ChannelID)
+		}
+		out = append(out, channelStatOut{
+			ChannelID:     r.ChannelID,
+			ChannelName:   name,
+			TotalRequests: r.TotalRequests,
+			SuccessRate:   r.SuccessRate,
+			AvgLatencyMs:  r.AvgLatencyMs,
+		})
+	}
+
+	c.JSON(http.StatusOK, gin.H{"data": out})
 }
 
 // KeysStats 消费者统计详情

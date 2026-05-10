@@ -3,6 +3,7 @@ package proxy
 import (
 	"bytes"
 	"context"
+	"crypto/tls"
 	"encoding/json"
 	"fmt"
 	"io"
@@ -14,12 +15,21 @@ import (
 
 	"go.uber.org/zap"
 
-	"github.com/bokelife/aigateway/internal/account"
-	"github.com/bokelife/aigateway/internal/channel"
-	"github.com/bokelife/aigateway/internal/config"
-	"github.com/bokelife/aigateway/internal/plugin"
-	adapterregistry "github.com/bokelife/aigateway/pkg/adapter/registry"
-	"github.com/bokelife/aigateway/pkg/usage"
+	"github.com/silestar/AIGateway/internal/account"
+	"github.com/silestar/AIGateway/internal/channel"
+	"github.com/silestar/AIGateway/internal/config"
+	"github.com/silestar/AIGateway/internal/plugin"
+	"github.com/silestar/AIGateway/pkg/sdk"
+	adapterregistry "github.com/silestar/AIGateway/pkg/adapter/registry"
+	"github.com/silestar/AIGateway/pkg/usage"
+)
+
+// context keys for passing channel/account info to DialTLSContext
+type ctxKey int
+
+const (
+	ctxKeyChannelID ctxKey = iota
+	ctxKeyAccountID
 )
 
 // Engine HTTP 代理引擎
@@ -37,6 +47,44 @@ func NewEngine(cfg config.ProxyConfig, accountMgr account.AccountManager, plugin
 		DialContext: (&net.Dialer{
 			Timeout: time.Duration(cfg.ConnectTimeout) * time.Second,
 		}).DialContext,
+		DialTLSContext: func(ctx context.Context, network, addr string) (net.Conn, error) {
+			// 1. 建立原始 TCP 连接（在 TLS 握手之前）
+			dialer := &net.Dialer{}
+			rawConn, err := dialer.DialContext(ctx, network, addr)
+			if err != nil {
+				return nil, err
+			}
+
+			// 2. 准备 TLS 配置
+			tlsCfg := &tls.Config{
+				MinVersion: tls.VersionTLS12,
+			}
+
+			// 3. 从 context 获取 channel/account 信息（由上游调用者设置）
+			channelID, _ := ctx.Value(ctxKeyChannelID).(uint)
+			accountID, _ := ctx.Value(ctxKeyAccountID).(uint)
+
+			// 4. 遍历 ConnectionDecorator — 它们可以在 TLS 握手前介入
+			for _, decorator := range sdk.GetConnectionDecorators() {
+				// TODO: 从 plugin/channel_plugin_settings 获取该渠道级的 config
+				decorated, decErr := decorator.Decorate(ctx, channelID, accountID, nil, rawConn, tlsCfg)
+				if decErr != nil {
+					rawConn.Close()
+					return nil, fmt.Errorf("connection decorator error: %w", decErr)
+				}
+				if decorated != nil {
+					return decorated, nil
+				}
+			}
+
+			// 5. 没有装饰器接管 → 标准 TLS 握手
+			tlsConn := tls.Client(rawConn, tlsCfg)
+			if err := tlsConn.HandshakeContext(ctx); err != nil {
+				rawConn.Close()
+				return nil, fmt.Errorf("tls handshake: %w", err)
+			}
+			return tlsConn, nil
+		},
 		MaxIdleConns:        cfg.MaxIdleConns,
 		MaxIdleConnsPerHost: cfg.MaxIdleConns,
 		IdleConnTimeout:     time.Duration(cfg.IdleConnTimeout) * time.Second,
