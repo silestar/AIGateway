@@ -84,18 +84,8 @@ func main() {
 	groupRouter := group.NewRouter(db, keysSvc, accountMgr, logger, cache)
 	proxyEngine := proxy.NewEngine(cfg.Proxy, accountMgr, pluginMgr, logger)
 
-	// 模型目录服务 + 渠道模型变更回调
+	// 模型目录服务
 	catalogSvc := models.NewCatalogService(db, logger)
-	channelSvc.SetOnModelsChange(func() {
-		if err := catalogSvc.SyncFromChannelModels(context.Background()); err != nil {
-			logger.Warn("failed to sync model catalog", zap.Error(err))
-		}
-	})
-
-	// 启动时初始同步一次
-	if err := catalogSvc.SyncFromChannelModels(context.Background()); err != nil {
-		logger.Warn("initial model catalog sync failed", zap.Error(err))
-	}
 
 	// 统计管理器 + 异步日志写入器
 	statsMgr := stats.NewManager(db, logger)
@@ -892,7 +882,7 @@ func captureHeaders(h map[string][]string) map[string]string {
 
 // handleModelsList 处理 /v1/models 请求（OpenAI 兼容格式）
 func handleModelsList(c *gin.Context, catalogSvc models.CatalogService) {
-	list, err := catalogSvc.GetVisibleModels(c.Request.Context())
+	modelNames, err := catalogSvc.GetVisibleModels(c.Request.Context())
 	if err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{
 			"error": gin.H{"code": "internal_error", "message": err.Error()},
@@ -905,10 +895,10 @@ func handleModelsList(c *gin.Context, catalogSvc models.CatalogService) {
 		Object  string `json:"object"`
 		OwnedBy string `json:"owned_by"`
 	}
-	items := make([]modelItem, len(list))
-	for i, m := range list {
+	items := make([]modelItem, len(modelNames))
+	for i, name := range modelNames {
 		items[i] = modelItem{
-			ID:      m.ModelName,
+			ID:      name,
 			Object:  "model",
 			OwnedBy: "aigateway",
 		}

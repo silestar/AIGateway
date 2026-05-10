@@ -493,6 +493,7 @@
   "models": {
     "title": "Model Management",
     "selectedModels": "Upstream Models",
+    "upstreamModels": "Upstream Models",
     "mappedModels": "Mapped Models",
     "modelName": "Model Name",
     "visible": "Visible",

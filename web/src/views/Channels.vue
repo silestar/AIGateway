@@ -142,15 +142,10 @@
                   <!-- 右侧模型列表 -->
                   <div style="flex: 1; height: 360px; overflow-y: auto">
                     <template v-if="activeModelGroup">
-                      <!-- 自定义模型输入 -->
-                      <div style="display: flex; gap: 6px; padding: 8px 12px; border-bottom: 1px solid rgba(255,255,255,0.06); position: sticky; top: 0; background: var(--n-card-color, #1a1a2e); z-index: 2">
-                        <n-input v-model:value="customModelName" :placeholder="t('channels.customModelPlaceholder')" size="small" clearable @keyup.enter="addCustomModel" />
-                        <n-button size="small" type="primary" ghost @click="addCustomModel" :disabled="!customModelName.trim()">{{ t('channels.addCustomModel') }}</n-button>
-                      </div>
                       <div style="display: flex; align-items: center; justify-content: space-between; padding: 8px 12px; border-bottom: 1px solid rgba(255,255,255,0.06)">
                         <n-text depth="3" style="font-size: 12px">{{ activeModelGroup.models.length }} {{ t('channels.modelCount') }}</n-text>
                         <n-button text type="info" size="tiny" @click="toggleModelGroupAll(activeModelGroup)">
-                          {{ isModelGroupAllSelected(activeModelGroup) ? t('channels.deselectAll') : t('channels.selectAll') }}
+                          {{ isModelGroupAllSelected(activeModelGroup) ? t('common.deselectAll') : t('common.selectAll') }}
                         </n-button>
                       </div>
                       <div style="display: grid; grid-template-columns: repeat(2, 1fr); gap: 4px 8px; padding: 8px 12px">
@@ -186,6 +181,13 @@
               </n-space>
             </div>
 
+            <!-- 自定义模型输入 -->
+            <div style="display: flex; align-items: center; gap: 8px; padding: 8px 0; border-top: 1px solid var(--n-border-color, rgba(255,255,255,0.1))">
+              <n-text depth="3" style="font-size: 13px; white-space: nowrap">{{ t('channels.addCustomModel') }}:</n-text>
+              <n-input v-model:value="customModelName" :placeholder="t('channels.customModelPlaceholder')" size="small" clearable @keyup.enter="addCustomModel" style="max-width: 280px" />
+              <n-button size="small" type="primary" ghost @click="addCustomModel" :disabled="!customModelName.trim()">{{ t('channels.addCustomModel') }}</n-button>
+            </div>
+
             <!-- 模型映射 -->
             <div style="padding-top: 8px; border-top: 1px solid var(--n-border-color, rgba(255,255,255,0.1))">
               <n-space justify="space-between" align="center" style="margin-bottom: 8px">
@@ -193,7 +195,7 @@
                 <n-button size="small" @click="addMapping">+ {{ t('channels.addMapping') }}</n-button>
               </n-space>
               <div v-for="(m, idx) in modelMappings" :key="idx" style="display: flex; align-items: center; gap: 8px; margin-bottom: 8px">
-                <n-auto-complete v-model:value="m.display" :options="customNameOptions" :placeholder="t('channels.displayName')" size="small" style="flex: 1" />
+                <n-auto-complete v-model:value="m.display" :options="displayNameOptions(m.display)" :placeholder="t('channels.displayName')" size="small" style="flex: 1" />
                 <span style="color: var(--text-tertiary)">→</span>
                 <n-select v-model:value="m.actual" :options="selectedModelOptions" :placeholder="t('channels.actualName')" size="small" style="flex: 1" filterable />
                 <n-button size="small" quaternary type="error" @click="modelMappings.splice(idx, 1)">✕</n-button>
@@ -204,7 +206,7 @@
             <div style="display: flex; justify-content: space-between; align-items: center; padding-top: 8px; border-top: 1px solid var(--n-border-color, rgba(255,255,255,0.1))">
               <n-space align="center">
                 <n-text depth="3" style="font-size: 12px">{{ t('channels.selectedModels') }}：{{ selectedModelIds.size }}</n-text>
-                <n-button text type="info" size="small" @click="toggleModelSelectAll">{{ modelIsAllSelected ? t('channels.deselectAll') : t('channels.selectAll') }}</n-button>
+                <n-button text type="info" size="small" @click="toggleModelSelectAll">{{ modelIsAllSelected ? t('common.deselectAll') : t('common.selectAll') }}</n-button>
               </n-space>
               <n-space>
                 <n-button type="primary" size="small" @click="handleModelSave" :disabled="selectedModelIds.size === 0">{{ t('channels.saveModels') }}</n-button>
@@ -880,6 +882,12 @@ function addCustomModel() {
   selectedModelIds.value = newSet
   customModelName.value = ''
   message.success(t('channels.customModelAdded', { name }))
+}
+
+function displayNameOptions(input: string) {
+  if (!input || input.trim() === '') return []
+  const q = input.toLowerCase().trim()
+  return customNameOptions.value.filter(o => o.value.toLowerCase().includes(q))
 }
 
 function addMapping() {

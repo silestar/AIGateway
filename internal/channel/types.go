@@ -32,6 +32,8 @@ type ChannelModel struct {
 	DisplayModelName  string `gorm:"size:100;not null;index" json:"display_model_name"` // 对外展示的名称
 	ActualModelName   string `gorm:"size:100;not null" json:"actual_model_name"`        // 实际请求上游的名称
 	Status            string `gorm:"size:20;not null;default:'enabled'" json:"status"`   // enabled / disabled
+	UpstreamVisible   bool   `gorm:"not null;default:true" json:"upstream_visible"`     // 是否作为上游模型暴露
+	DisplayVisible    bool   `gorm:"not null;default:true" json:"display_visible"`       // 是否作为映射别名暴露
 }
 
 func (ChannelModel) TableName() string { return "channel_models" }

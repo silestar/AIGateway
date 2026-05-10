@@ -15,7 +15,6 @@ import (
 	"github.com/silestar/AIGateway/internal/account"
 	"github.com/silestar/AIGateway/internal/stats"
 	"github.com/silestar/AIGateway/internal/plugin"
-	"github.com/silestar/AIGateway/internal/models"
 )
 
 type SQLiteStorage struct {
@@ -92,7 +91,6 @@ func autoMigrate(db *gorm.DB) error {
 		&stats.KeysDailyStats{},
 		&stats.ChannelDailyStats{},
 		&plugin.Plugin{},
-		&models.ModelCatalog{},
 	)
 }
 

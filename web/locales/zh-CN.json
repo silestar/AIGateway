@@ -497,6 +497,7 @@
   "models": {
     "title": "模型管理",
     "selectedModels": "上游模型",
+    "upstreamModels": "上游模型",
     "mappedModels": "映射模型",
     "modelName": "模型名称",
     "visible": "对外可见",

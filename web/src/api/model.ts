@@ -1,23 +1,32 @@
 import api from './index'
 
-export interface ModelCatalogItem {
-  id: number
-  model_name: string
-  is_mapped: boolean
+export interface UpstreamModelItem {
+  actual_model_name: string
   visible: boolean
   ref_count: number
-  created_at: string
-  updated_at: string
+}
+
+export interface DisplayModelItem {
+  display_model_name: string
+  visible: boolean
+  ref_count: number
+}
+
+export interface ModelListResponse {
+  upstream: UpstreamModelItem[]
+  display: DisplayModelItem[]
 }
 
 export const modelApi = {
-  listCatalog() {
-    return api.get<{ data: ModelCatalogItem[] }>('/models/catalog')
+  listModels() {
+    return api.get<{ data: ModelListResponse }>('/models/list')
   },
-  updateVisibility(id: number, visible: boolean) {
-    return api.put(`/models/catalog/${id}/visibility`, { visible })
+
+  setUpstreamVisible(modelName: string, visible: boolean) {
+    return api.put('/models/upstream/visible', { model_name: modelName, visible })
   },
-  batchUpdateVisibility(ids: number[], visible: boolean) {
-    return api.put('/models/catalog/visibility/batch', { ids, visible })
+
+  setDisplayVisible(modelName: string, visible: boolean) {
+    return api.put('/models/display/visible', { model_name: modelName, visible })
   },
 }

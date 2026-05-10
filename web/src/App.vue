@@ -137,7 +137,6 @@ import {
   enUS,
   type GlobalThemeOverrides,
 } from 'naive-ui'
-import { systemApi } from './api/system'
 
 const router = useRouter()
 const route = useRoute()
@@ -367,15 +366,9 @@ const naiveThemeOverrides = computed(() =>
 )
 
 // === Footer 版本信息 ===
-const appVersion = ref('0.1.0')
+const appVersion = __APP_VERSION__
 const currentYear = new Date().getFullYear()
-onMounted(async () => {
-  if (route.path === '/login') return  // 登录页不请求系统信息
-  try {
-    const res = await systemApi.info()
-    appVersion.value = (res.data as { data: { version: string } }).data.version
-  } catch { /* default */ }
-})
+// 无需 onMounted 请求后端，版本号在构建时从 docs/VERSION 注入
 
 // === 方法 ===
 function handleMenuClick(key: string) {

@@ -2,6 +2,8 @@ package api
 
 import (
 	"net/http"
+	"os"
+	"strings"
 
 	"github.com/gin-gonic/gin"
 	"github.com/silestar/AIGateway/internal/config"
@@ -9,11 +11,28 @@ import (
 
 // SystemHandler 系统配置 API
 type SystemHandler struct {
-	cfg *config.Config
+	cfg     *config.Config
+	version string
 }
 
 func NewSystemHandler(cfg *config.Config) *SystemHandler {
-	return &SystemHandler{cfg: cfg}
+	return &SystemHandler{
+		cfg:     cfg,
+		version: loadVersion("docs/VERSION"),
+	}
+}
+
+// loadVersion 从 VERSION 文件读取版本号
+func loadVersion(path string) string {
+	data, err := os.ReadFile(path)
+	if err != nil {
+		return "0.1.0" // fallback
+	}
+	v := strings.TrimSpace(string(data))
+	if v == "" {
+		return "0.1.0"
+	}
+	return v
 }
 
 // RegisterRoutes 注册系统路由
