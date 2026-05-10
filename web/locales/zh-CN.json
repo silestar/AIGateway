@@ -51,7 +51,8 @@
     "back": "返回",
     "createdAt": "创建时间",
     "selectAll": "全选",
-    "deselectAll": "取消全选"
+    "deselectAll": "取消全选",
+    "saveSuccess": "保存成功"
   },
   "keys": {
     "title": "密钥管理",

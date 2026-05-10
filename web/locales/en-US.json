@@ -51,7 +51,8 @@
     "back": "Back",
     "createdAt": "Created At",
     "selectAll": "Select All",
-    "deselectAll": "Deselect All"
+    "deselectAll": "Deselect All",
+    "saveSuccess": "Saved successfully"
   },
   "keys": {
     "title": "Key Management",

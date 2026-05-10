@@ -241,8 +241,19 @@ func (m *Manager) Start(ctx context.Context, pluginID uint) error {
 		return fmt.Errorf("plugin already running")
 	}
 
-	// 启动子进程
-	cmd := exec.CommandContext(ctx, plugin.Binary)
+	// 诊断：检查二进制文件是否存在且可执行
+	if info, err := os.Stat(plugin.Binary); err != nil {
+		return fmt.Errorf("plugin binary not found at '%s': %w (pluginsDir=%s)", plugin.Binary, err, m.pluginsDir)
+	} else {
+		m.logger.Info("plugin binary found",
+			zap.String("path", plugin.Binary),
+			zap.Int64("size", info.Size()),
+			zap.String("perm", info.Mode().String()),
+		)
+	}
+
+	// 启动子进程（使用 Background context，避免请求结束后 context cancel 杀死子进程）
+	cmd := exec.CommandContext(context.Background(), plugin.Binary)
 	cmd.Env = append(os.Environ(),
 		"PLUGIN_AUTH_TOKEN="+plugin.AuthToken,
 		fmt.Sprintf("PLUGIN_PORT=%d", plugin.Port),
@@ -268,7 +279,7 @@ func (m *Manager) Start(ctx context.Context, pluginID uint) error {
 	healthOK := false
 	for i := 0; i < 3; i++ {
 		time.Sleep(1 * time.Second)
-		healthURL := fmt.Sprintf("http://127.0.0.1:%d/health", plugin.Port)
+		healthURL := fmt.Sprintf("http://127.0.0.1:%d/health", plugin.Port+1)
 		resp, err := m.client.Get(healthURL)
 		if err == nil {
 			resp.Body.Close()
@@ -277,8 +288,28 @@ func (m *Manager) Start(ctx context.Context, pluginID uint) error {
 				break
 			}
 		}
+		m.logger.Info("plugin health check attempt",
+			zap.String("name", plugin.Name),
+			zap.Int("attempt", i+1),
+			zap.String("url", healthURL),
+			zap.Error(err),
+		)
 	}
 	if !healthOK {
+		// 诊断：检查进程是否还活着
+		if proc, procErr := os.FindProcess(pid); procErr == nil {
+			proc.Release()
+			m.logger.Warn("plugin process was alive but health check timed out",
+				zap.String("name", plugin.Name),
+				zap.Int("pid", pid),
+			)
+		} else {
+			m.logger.Warn("plugin process exited before health check could complete",
+				zap.String("name", plugin.Name),
+				zap.Int("pid", pid),
+				zap.Error(procErr),
+			)
+		}
 		// 健康确认失败，停止进程并标记 stopped
 		if proc, err := os.FindProcess(pid); err == nil {
 			proc.Kill()
@@ -502,7 +533,7 @@ func (m *Manager) HealthCheck(ctx context.Context) {
 	m.db.WithContext(ctx).Where("status = ?", StatusRunning).Find(&plugins)
 
 	for _, p := range plugins {
-		url := fmt.Sprintf("http://127.0.0.1:%d/health", p.Port)
+		url := fmt.Sprintf("http://127.0.0.1:%d/health", p.Port+1)
 		resp, err := m.client.Get(url)
 		if err != nil || resp.StatusCode != http.StatusOK {
 			// 连续失败标记 unhealthy
