@@ -32,6 +32,10 @@ func NewManager(db *gorm.DB, logger *zap.Logger, pluginsDir string, sidecarTimeo
 	if pluginsDir == "" {
 		pluginsDir = "plugins"
 	}
+	// 确保转为绝对路径，避免 exec.Command 找不到二进制
+	if absDir, err := filepath.Abs(pluginsDir); err == nil {
+		pluginsDir = absDir
+	}
 	timeout := 5 * time.Second
 	if sidecarTimeout > 0 {
 		timeout = time.Duration(sidecarTimeout) * time.Second
