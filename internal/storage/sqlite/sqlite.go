@@ -86,6 +86,7 @@ func autoMigrate(db *gorm.DB) error {
 		&channel.ChannelGroupMember{},
 		&keys.KeysGroup{},
 		&keys.KeysGroupMember{},
+		&channel.KeysGroupChannelGroup{},
 		&stats.RequestLog{},
 		&stats.SystemDailyStats{},
 		&stats.KeysDailyStats{},

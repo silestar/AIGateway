@@ -11,6 +11,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"runtime"
 	"time"
 
 	adapterregistry "github.com/bokelife/aigateway/pkg/adapter/registry"
@@ -59,7 +60,6 @@ func (m *Manager) Install(ctx context.Context, zipPath string) (*Plugin, error) 
 
 	// 2. 查找 manifest.json
 	var manifestData []byte
-	var binaryName string
 
 	for _, f := range reader.File {
 		rc, err := f.Open()
@@ -82,16 +82,31 @@ func (m *Manager) Install(ctx context.Context, zipPath string) (*Plugin, error) 
 		return nil, fmt.Errorf("parse manifest: %w", err)
 	}
 
-	// 3. 创建插件目录并解压
+	// 3. 确定当前服务器架构对应的二进制文件名
+	binaryName, err := resolveBinaryName(&manifest)
+	if err != nil {
+		return nil, err // 架构不匹配，拒绝安装
+	}
+
+	// 4. 创建插件目录并解压（只解压匹配架构的二进制 + manifest）
 	pluginDir := filepath.Join(m.pluginsDir, manifest.Name)
 	os.MkdirAll(pluginDir, 0755)
 
+	binaryFound := false
 	for _, f := range reader.File {
+		baseName := filepath.Base(f.Name)
+
+		// 跳过非目标架构的二进制文件
+		if isPluginBinary(baseName, &manifest) && baseName != binaryName {
+			continue
+		}
+
 		rc, err := f.Open()
 		if err != nil {
 			continue
 		}
-		outPath := filepath.Join(pluginDir, filepath.Base(f.Name))
+
+		outPath := filepath.Join(pluginDir, baseName)
 		outFile, err := os.Create(outPath)
 		if err != nil {
 			rc.Close()
@@ -102,16 +117,16 @@ func (m *Manager) Install(ctx context.Context, zipPath string) (*Plugin, error) 
 		outFile.Close()
 		rc.Close()
 
-		if filepath.Base(f.Name) == manifest.Binary {
-			binaryName = manifest.Binary
+		if baseName == binaryName {
+			binaryFound = true
 		}
 	}
 
-	if binaryName == "" {
-		return nil, fmt.Errorf("binary '%s' not found in zip", manifest.Binary)
+	if !binaryFound {
+		return nil, fmt.Errorf("binary '%s' for current architecture (%s/%s) not found in zip", binaryName, runtime.GOOS, runtime.GOARCH)
 	}
 
-	// 4. 入库
+	// 5. 入库
 	hooksJSON, _ := json.Marshal(manifest.Hooks)
 	plugin := &Plugin{
 		Name:         manifest.Name,
@@ -508,4 +523,45 @@ func (m *Manager) discoverChannelType(ctx context.Context, plugin Plugin) {
 		zap.String("plugin", plugin.Name),
 		zap.String("channel_type", discovery.Type),
 	)
+}
+
+// resolveBinaryName 根据当前服务器架构确定应使用的二进制文件名
+// 优先查 binaries 映射，未命中则 fallback 到 binary 字段
+// 如果两者都无法匹配当前架构，返回错误拒绝安装
+func resolveBinaryName(m *Manifest) (string, error) {
+	archKey := runtime.GOOS + "/" + runtime.GOARCH
+
+	// 优先：binaries 映射
+	if len(m.Binaries) > 0 {
+		if name, ok := m.Binaries[archKey]; ok {
+			return name, nil
+		}
+		// 列出 ZIP 支持的架构
+		var supported []string
+		for k := range m.Binaries {
+			supported = append(supported, k)
+		}
+		return "", fmt.Errorf("plugin does not support current architecture %s (supported: %v)", archKey, supported)
+	}
+
+	// fallback：binary 字段（单架构 ZIP）
+	if m.Binary != "" {
+		return m.Binary, nil
+	}
+
+	return "", fmt.Errorf("manifest has no binary or binaries field")
+}
+
+// isPluginBinary 判断 ZIP 中的文件名是否是插件的二进制文件
+// 通过 manifest 的 binary 和 binaries 字段来判断
+func isPluginBinary(filename string, m *Manifest) bool {
+	if filename == m.Binary {
+		return true
+	}
+	for _, name := range m.Binaries {
+		if filename == name {
+			return true
+		}
+	}
+	return false
 }

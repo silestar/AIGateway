@@ -326,6 +326,7 @@ async function handleAddChannels() {
     await groupApi.setChannelGroupChannels(cgSelected.value.id, addChannelSelection.value)
     message.success(t('common.success'))
     showAddChannelModal.value = false
+    await loadChannelGroups()
     selectCG(cgSelected.value)
   } catch { message.error(t('common.operationFailed')) }
 }

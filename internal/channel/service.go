@@ -173,8 +173,53 @@ func (s *service) TestConnection(ctx context.Context, channelType, baseURL, apiK
 	if err != nil {
 		return fmt.Errorf("unsupported channel type: %s", channelType)
 	}
+
+	// openai 类型：发送轻量 chat completion 测试连通性
+	// 兼容 GitHub Models 等没有 /v1/models 端点的上游
+	if channelType == "openai" {
+		return s.testOpenAIConnection(ctx, baseURL, apiKey)
+	}
+
 	_, err = adp.FetchModels(ctx, baseURL, apiKey)
 	return err
+}
+
+// testOpenAIConnection 通过 /v1/chat/completions 测试 OpenAI 兼容渠道的连通性
+func (s *service) testOpenAIConnection(ctx context.Context, baseURL, apiKey string) error {
+	url := baseURL + "/v1/chat/completions"
+	reqBody, _ := json.Marshal(map[string]interface{}{
+		"model": "gpt-4o-mini",
+		"messages": []map[string]string{
+			{"role": "user", "content": "hi"},
+		},
+		"max_tokens": 1,
+		"stream":     false,
+	})
+
+	req, err := http.NewRequestWithContext(ctx, "POST", url, bytes.NewReader(reqBody))
+	if err != nil {
+		return fmt.Errorf("创建测试请求失败: %w", err)
+	}
+	req.Header.Set("Authorization", "Bearer "+apiKey)
+	req.Header.Set("Content-Type", "application/json")
+
+	client := &http.Client{Timeout: 30 * time.Second}
+	resp, err := client.Do(req)
+	if err != nil {
+		return fmt.Errorf("测试连接失败: %w", err)
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode >= 400 {
+		body, _ := io.ReadAll(resp.Body)
+		errMsg := string(body)
+		if len(errMsg) > 300 {
+			errMsg = errMsg[:300] + "..."
+		}
+		return fmt.Errorf("测试连接失败 (HTTP %d): %s", resp.StatusCode, errMsg)
+	}
+
+	return nil
 }
 
 func (s *service) Delete(ctx context.Context, id uint) error {

@@ -49,15 +49,29 @@
               </template>
             </n-form-item>
             <n-form-item :label="t('common.type')"><n-input :value="selectedChannel.type" disabled /></n-form-item>
-            <n-form-item :label="t('common.weight')"><n-input-number v-model:value="editForm.weight" :min="0" /></n-form-item>
+            <n-form-item :label="t('common.weight')">
+              <n-input-number v-model:value="editForm.weight" :min="1" />
+              <template #feedback>
+                <n-text depth="3" style="font-size: 12px">{{ t('channels.weightTip') }}</n-text>
+              </template>
+            </n-form-item>
             <n-form-item :label="t('channels.maxRPM')">
               <n-input-number v-model:value="editForm.max_rpm" :min="0" :placeholder="t('channels.noLimit')" />
+              <template #feedback>
+                <n-text depth="3" style="font-size: 12px">{{ t('channels.maxRPMTip') }}</n-text>
+              </template>
             </n-form-item>
             <n-form-item :label="t('channels.maxTPM')">
               <n-input-number v-model:value="editForm.max_tpm" :min="0" :placeholder="t('channels.noLimit')" />
+              <template #feedback>
+                <n-text depth="3" style="font-size: 12px">{{ t('channels.maxTPMTip') }}</n-text>
+              </template>
             </n-form-item>
             <n-form-item :label="t('channels.maxDailyRequests')">
               <n-input-number v-model:value="editForm.max_daily_requests" :min="0" :placeholder="t('channels.noLimit')" />
+              <template #feedback>
+                <n-text depth="3" style="font-size: 12px">{{ t('channels.maxDailyRequestsTip') }}</n-text>
+              </template>
             </n-form-item>
             <n-form-item>
               <n-space>
@@ -1037,7 +1051,7 @@ const accountColumns = computed(() => [
   {
     title: t('common.priority'), key: 'priority', width: 130,
     render: (row: Account) => h(NInputNumber, {
-      value: editingPriorityMap[row.id] ?? row.priority, size: 'small', min: 0, style: { width: '90px' },
+      value: editingPriorityMap[row.id] ?? row.priority, size: 'small', min: 1, style: { width: '90px' },
       'onUpdate:value': (val: number | null) => { if (val !== null) editingPriorityMap[row.id] = val },
       onBlur: () => handleUpdatePriority(row),
     }),

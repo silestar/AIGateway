@@ -44,6 +44,19 @@
 
         <!-- 右侧模型列表 -->
         <div class="model-list">
+          <!-- 自定义模型输入 -->
+          <div class="custom-model-input">
+            <n-input
+              v-model:value="customModelName"
+              :placeholder="t('channels.customModelPlaceholder')"
+              size="small"
+              clearable
+              @keyup.enter="addCustomModel"
+            />
+            <n-button size="small" type="primary" ghost @click="addCustomModel" :disabled="!customModelName.trim()">
+              {{ t('channels.addCustomModel') }}
+            </n-button>
+          </div>
           <template v-if="currentGroup">
             <div class="model-list__header">
               <n-text depth="3" style="font-size: 12px">{{ currentGroup.models.length }} {{ t('channels.modelCount') }}</n-text>
@@ -174,6 +187,7 @@ const fetching = ref(false)
 const availableModels = ref<ModelInfo[]>([])
 const selectedIds = ref<Set<string>>(new Set())
 const mappings = ref<{ display: string; actual: string }[]>([])
+const customModelName = ref('')
 const searchQuery = ref('')
 const activeFilter = ref('all')
 const activeOwner = ref('')
@@ -358,6 +372,16 @@ async function copyModelName(name: string) {
   }
 }
 
+function addCustomModel() {
+  const name = customModelName.value.trim()
+  if (!name) return
+  const newSet = new Set(selectedIds.value)
+  newSet.add(name)
+  selectedIds.value = newSet
+  customModelName.value = ''
+  message.success(t('channels.customModelAdded', { name }))
+}
+
 function addMapping() {
   mappings.value.push({ display: '', actual: '' })
 }
@@ -495,6 +519,17 @@ function doSave() {
   height: 100%;
   overflow-y: auto;
   padding: 0;
+}
+
+.custom-model-input {
+  display: flex;
+  gap: 6px;
+  padding: 8px 12px;
+  border-bottom: 1px solid rgba(255,255,255,0.06);
+  position: sticky;
+  top: 0;
+  background: var(--n-card-color, #1a1a2e);
+  z-index: 2;
 }
 
 .model-list__header {

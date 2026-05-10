@@ -1,6 +1,6 @@
 # Changelog
 
-## [0.1.0] - 2026-05-05
+## [0.1.2] - 2026-05-10
 
 ### 阶段一：基础设施层
 - 项目骨架与目录结构
@@ -72,3 +72,13 @@
 - 自动刷新：30 秒轮询
 - 颜色规则：成功率 >95% 绿/>80% 黄/<80% 红；延迟 <2s 绿/<5s 黄/>5s 红
 - 中英文 i18n 扩展
+
+### Bug 修复与体验优化
+
+- 修复渠道分组创建后左侧列表统计数不刷新的问题：`handleAddChannels` 中 `selectCG()` 前新增 `await loadChannelGroups()`
+- 修复密钥分组创建 500 错误：`autoMigrate` 缺少 `KeysGroupChannelGroup` 表注册
+- 修复渠道账号创建时可重复添加相同密钥的问题：`Create()` 新增同渠道下密钥去重检测
+- 修复渠道编辑页面优先级默认值矛盾：`NInputNumber` 的 `min` 从 0 改为 1，与后端"不允许填 0"逻辑对齐
+- 新增渠道模型选择自定义模型输入功能：`ModelSelectModal` 顶部添加输入框 + 添加按钮，支持手动输入未抓取到的上游模型
+- 修复 GitHub Models 等无 `/v1/models` 端点的 openai 兼容渠道测试连接 404：`TestConnection` 对 openai 类型改用 `/v1/chat/completions` 轻量请求测试连通性
+- 渠道编辑页面新增字段提示文案：权重、RPM 限制、TPM 限制、每日请求上限均添加 `feedback` 说明（强调每个账号独立计数）

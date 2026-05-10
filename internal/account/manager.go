@@ -264,6 +264,21 @@ func (m *Manager) ReportResult(ctx context.Context, accountID uint, success bool
 // ========== CRUD 方法 ==========
 
 func (m *Manager) Create(ctx context.Context, channelID uint, apiKey string) (*Account, error) {
+	// 检查同一渠道下是否已存在相同的 API Key
+	existingAccounts, err := m.ListByChannel(ctx, channelID)
+	if err != nil {
+		return nil, fmt.Errorf("check existing accounts: %w", err)
+	}
+	for _, acc := range existingAccounts {
+		plainKey, decErr := m.cryptoSvc.Decrypt(acc.APIKeyEncrypted)
+		if decErr != nil {
+			continue // 解密失败跳过（不应该发生）
+		}
+		if plainKey == apiKey {
+			return nil, fmt.Errorf("该密钥已存在于该渠道下（账号 ID: %d），请勿重复添加", acc.ID)
+		}
+	}
+
 	encrypted, err := m.cryptoSvc.Encrypt(apiKey)
 	if err != nil {
 		return nil, fmt.Errorf("encrypt api key: %w", err)

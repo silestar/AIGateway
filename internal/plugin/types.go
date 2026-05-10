@@ -115,7 +115,8 @@ type Manifest struct {
 	Version      string          `json:"version"`
 	Description  string          `json:"description"`
 	Author       string          `json:"author"`
-	Binary       string          `json:"binary"`
+	Binary       string          `json:"binary"`                  // 单架构二进制文件名（向后兼容）
+	Binaries     map[string]string `json:"binaries,omitempty"`    // 多架构映射：GOOS/GOARCH → 二进制文件名
 	Port         int             `json:"port"`
 	Hooks        []string        `json:"hooks"`
 	ConfigSchema json.RawMessage `json:"config_schema"`
