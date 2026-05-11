@@ -1,5 +1,17 @@
 # Changelog
 
+## [0.1.3] - 2026-05-11
+
+### 流式 Token 统计修复
+- 修复流式请求 token 统计为 0 的问题：`ForwardStream` 自动注入 `stream_options: {"include_usage": true}`，让上游在流式最后一个 chunk 返回 usage 数据
+- 仅在请求体未包含 `stream_options` 时注入，已有则不覆盖
+
+### 缓存命中 Token 提取与展示
+- `TokenUsage` 结构体新增 `CachedTokens` 字段
+- 新增 `extractCachedTokens()` 函数，支持 OpenAI 格式（`prompt_tokens_details.cached_tokens`）和 Anthropic 格式（`cache_read_input_tokens`）
+- 非流式和流式两条提取路径均已接入缓存提取逻辑
+- `buildRequestLog` 写入 `CacheTokens` 到数据库，前端日志表格和详情面板均展示缓存命中数值，使用逗号分隔格式
+
 ## [0.1.2] - 2026-05-10
 
 ### 插件系统：Sidecar TCP 代理模式（重大架构升级）

@@ -71,10 +71,21 @@ func NewEngine(cfg config.ProxyConfig, accountMgr account.AccountManager, plugin
 				return nil, err
 			}
 
-			// 4. 标准 TLS 握手
-			tlsCfg := &tls.Config{
-				MinVersion: tls.VersionTLS12,
-			}
+// 4. 标准 TLS 握手
+		tlsCfg := &tls.Config{
+			MinVersion: tls.VersionTLS12,
+		}
+		// 从 addr (host:port) 提取 hostname 作为 ServerName
+		host, _, err := net.SplitHostPort(addr)
+		if err != nil {
+			host = addr
+		}
+		// 如果是 IP 地址则跳过证书域名校验，否则设 ServerName
+		if ip := net.ParseIP(host); ip != nil {
+			tlsCfg.InsecureSkipVerify = true
+		} else {
+			tlsCfg.ServerName = host
+		}
 			tlsConn := tls.Client(rawConn, tlsCfg)
 			if err := tlsConn.HandshakeContext(ctx); err != nil {
 				rawConn.Close()
@@ -312,7 +323,29 @@ func (e *Engine) ForwardStream(ctx context.Context, ch *channel.Channel, acc *ac
 		upstreamURL += "?" + originalReq.URL.RawQuery
 	}
 
-	upstreamReq, err := http.NewRequestWithContext(ctx, originalReq.Method, upstreamURL, originalReq.Body)
+	// 注入 stream_options.include_usage 让上游在流式最后一个 chunk 返回 token usage
+	var reqBodyForUpstream io.Reader = originalReq.Body
+	if bodyBytes, readErr := io.ReadAll(originalReq.Body); readErr == nil {
+		var bodyMap map[string]interface{}
+		if json.Unmarshal(bodyBytes, &bodyMap) == nil {
+			if _, exists := bodyMap["stream_options"]; !exists {
+				bodyMap["stream_options"] = map[string]interface{}{
+					"include_usage": true,
+				}
+				if modified, marshalErr := json.Marshal(bodyMap); marshalErr == nil {
+					reqBodyForUpstream = bytes.NewReader(modified)
+				} else {
+					reqBodyForUpstream = bytes.NewReader(bodyBytes)
+				}
+			} else {
+				reqBodyForUpstream = bytes.NewReader(bodyBytes)
+			}
+		} else {
+			reqBodyForUpstream = bytes.NewReader(bodyBytes)
+		}
+	}
+
+	upstreamReq, err := http.NewRequestWithContext(ctx, originalReq.Method, upstreamURL, reqBodyForUpstream)
 	if err != nil {
 		return nil, fmt.Errorf("create upstream request: %w", err)
 	}
@@ -345,6 +378,7 @@ func (e *Engine) ForwardStream(ctx context.Context, ch *channel.Channel, acc *ac
 	buf := make([]byte, 4096)
 	const maxBodySize = 5 * 1024 * 1024 // 5MB
 	var bodyOverflow bool
+	var streamUsage *usage.TokenUsage // 流式过程中逐步提取 usage
 	for {
 		// 检查客户端是否断开
 		select {
@@ -356,14 +390,18 @@ func (e *Engine) ForwardStream(ctx context.Context, ch *channel.Channel, acc *ac
 		n, readErr := resp.Body.Read(buf)
 		if n > 0 {
 			chunk := buf[:n]
-			// 累积最后 64KB 的 chunk 用于提取 usage（不存完整响应体，避免数据库暴增）
+			// 累积最后 64KB 的 chunk 用于提取摘要（不存完整响应体）
 			lastChunks.Write(chunk)
 			if lastChunks.Len() > 65536 {
-				// 只保留最后 64KB
 				excess := lastChunks.Len() - 65536
 				remaining := lastChunks.String()[excess:]
 				lastChunks.Reset()
 				lastChunks.WriteString(remaining)
+			}
+
+			// 逐个 chunk 尝试提取 usage（不在尾部也能抓到）
+			if streamUsage == nil {
+				streamUsage = usage.ExtractFromStream(string(chunk))
 			}
 
 			// 累积完整 body 供 detail writer（上限 5MB）
@@ -396,7 +434,10 @@ func (e *Engine) ForwardStream(ctx context.Context, ch *channel.Channel, acc *ac
 	}
 
 	lastChunkStr := lastChunks.String()
-	streamUsage := usage.ExtractFromStream(lastChunkStr)
+	// 优先用流式过程中提取的 usage，兜底从尾部 64KB 再搜一次
+	if streamUsage == nil {
+		streamUsage = usage.ExtractFromStream(lastChunkStr)
+	}
 
 	// 从流式最后 chunk 提取响应摘要
 	var respModel, finishReason, sysFP string

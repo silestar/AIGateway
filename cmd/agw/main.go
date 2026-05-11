@@ -631,6 +631,7 @@ func buildRequestLog(keysID uint, modelName string, mappedModel string, result *
 	if usage != nil {
 		log.PromptTokens = usage.PromptTokens
 		log.CompletionTokens = usage.CompletionTokens
+		log.CacheTokens = usage.CachedTokens
 	}
 
 	// 简易费用计算（基于模型名估算单价，后续可接入配置）

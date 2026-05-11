@@ -718,7 +718,7 @@ render: (row) => {
         h('div', { style: tokenFont }, tokenText),
       ]
       if (row.cache_tokens > 0) {
-        children.push(h('div', { style: { fontSize: '10px', color: '#52c41a' } }, `缓存↓ ${row.cache_tokens}`))
+        children.push(h('div', { style: { fontSize: '10px', color: '#52c41a' } }, `缓存↓ ${row.cache_tokens.toLocaleString('en-US')}`))
       }
       return h('div', { style: { lineHeight: '1.4' } }, children)
     },
