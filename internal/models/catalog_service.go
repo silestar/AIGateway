@@ -115,7 +115,7 @@ func (s *catalogService) GetDisplayModels(ctx context.Context) ([]DisplayModelIt
 
 // BatchSetUpstreamVisible 按 actual_model_name 批量设置 upstream_visible
 func (s *catalogService) BatchSetUpstreamVisible(ctx context.Context, modelName string, visible bool) error {
-	return s.db.WithContext(ctx).Model(&gorm.Model{}).
+	return s.db.WithContext(ctx).
 		Table("channel_models").
 		Where("actual_model_name = ?", modelName).
 		Update("upstream_visible", visible).Error
@@ -123,7 +123,7 @@ func (s *catalogService) BatchSetUpstreamVisible(ctx context.Context, modelName 
 
 // BatchSetDisplayVisible 按 display_model_name 批量设置 display_visible
 func (s *catalogService) BatchSetDisplayVisible(ctx context.Context, modelName string, visible bool) error {
-	return s.db.WithContext(ctx).Model(&gorm.Model{}).
+	return s.db.WithContext(ctx).
 		Table("channel_models").
 		Where("display_model_name = ?", modelName).
 		Update("display_visible", visible).Error

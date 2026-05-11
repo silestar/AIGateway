@@ -12,6 +12,9 @@
 - 非流式和流式两条提取路径均已接入缓存提取逻辑
 - `buildRequestLog` 写入 `CacheTokens` 到数据库，前端日志表格和详情面板均展示缓存命中数值，使用逗号分隔格式
 
+### Bug 修复
+- 修复模型设置页面保存失败：`catalog_service` 中 `BatchSetUpstreamVisible` / `BatchSetDisplayVisible` 使用 `Model(&gorm.Model{})` 导致 GORM 自动注入 `updated_at` 和 `deleted_at`，但 `channel_models` 表无此两列。改为直接 `.Table("channel_models")` 操作
+
 ## [0.1.2] - 2026-05-10
 
 ### 插件系统：Sidecar TCP 代理模式（重大架构升级）
