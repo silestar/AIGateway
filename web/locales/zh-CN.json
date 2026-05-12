@@ -549,6 +549,7 @@
     "failureExcludeKeywords": "不计入失败的关键词",
     "failureExcludeKeywordsHint": "匹配这些关键词的错误不计入连续失败（如 context canceled）",
     "disableStatusCodes": "立即禁用账号的状态码",
+    "latencyThreshold": "响应时间阈值",
     "latencyThresholdHint": "自动禁用超出此响应时间的渠道（0=不限制）",
     "disableStatusCodes": "自动禁用状态码",
     "disableStatusCodesHint": "匹配这些状态码时立即禁用账号",

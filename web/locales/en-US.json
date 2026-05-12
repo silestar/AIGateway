@@ -545,6 +545,7 @@
     "failureExcludeKeywords": "Failure exclude keywords",
     "failureExcludeKeywordsHint": "Errors containing these keywords won't count as failures (e.g., context canceled)",
     "disableStatusCodes": "Status codes to immediately disable account",
+    "latencyThreshold": "Latency Threshold",
     "latencyThresholdHint": "Auto-disable channels exceeding this response time (0=no limit)",
     "disableStatusCodes": "Auto-disable Status Codes",
     "disableStatusCodesHint": "Immediately disable account when these status codes are matched",
