@@ -195,7 +195,7 @@ func (m *Manager) GetDecryptedAPIKey(ctx context.Context, accountID uint) (strin
 }
 
 // ReportResult 报告请求结果（故障降级 + 429 被动熔断）
-func (m *Manager) ReportResult(ctx context.Context, accountID uint, success bool, statusCode int) error {
+func (m *Manager) ReportResult(ctx context.Context, accountID uint, success bool, statusCode int, err error) error {
 	var acc Account
 	if err := m.db.WithContext(ctx).First(&acc, accountID).Error; err != nil {
 		return err
@@ -208,6 +208,21 @@ func (m *Manager) ReportResult(ctx context.Context, accountID uint, success bool
 				Updates(map[string]interface{}{"consecutive_failures": 0}).Error
 		}
 		return nil
+	}
+
+	// ===== 排除不计入连续失败的错误（如 context canceled）=====
+	if err != nil && m.cfg.FailureExcludeKeywords != nil {
+		for _, kw := range m.cfg.FailureExcludeKeywords {
+			if strings.Contains(err.Error(), kw) {
+				m.logger.Debug("failure excluded from counting",
+					zap.Uint("account_id", accountID),
+					zap.Error(err),
+				)
+				// 清除粘性缓存（避免下次继续走可能不稳定的连接）
+				m.clearAccountBindings(ctx, &acc)
+				return nil
+			}
+		}
 	}
 
 	// ===== 立即禁用：401/403 等状态码意味着认证/授权彻底失败 =====
@@ -229,19 +244,15 @@ func (m *Manager) ReportResult(ctx context.Context, accountID uint, success bool
 		}
 	}
 
-	// ===== 429 被动熔断：上游返回 429 时直接禁用到次日 =====
+	// ===== 429 被动熔断：上游返回 429 时直接禁用（不设置 probe_cooldown_until 以免阻塞探测）=====
 	if statusCode == 429 {
-		tomorrow := time.Now().AddDate(0, 0, 1)
-		nextMidnight := time.Date(tomorrow.Year(), tomorrow.Month(), tomorrow.Day(), 0, 0, 0, 0, tomorrow.Location())
 		updates := map[string]interface{}{
 			"status":               "disabled",
-			"probe_cooldown_until": nextMidnight,
 			"consecutive_failures": acc.ConsecutiveFailures + 1,
 		}
 		m.logger.Warn("account disabled due to upstream 429 rate limit",
 			zap.Uint("account_id", accountID),
 			zap.Uint("channel_id", acc.ChannelID),
-			zap.Time("cooldown_until", nextMidnight),
 		)
 		m.clearAccountBindings(ctx, &acc)
 		return m.db.WithContext(ctx).Model(&Account{}).Where("id = ?", accountID).Updates(updates).Error

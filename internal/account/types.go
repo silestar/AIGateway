@@ -32,7 +32,7 @@ type AccountManager interface {
 	ClearAccountAffinity(keysID, channelID uint)
 	IsAccountRateLimited(accountID uint, maxRPM, maxTPM, maxDailyRequests int) (string, bool)
 	GetDecryptedAPIKey(ctx context.Context, accountID uint) (string, error)
-	ReportResult(ctx context.Context, accountID uint, success bool, statusCode int) error
+	ReportResult(ctx context.Context, accountID uint, success bool, statusCode int, err error) error
 
 	// CRUD
 	Create(ctx context.Context, channelID uint, apiKey string) (*Account, error)

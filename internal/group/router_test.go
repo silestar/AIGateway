@@ -26,7 +26,7 @@ func (m *mockAccountManager) SelectAccount(ctx context.Context, consumerID, chan
 	return &account.Account{ID: 1, ChannelID: channelID, Status: "active", Priority: 0}, nil
 }
 func (m *mockAccountManager) GetDecryptedAPIKey(ctx context.Context, id uint) (string, error) { return "sk-test", nil }
-func (m *mockAccountManager) ReportResult(ctx context.Context, id uint, success bool, statusCode int) error {
+func (m *mockAccountManager) ReportResult(ctx context.Context, id uint, success bool, statusCode int, err error) error {
 	return nil
 }
 func (m *mockAccountManager) Create(ctx context.Context, channelID uint, apiKey string) (*account.Account, error) {

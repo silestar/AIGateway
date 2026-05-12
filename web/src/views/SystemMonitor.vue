@@ -21,10 +21,11 @@
             <n-switch v-model:value="form.channel_disable_on_failure" />
             <div class="form-hint">{{ t('monitor.disableOnFailureHint') }}</div>
           </n-form-item>
-          <n-form-item :label="t('monitor.enableOnSuccess')">
-            <n-switch v-model:value="form.channel_enable_on_success" />
-            <div class="form-hint">{{ t('monitor.enableOnSuccessHint') }}</div>
+          <n-form-item :label="t('monitor.failureExcludeKeywords')">
+            <n-dynamic-tags v-model:value="form.failure_exclude_keywords" />
+            <div class="form-hint">{{ t('monitor.failureExcludeKeywordsHint') }}</div>
           </n-form-item>
+
         </n-form>
       </div>
     </n-card>
@@ -164,10 +165,10 @@ const form = reactive<Record<string, any>>({
   channel_health_check_interval: 43200,
   channel_disable_latency_threshold: 0,
   channel_disable_on_failure: true,
-  channel_enable_on_success: true,
   channel_disable_status_codes: [401, 403],
   channel_retry_status_codes: [502, 503, 504],
   channel_disable_keywords: [],
+  failure_exclude_keywords: ['context canceled'],
 })
 
 // 状态码标签（n-dynamic-tags 需要 string[]）
@@ -209,10 +210,10 @@ async function loadConfig() {
       form.channel_health_check_interval = am.channel_health_check_interval ?? 43200
       form.channel_disable_latency_threshold = am.channel_disable_latency_threshold ?? 0
       form.channel_disable_on_failure = am.channel_disable_on_failure ?? true
-      form.channel_enable_on_success = am.channel_enable_on_success ?? true
       form.channel_disable_status_codes = am.channel_disable_status_codes ?? [401, 403]
       form.channel_retry_status_codes = am.channel_retry_status_codes ?? [502, 503, 504]
       form.channel_disable_keywords = am.channel_disable_keywords ?? []
+      form.failure_exclude_keywords = am.failure_exclude_keywords ?? ['context canceled']
     }
   } catch {
     message.error(t('common.operationFailed'))
@@ -227,10 +228,10 @@ async function handleSave() {
         channel_health_check_interval: form.channel_health_check_interval,
         channel_disable_latency_threshold: form.channel_disable_latency_threshold,
         channel_disable_on_failure: form.channel_disable_on_failure,
-        channel_enable_on_success: form.channel_enable_on_success,
         channel_disable_status_codes: form.channel_disable_status_codes,
         channel_retry_status_codes: form.channel_retry_status_codes,
         channel_disable_keywords: form.channel_disable_keywords,
+        failure_exclude_keywords: form.failure_exclude_keywords,
       },
     })
     message.success(t('monitor.saveSuccess'))

@@ -326,7 +326,7 @@ func (e *Engine) Forward(ctx context.Context, ch *channel.Channel, acc *account.
 				zap.Int64("elapsed_ms", elapsedMs),
 				zap.Int64("threshold_ms", e.latencyThresholdMs),
 			)
-			go e.accountMgr.ReportResult(ctx, acc.ID, false, 0)
+			go e.accountMgr.ReportResult(ctx, acc.ID, false, 0, nil)
 		}
 	}
 

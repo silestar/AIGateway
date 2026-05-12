@@ -2,6 +2,7 @@ package account
 
 import (
 	"context"
+	"fmt"
 	"testing"
 	"time"
 
@@ -58,7 +59,7 @@ func setupTestManager(t *testing.T) (*Manager, *gorm.DB) {
 
 	logger := zap.NewNop()
 	cache := NewMemoryCache()
-	mgr := NewManager(db, cache, cryptoSvc, cfg, logger)
+	mgr := NewManager(db, cache, cryptoSvc, nil, cfg, logger)
 
 	return mgr, db
 }
@@ -162,7 +163,7 @@ func TestReportResult_Success(t *testing.T) {
 	db.Model(&Account{}).Where("id = ?", acc.ID).Update("consecutive_failures", 3)
 
 	// 报告成功 → 重置失败计数
-	err := mgr.ReportResult(ctx, acc.ID, true, 200)
+	err := mgr.ReportResult(ctx, acc.ID, true, 200, nil)
 	if err != nil {
 		t.Fatalf("ReportResult success: %v", err)
 	}
@@ -185,7 +186,7 @@ func TestReportResult_FailureDisable(t *testing.T) {
 
 	// 连续失败3次 → 禁用
 	for i := 0; i < 3; i++ {
-		mgr.ReportResult(ctx, acc.ID, false, 500)
+		mgr.ReportResult(ctx, acc.ID, false, 500, nil)
 	}
 
 	var updated Account
@@ -207,8 +208,8 @@ func TestReportResult_4xxNotCounted(t *testing.T) {
 	acc, _ := mgr.Create(ctx, ch.ID, "sk-test-key-1")
 
 	// 4xx 非 429 → 不计入失败
-	mgr.ReportResult(ctx, acc.ID, false, 400)
-	mgr.ReportResult(ctx, acc.ID, false, 403)
+	mgr.ReportResult(ctx, acc.ID, false, 400, nil)
+	mgr.ReportResult(ctx, acc.ID, false, 403, nil)
 
 	var updated Account
 	db.First(&updated, acc.ID)
@@ -226,12 +227,38 @@ func TestReportResult_429Counted(t *testing.T) {
 	acc, _ := mgr.Create(ctx, ch.ID, "sk-test-key-1")
 
 	// 429 → 计入失败
-	mgr.ReportResult(ctx, acc.ID, false, 429)
+	mgr.ReportResult(ctx, acc.ID, false, 429, nil)
 
 	var updated Account
 	db.First(&updated, acc.ID)
 	if updated.ConsecutiveFailures != 1 {
 		t.Errorf("429 should be counted, got consecutive_failures=%d", updated.ConsecutiveFailures)
+	}
+}
+
+func TestReportResult_ExcludedFailure(t *testing.T) {
+	mgr, db := setupTestManager(t)
+	ctx := context.Background()
+
+	ch := &channel.Channel{Name: "test", Type: "openai", BaseURL: "https://api.openai.com", Status: "active"}
+	db.Create(ch)
+	acc, _ := mgr.Create(ctx, ch.ID, "sk-test-key-1")
+
+	// context canceled → 不计入失败
+	canceledErr := fmt.Errorf("context canceled")
+	mgr.ReportResult(ctx, acc.ID, false, 0, canceledErr)
+
+	var updated Account
+	db.First(&updated, acc.ID)
+	if updated.ConsecutiveFailures != 0 {
+		t.Errorf("context canceled should not be counted, got consecutive_failures=%d", updated.ConsecutiveFailures)
+	}
+
+	// 排除后正常 500 错误仍然计入
+	mgr.ReportResult(ctx, acc.ID, false, 500, nil)
+	db.First(&updated, acc.ID)
+	if updated.ConsecutiveFailures != 1 {
+		t.Errorf("expected consecutive_failures=1 after real error, got %d", updated.ConsecutiveFailures)
 	}
 }
 

@@ -67,10 +67,10 @@ type AccountManagerConfig struct {
 	ChannelHealthCheckInterval    int      `mapstructure:"channel_health_check_interval"`     // 全量健康检查间隔（秒），默认 43200（12小时）
 	ChannelDisableLatencyThreshold int     `mapstructure:"channel_disable_latency_threshold"` // 响应时间超此值自动禁用（秒），0=不限制
 	ChannelDisableOnFailure        bool    `mapstructure:"channel_disable_on_failure"`        // 测试失败时累积失败次数
-	ChannelEnableOnSuccess         bool    `mapstructure:"channel_enable_on_success"`         // 测试通过时恢复被禁用的账号
 	ChannelDisableStatusCodes      []int   `mapstructure:"channel_disable_status_codes"`      // 立即禁用账号的状态码
 	ChannelRetryStatusCodes        []int   `mapstructure:"channel_retry_status_codes"`        // 触发重试的状态码
 	ChannelDisableKeywords         []string `mapstructure:"channel_disable_keywords"`          // 立即禁用账号的关键词
+	FailureExcludeKeywords          []string `mapstructure:"failure_exclude_keywords"`           // 不计入连续失败的错误关键词
 }
 
 type LogConfig struct {
@@ -186,11 +186,11 @@ func (c *Config) GetHotReloadableConfig() map[string]interface{} {
 			"channel_health_check_interval":    c.AccountManager.ChannelHealthCheckInterval,
 			"channel_disable_latency_threshold": c.AccountManager.ChannelDisableLatencyThreshold,
 			"channel_disable_on_failure":        c.AccountManager.ChannelDisableOnFailure,
-			"channel_enable_on_success":         c.AccountManager.ChannelEnableOnSuccess,
-			"channel_disable_status_codes":       c.AccountManager.ChannelDisableStatusCodes,
+		"channel_disable_status_codes":       c.AccountManager.ChannelDisableStatusCodes,
 			"channel_retry_status_codes":         c.AccountManager.ChannelRetryStatusCodes,
-			"channel_disable_keywords":           c.AccountManager.ChannelDisableKeywords,
-			"account_status_cache_ttl":       c.AccountManager.AccountStatusCacheTTL,
+		"channel_disable_keywords":           c.AccountManager.ChannelDisableKeywords,
+		"failure_exclude_keywords":           c.AccountManager.FailureExcludeKeywords,
+		"account_status_cache_ttl":       c.AccountManager.AccountStatusCacheTTL,
 			"account_key_cache_ttl":          c.AccountManager.AccountKeyCacheTTL,
 		},
 		"plugin": map[string]interface{}{
@@ -295,19 +295,19 @@ func (c *Config) UpdateHotReloadableConfig(updates map[string]interface{}) error
 			if v, ok := am["channel_disable_on_failure"].(bool); ok {
 				c.AccountManager.ChannelDisableOnFailure = v
 			}
-			if v, ok := am["channel_enable_on_success"].(bool); ok {
-				c.AccountManager.ChannelEnableOnSuccess = v
-			}
-			if v, ok := toIntSlice(am["channel_disable_status_codes"]); ok {
+		if v, ok := toIntSlice(am["channel_disable_status_codes"]);ok {
 				c.AccountManager.ChannelDisableStatusCodes = v
 			}
 			if v, ok := toIntSlice(am["channel_retry_status_codes"]); ok {
 				c.AccountManager.ChannelRetryStatusCodes = v
 			}
-			if v, ok := toStringSlice(am["channel_disable_keywords"]); ok {
-				c.AccountManager.ChannelDisableKeywords = v
-			}
-			if v, ok := toInt(am["account_status_cache_ttl"]); ok {
+		if v, ok := toStringSlice(am["channel_disable_keywords"]); ok {
+			c.AccountManager.ChannelDisableKeywords = v
+		}
+		if v, ok := toStringSlice(am["failure_exclude_keywords"]); ok {
+			c.AccountManager.FailureExcludeKeywords = v
+		}
+		if v, ok := toInt(am["account_status_cache_ttl"]);ok {
 				c.AccountManager.AccountStatusCacheTTL = v
 			}
 			if v, ok := toInt(am["account_key_cache_ttl"]); ok {
@@ -377,10 +377,10 @@ func (c *Config) writeConfigFile() error {
 	v.Set("account_manager.channel_health_check_interval", c.AccountManager.ChannelHealthCheckInterval)
 	v.Set("account_manager.channel_disable_latency_threshold", c.AccountManager.ChannelDisableLatencyThreshold)
 	v.Set("account_manager.channel_disable_on_failure", c.AccountManager.ChannelDisableOnFailure)
-	v.Set("account_manager.channel_enable_on_success", c.AccountManager.ChannelEnableOnSuccess)
 	v.Set("account_manager.channel_disable_status_codes", c.AccountManager.ChannelDisableStatusCodes)
 	v.Set("account_manager.channel_retry_status_codes", c.AccountManager.ChannelRetryStatusCodes)
 	v.Set("account_manager.channel_disable_keywords", c.AccountManager.ChannelDisableKeywords)
+	v.Set("account_manager.failure_exclude_keywords", c.AccountManager.FailureExcludeKeywords)
 	v.Set("account_manager.account_status_cache_ttl", c.AccountManager.AccountStatusCacheTTL)
 	v.Set("account_manager.account_key_cache_ttl", c.AccountManager.AccountKeyCacheTTL)
 
@@ -480,7 +480,6 @@ func setDefaults(v *viper.Viper) {
 	v.SetDefault("account_manager.channel_health_check_interval", 43200)
 	v.SetDefault("account_manager.channel_disable_latency_threshold", 0)
 	v.SetDefault("account_manager.channel_disable_on_failure", true)
-	v.SetDefault("account_manager.channel_enable_on_success", true)
 	v.SetDefault("account_manager.channel_disable_status_codes", []int{401, 403, 429})
 	v.SetDefault("account_manager.channel_retry_status_codes", []int{502, 503, 504})
 	v.SetDefault("account_manager.channel_disable_keywords", []string{
@@ -496,8 +495,9 @@ func setDefaults(v *viper.Viper) {
 		"account_deactivated",
 		"Insufficient authentication scope",
 	})
+	v.SetDefault("account_manager.failure_exclude_keywords", []string{"context canceled"})
 
-	v.SetDefault("log.level", "info")
+	// API 密钥加密盐值
 	v.SetDefault("log.dir", "logs")
 	v.SetDefault("log.max_age_days", 30)
 	v.SetDefault("log.detail_log_enabled", true)
@@ -534,8 +534,8 @@ var ensureConfigKeys = []struct {
 	{"account_manager.channel_health_check_interval", "全量健康检查间隔（秒），默认 43200（12小时）"},
 	{"account_manager.channel_disable_latency_threshold", "响应时间超此值自动禁用（秒），0=不限制"},
 	{"account_manager.channel_disable_on_failure", "测试失败时累积失败次数"},
-	{"account_manager.channel_enable_on_success", "测试通过时恢复被禁用的账号"},
-	{"account_manager.account_status_cache_ttl", "账号状态缓存 TTL（秒）"},
+	{"account_manager.failure_exclude_keywords", "不计入连续失败的错误关键词"},
+	{"account_manager.channel_disable_status_codes", "立即禁用账号的状态码"},
 	{"account_manager.account_key_cache_ttl", "账号密钥缓存 TTL（秒）"},
 	// log
 	{"log.level", "日志级别：debug/info/warn/error"},

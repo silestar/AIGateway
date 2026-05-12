@@ -69,7 +69,7 @@
 
     <!-- 页脚 -->
     <footer class="home-footer">
-      <p>© {{ currentYear }} AIGateway Team · v0.2.0</p>
+      <p>© {{ currentYear }} AIGateway Team · v{{ appVersion }}</p>
     </footer>
   </div>
 </template>
@@ -82,6 +82,7 @@ import { NButton } from 'naive-ui'
 const { t, locale } = useI18n()
 
 const currentLang = computed(() => locale.value)
+const appVersion = __APP_VERSION__
 const currentYear = new Date().getFullYear()
 
 function toggleLang() {

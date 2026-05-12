@@ -282,29 +282,11 @@ func (m *Manager) healthCheckChannel(ctx context.Context, ch *channel.Channel, t
 		}
 		m.recordProbeLog(ctx, ch.ID, activeAcc.ID, false, "active_health_check", elapsedMs, statusCode, errMsg, 0, 0)
 		// 通过 ReportResult 累积失败次数，由已有阈值机制决定是否禁用
-		m.ReportResult(ctx, activeAcc.ID, false, statusCode)
+		m.ReportResult(ctx, activeAcc.ID, false, statusCode, testErr)
 	} else {
 		m.recordProbeLog(ctx, ch.ID, activeAcc.ID, true, "active_health_check", elapsedMs, testResult.Status, "", testResult.PromptTokens, testResult.CompletionTokens)
 		// 成功：重置连续失败计数
-		m.ReportResult(ctx, activeAcc.ID, true, testResult.Status)
-
-		// 如果 channel_enable_on_success 且有 disabled 账号，尝试恢复
-		if m.cfg.ChannelEnableOnSuccess {
-			var disabledAccounts []Account
-			m.db.WithContext(ctx).
-				Where("channel_id = ? AND status IN ?", ch.ID, []string{"disabled", "cooling"}).
-				Where("probe_cooldown_until IS NULL OR probe_cooldown_until < ?", time.Now()).
-				Find(&disabledAccounts)
-			for _, da := range disabledAccounts {
-				if da.LastFailedAt != nil {
-					disabledDuration := time.Since(*da.LastFailedAt)
-					if disabledDuration >= time.Duration(m.cfg.MinDisableDuration)*time.Second {
-						m.recoverAccount(ctx, &da)
-					}
-				}
-			}
-			m.resetCooldownCycles(ctx, ch.ID)
-		}
+		m.ReportResult(ctx, activeAcc.ID, true, testResult.Status, nil)
 	}
 }
 

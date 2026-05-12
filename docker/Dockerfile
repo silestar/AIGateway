@@ -35,6 +35,9 @@ WORKDIR /app
 # 从构建阶段复制二进制
 COPY --from=builder /app/agw /app/agw
 
+# 复制版本文件
+COPY docs/VERSION /app/docs/VERSION
+
 # 从前端构建阶段复制静态文件
 COPY --from=frontend /app/web/dist /app/web/dist
 

@@ -164,6 +164,7 @@ func main() {
 	// 注入 db 到上下文
 	router.Use(func(c *gin.Context) {
 		c.Set("db", db)
+		c.Set("cfg", cfg)
 		c.Set("keysSvc", keysSvc)
 		c.Set("proxyEngine", proxyEngine)
 		c.Set("accountMgr", accountMgr)
@@ -467,7 +468,7 @@ func handleChatCompletions(c *gin.Context) {
 				if !c.Writer.Written() && attempt < maxStreamRetries {
 					// 从 error 中提取上游返回的状态码（如 "upstream returned 429: ..."）
 					sc := extractStatusCode(err)
-					accountMgr.ReportResult(c.Request.Context(), currentStreamResult.Account.ID, false, sc)
+					accountMgr.ReportResult(c.Request.Context(), currentStreamResult.Account.ID, false, sc, err)
 					currentStreamResult.RetryChain.MarkError(shortenError(err.Error()), latencyMs, http.StatusBadGateway)
 					logger.Warn("stream forward failed (pre-write), retrying",
 						zap.Int("attempt", attempt+1),
@@ -569,7 +570,7 @@ func handleChatCompletions(c *gin.Context) {
 			if err != nil {
 				// 记录失败 + 进入重试循环
 				currentResult.RetryChain.MarkError(shortenError(err.Error()), latencyMs, http.StatusBadGateway)
-				accountMgr.ReportResult(c.Request.Context(), currentResult.Account.ID, false, 0)
+				accountMgr.ReportResult(c.Request.Context(), currentResult.Account.ID, false, 0, err)
 				logger.Warn("forward attempt failed, retrying",
 					zap.Int("retry", retryCount),
 					zap.Uint("channel", currentResult.Channel.ID),
@@ -587,9 +588,9 @@ func handleChatCompletions(c *gin.Context) {
 
 			// 非 2xx 响应按失败上报（触发 401/403 立即禁用等逻辑）
 			if proxyResult.StatusCode < 200 || proxyResult.StatusCode >= 300 {
-				accountMgr.ReportResult(c.Request.Context(), currentResult.Account.ID, false, proxyResult.StatusCode)
+				accountMgr.ReportResult(c.Request.Context(), currentResult.Account.ID, false, proxyResult.StatusCode, nil)
 			} else {
-				accountMgr.ReportResult(c.Request.Context(), currentResult.Account.ID, true, proxyResult.StatusCode)
+				accountMgr.ReportResult(c.Request.Context(), currentResult.Account.ID, true, proxyResult.StatusCode, nil)
 			}
 			respSummary = &ResponseSummary{
 				ResponseModel:     proxyResult.ResponseModel,

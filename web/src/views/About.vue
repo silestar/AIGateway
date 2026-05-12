@@ -17,7 +17,7 @@
         <div class="about-header">
           <span class="about-icon">⚡</span>
           <h1>AIGateway</h1>
-          <p class="version">v0.2.0</p>
+          <p class="version">v{{ appVersion }}</p>
         </div>
         <p class="about-desc">{{ t('about.description') }}</p>
         <div class="about-info">
@@ -41,6 +41,8 @@
 
 <script setup lang="ts">
 import { useI18n } from 'vue-i18n'
+
+const appVersion = __APP_VERSION__
 const { t } = useI18n()
 </script>
 
