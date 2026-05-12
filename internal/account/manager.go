@@ -25,6 +25,7 @@ type Manager struct {
 	cfg        config.AccountManagerConfig
 	logger     *zap.Logger
 	onProbeDone func(channelID, accountID uint, success bool, logType string, elapsedMs int, statusCode int, errMsg string, promptTokens int, completionTokens int)
+	lastCooldownProbeAt map[uint]time.Time // 每个账号的上次冷却探测时间
 }
 
 // NewManager 创建账号管理器
@@ -36,6 +37,7 @@ func NewManager(db *gorm.DB, cache Cache, cryptoSvc *crypto.CryptoService, chann
 		channelSvc: channelSvc,
 		cfg:        cfg,
 		logger:     logger,
+		lastCooldownProbeAt: make(map[uint]time.Time),
 	}
 }
 
@@ -527,6 +529,7 @@ func (m *Manager) TestAccount(ctx context.Context, channelID, accountID uint) (*
 	}
 	acc.Status = "active"
 	m.recoverAccount(ctx, &acc)
+	go m.rebalancePriorities(context.Background(), acc.ChannelID)
 
 	return testResult, nil
 }
@@ -557,4 +560,30 @@ func (m *Manager) BatchRecover(ctx context.Context, channelID uint) ([]map[strin
 	}
 
 	return results, nil
+}
+
+// rebalancePriorities 重新分配渠道内所有 active 账号的优先级
+// 按原 priority 降序排列，从 active_count 开始重新编号，保持相对顺序
+func (m *Manager) rebalancePriorities(ctx context.Context, channelID uint) error {
+	var activeAccounts []Account
+	if err := m.db.WithContext(ctx).
+		Where("channel_id = ? AND status = ?", channelID, "active").
+		Order("priority DESC").
+		Find(&activeAccounts).Error; err != nil {
+		return err
+	}
+
+	count := len(activeAccounts)
+	for i, acc := range activeAccounts {
+		newPriority := count - i
+		if acc.Priority != newPriority {
+			m.db.WithContext(ctx).Model(&Account{}).Where("id = ?", acc.ID).
+				Update("priority", newPriority)
+		}
+	}
+
+	m.logger.Info("rebalance priorities",
+		zap.Uint("channel_id", channelID),
+		zap.Int("active_count", count))
+	return nil
 }

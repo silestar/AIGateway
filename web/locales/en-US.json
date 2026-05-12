@@ -538,6 +538,8 @@
     "testIntervalHint": "Automatically probe all channels in the background",
     "disableOnFailure": "Accumulate failures on test failure",
     "disableOnFailureHint": "Accumulate consecutive failures on test failure, auto-disable when threshold reached",
+    "cooldownProbeInterval": "Cooldown Probe Interval (s)",
+    "cooldownProbeIntervalHint": "Interval between probe attempts in second half of cooldown, default 1800s",
     "maxRetryAttempts": "Channel circuit breaker threshold",
     "maxRetryAttemptsHint": "Skip channel after N cross-account failures in same request",
     "failureExcludeKeywords": "Failure exclude keywords",

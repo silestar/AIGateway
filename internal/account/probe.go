@@ -80,7 +80,7 @@ func (m *Manager) probeChannel(ctx context.Context, ch *channel.Channel, traceID
 	// 3. 获取 disabled 账号（排除冷却中的）
 	var disabledAccounts []Account
 	if err := m.db.WithContext(ctx).
-		Where("channel_id = ? AND status IN ?", ch.ID, []string{"disabled"}).
+		Where("channel_id = ? AND status IN ?", ch.ID, []string{"disabled", "cooling"}).
 		Where("probe_cooldown_until IS NULL OR probe_cooldown_until < ?", time.Now()).
 		Where("probe_failures < ?", m.cfg.MaxProbeFailures). // 未达探测失败上限
 		Order("last_failed_at ASC").
@@ -100,6 +100,20 @@ func (m *Manager) probeChannel(ctx context.Context, ch *channel.Channel, traceID
 			disabledDuration := time.Since(*acc.LastFailedAt)
 			if disabledDuration < time.Duration(m.cfg.MinDisableDuration)*time.Second {
 				continue
+			}
+		}
+
+		// 冷却后半段试探：仍在冷却期但进入后半段时进行试探探测
+		if acc.ProbeCooldownUntil != nil && acc.ProbeCooldownUntil.After(time.Now()) {
+			cooldownHalfEnd := acc.ProbeCooldownUntil.Add(-time.Duration(m.cfg.CooldownProbeInterval) * 2 * time.Second)
+			if time.Now().After(cooldownHalfEnd) {
+				lastProbe := m.lastCooldownProbeAt[acc.ID]
+				if time.Since(lastProbe) < time.Duration(m.cfg.CooldownProbeInterval)*time.Second {
+					continue // 还没到探测间隔
+				}
+				m.lastCooldownProbeAt[acc.ID] = time.Now()
+			} else {
+				continue // 前半段，跳过
 			}
 		}
 
@@ -339,6 +353,8 @@ func (m *Manager) recoverAccount(ctx context.Context, acc *Account) {
 		zap.Uint("account_id", acc.ID),
 		zap.Uint("channel_id", acc.ChannelID),
 	)
+	// 恢复后重新平衡该渠道所有 active 账号的优先级
+	go m.rebalancePriorities(context.Background(), acc.ChannelID)
 	_ = now // 避免未使用警告
 }
 

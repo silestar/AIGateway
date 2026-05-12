@@ -21,6 +21,10 @@
             <n-switch v-model:value="form.channel_disable_on_failure" />
             <div class="form-hint">{{ t('monitor.disableOnFailureHint') }}</div>
           </n-form-item>
+          <n-form-item :label="t('monitor.cooldownProbeInterval')">
+            <n-input-number v-model:value="form.cooldown_probe_interval" :min="300" :max="86400" style="width:140px" />
+            <div class="form-hint">{{ t('monitor.cooldownProbeIntervalHint') }}</div>
+          </n-form-item>
           <n-form-item :label="t('monitor.maxRetryAttempts')">
             <n-input-number v-model:value="form.max_retry_attempts" :min="1" :max="10" style="width:120px" />
             <div class="form-hint">{{ t('monitor.maxRetryAttemptsHint') }}</div>
@@ -172,6 +176,7 @@ const form = reactive<Record<string, any>>({
   channel_disable_status_codes: [401, 403],
   channel_retry_status_codes: [502, 503, 504],
   channel_disable_keywords: [],
+  cooldown_probe_interval: 1800,
   max_stream_retries: 3,
   max_retry_attempts: 3,
   failure_exclude_keywords: ['context canceled'],
@@ -219,6 +224,7 @@ async function loadConfig() {
       form.channel_disable_status_codes = am.channel_disable_status_codes ?? [401, 403]
       form.channel_retry_status_codes = am.channel_retry_status_codes ?? [502, 503, 504]
       form.channel_disable_keywords = am.channel_disable_keywords ?? []
+      form.cooldown_probe_interval = am.cooldown_probe_interval ?? 1800
       form.max_stream_retries = am.max_stream_retries ?? 3
       form.max_retry_attempts = am.max_retry_attempts ?? 3
       form.failure_exclude_keywords = am.failure_exclude_keywords ?? ['context canceled']
@@ -239,6 +245,7 @@ async function handleSave() {
         channel_disable_status_codes: form.channel_disable_status_codes,
         channel_retry_status_codes: form.channel_retry_status_codes,
         channel_disable_keywords: form.channel_disable_keywords,
+        cooldown_probe_interval: form.cooldown_probe_interval,
         max_stream_retries: form.max_stream_retries,
         max_retry_attempts: form.max_retry_attempts,
         failure_exclude_keywords: form.failure_exclude_keywords,

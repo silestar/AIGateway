@@ -542,6 +542,8 @@
     "testIntervalHint": "在后台自动探测所有渠道",
     "disableOnFailure": "失败时累积失败次数",
     "disableOnFailureHint": "测试失败时累积连续失败次数，达到阈值后自动禁用账号",
+    "cooldownProbeInterval": "冷却试探间隔（秒）",
+    "cooldownProbeIntervalHint": "冷却后半段每次试探探测的间隔，默认1800秒（30分钟）",
     "maxRetryAttempts": "渠道级熔断阈值",
     "maxRetryAttemptsHint": "同一请求内跨不同账号连续失败N次后跳过当前渠道",
     "failureExcludeKeywords": "不计入失败的关键词",
