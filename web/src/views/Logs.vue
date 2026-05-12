@@ -581,7 +581,7 @@ const tableColumns = computed<DataTableColumns<RequestLog>>(() => [
       if (!row.channel_id || row.channel_id <= 0) return h('span', { style: { color: 'var(--n-text-color-3)' } }, '-')
       const line1 = h('div', { style: { fontSize: '12px', lineHeight: '1.5' } }, [
         h('span', { style: { color: '#ff6b6b', fontFamily: "'JetBrains Mono', monospace" } }, [
-          h('span', { class: 'channel-dot' }),
+          h('span', { style: { display: 'inline-block', width: '6px', height: '6px', borderRadius: '50%', background: 'rgb(255, 107, 107)', flexShrink: '0' } }),
           ` #${row.channel_id}`,
         ]),
         row.channel_name ? h('span', { style: { color: 'var(--n-text-color-1)', marginLeft: '4px' } }, ` ${row.channel_name}`) : null,
@@ -1181,7 +1181,6 @@ function onVisibilityChange() {
 .copy-hint { margin-left: 4px; opacity: 0.5; font-size: 11px; }
 
 .channel-id { color: #ff6b6b; font-family: 'JetBrains Mono', monospace; font-size: 12px; }
-.channel-dot { display: inline-block; width: 7px; height: 7px; border-radius: 50%; background: #ff6b6b; vertical-align: middle; margin-right: 2px; flex-shrink: 0; }
 .account-id { color: #999; font-family: 'JetBrains Mono', monospace; font-size: 12px; }
 
 .error-block {

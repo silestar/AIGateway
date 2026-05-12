@@ -529,7 +529,6 @@ func (m *Manager) TestAccount(ctx context.Context, channelID, accountID uint) (*
 	}
 	acc.Status = "active"
 	m.recoverAccount(ctx, &acc)
-	go m.rebalancePriorities(context.Background(), acc.ChannelID)
 
 	return testResult, nil
 }
