@@ -400,7 +400,7 @@ function handleMenuClick(key: string) {
 function handleLogout() { localStorage.removeItem('agw_token'); router.push('/login') }
 
 const menuOptions = computed(() => [
-  { label: t('menu.dashboard'), key: '/', icon: (): string => '📊' },
+  { label: t('menu.dashboard'), key: '/console', icon: (): string => '📊' },
   { label: t('menu.logs'), key: '/logs', icon: (): string => '📋' },
   { label: t('menu.stats'), key: '/stats', icon: (): string => '📈' },
   { label: t('menu.keys'), key: '/keys', icon: (): string => '🔑' },
