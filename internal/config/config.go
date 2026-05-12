@@ -561,6 +561,9 @@ var ensureConfigKeys = []struct {
 	{"account_manager.max_retry_attempts", "渠道级快速熔断阈值"},
 	{"account_manager.channel_disable_status_codes", "立即禁用账号的状态码"},
 	{"account_manager.account_key_cache_ttl", "账号密钥缓存 TTL（秒）"},
+	{"account_manager.account_status_cache_ttl", "账号状态缓存 TTL（秒）"},
+	{"account_manager.channel_retry_status_codes", "触发流式重试的状态码"},
+	{"account_manager.channel_disable_keywords", "立即禁用账号的错误关键词"},
 	// log
 	{"log.level", "日志级别：debug/info/warn/error"},
 	{"log.dir", "日志目录"},

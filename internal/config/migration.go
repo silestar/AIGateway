@@ -23,7 +23,7 @@ const BackupDir = "data/backups"
 const BackupRetentionDays = 30
 
 // CurrentVersion 当前程序版本（与 docs/VERSION 保持同步）
-const CurrentVersion = "0.2.0"
+const CurrentVersion = "0.2.1"
 
 // RunMigration 启动时统一迁移入口
 // 流程：检查版本标记 → 如果版本匹配则跳过 → 否则备份DB → 执行迁移 → 写入版本标记
