@@ -537,6 +537,8 @@
     "testIntervalHint": "在后台自动探测所有渠道",
     "disableOnFailure": "失败时累积失败次数",
     "disableOnFailureHint": "测试失败时累积连续失败次数，达到阈值后自动禁用账号",
+    "maxRetryAttempts": "渠道级熔断阈值",
+    "maxRetryAttemptsHint": "同一请求内跨不同账号连续失败N次后跳过当前渠道",
     "failureExcludeKeywords": "不计入失败的关键词",
     "failureExcludeKeywordsHint": "匹配这些关键词的错误不计入连续失败（如 context canceled）",
     "disableStatusCodes": "立即禁用账号的状态码",

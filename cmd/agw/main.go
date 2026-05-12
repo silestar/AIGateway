@@ -292,6 +292,7 @@ func handleChatCompletions(c *gin.Context) {
 	proxyEngine := c.MustGet("proxyEngine").(*proxy.Engine)
 	groupRouter := c.MustGet("groupRouter").(*group.Router)
 	accountMgr := c.MustGet("accountMgr").(account.AccountManager)
+	cfg := c.MustGet("cfg").(*config.Config)
 	asyncWriter := c.MustGet("asyncWriter").(*stats.AsyncWriter)
 	logger := c.MustGet("logger").(*zap.Logger)
 
@@ -453,11 +454,10 @@ func handleChatCompletions(c *gin.Context) {
 		c.Header("Connection", "keep-alive")
 
 		// 流式请求：在未向客户端发送任何数据前失败时，允许重试一次
-		currentStreamResult := result
-		const maxStreamRetries = 1
-		var streamResult *proxy.StreamResult
+	currentStreamResult := result
+	var streamResult *proxy.StreamResult
 
-		for attempt := 0; attempt <= maxStreamRetries; attempt++ {
+		for attempt := 0; attempt <= cfg.AccountManager.MaxStreamRetries; attempt++ {
 			// 每次重试前恢复请求体（ForwardStream 会消费 c.Request.Body）
 			c.Request.Body = io.NopCloser(bytes.NewReader(reqBodyBytes))
 			streamResult, err = proxyEngine.ForwardStream(c.Request.Context(), currentStreamResult.Channel, currentStreamResult.Account, c.Request, flusher, c.Writer)
@@ -465,7 +465,7 @@ func handleChatCompletions(c *gin.Context) {
 
 			if err != nil {
 				// 只有在未向客户端发送任何数据时才可安全重试
-				if !c.Writer.Written() && attempt < maxStreamRetries {
+				if !c.Writer.Written() && attempt < cfg.AccountManager.MaxStreamRetries {
 					// 从 error 中提取上游返回的状态码（如 "upstream returned 429: ..."）
 					sc := extractStatusCode(err)
 					accountMgr.ReportResult(c.Request.Context(), currentStreamResult.Account.ID, false, sc, err)
@@ -522,9 +522,11 @@ func handleChatCompletions(c *gin.Context) {
 	} else {
 		// 非流式请求 — 带完整重试循环
 		var proxyResult *proxy.ProxyResult
-		maxRetries := 3 // TODO: 从配置读取
-		retryCount := 0
-		currentResult := result
+	maxRetries := cfg.AccountManager.MaxRetryAttempts
+	retryCount := 0
+	failedAcrossAccounts := 0
+	lastFailedAccountID := uint(0)
+	currentResult := result
 
 		for {
 			// 检查客户端是否断开
@@ -567,18 +569,53 @@ func handleChatCompletions(c *gin.Context) {
 			proxyResult, err = proxyEngine.Forward(c.Request.Context(), currentResult.Channel, currentResult.Account, c.Request)
 			latencyMs = int(time.Since(startTime).Milliseconds())
 
-			if err != nil {
-				// 记录失败 + 进入重试循环
-				currentResult.RetryChain.MarkError(shortenError(err.Error()), latencyMs, http.StatusBadGateway)
-				accountMgr.ReportResult(c.Request.Context(), currentResult.Account.ID, false, 0, err)
-				logger.Warn("forward attempt failed, retrying",
-					zap.Int("retry", retryCount),
-					zap.Uint("channel", currentResult.Channel.ID),
-					zap.Uint("account", currentResult.Account.ID),
-					zap.Error(err))
-				retryCount++
-				continue
+		if err != nil {
+			// 记录失败 + 进入重试循环
+			currentResult.RetryChain.MarkError(shortenError(err.Error()), latencyMs, http.StatusBadGateway)
+			accountMgr.ReportResult(c.Request.Context(), currentResult.Account.ID, false, 0, err)
+			logger.Warn("forward attempt failed, retrying",
+				zap.Int("retry", retryCount),
+				zap.Uint("channel", currentResult.Channel.ID),
+				zap.Uint("account", currentResult.Account.ID),
+				zap.Error(err))
+
+			// 渠道级快速熔断：跨不同账号的失败才计数
+			isExcluded := false
+			for _, kw := range cfg.AccountManager.FailureExcludeKeywords {
+				if strings.Contains(err.Error(), kw) {
+					isExcluded = true
+					break
+				}
 			}
+			if !isExcluded {
+				if currentResult.Account.ID != lastFailedAccountID {
+					failedAcrossAccounts++
+					lastFailedAccountID = currentResult.Account.ID
+				}
+				if failedAcrossAccounts >= cfg.AccountManager.MaxRetryAttempts {
+					logger.Warn("channel fast circuit breaker triggered",
+						zap.Uint("channel_id", currentResult.Channel.ID),
+						zap.Int("failed_accounts", failedAcrossAccounts),
+					)
+					// 跳渠道
+					c.Request.Body = io.NopCloser(bytes.NewReader(reqBodyBytes))
+					currentResult, err = groupRouter.RerouteAfterFailure(c.Request.Context(), currentResult)
+					if err != nil {
+						errMsg := err.Error()
+						statusCode = http.StatusBadGateway
+						asyncWriter.Record(buildRequestLog(cons.ID, modelName, result.ActualModelName, result, isStream, statusCode, latencyMs, clientIP, nil, errMsg, traceIDStr, nil))
+						c.JSON(http.StatusBadGateway, gin.H{"error": gin.H{"code": "no_available_account", "message": errMsg}})
+						return
+					}
+					failedAcrossAccounts = 0
+					lastFailedAccountID = 0
+					continue
+				}
+			}
+
+			retryCount++
+			continue
+		}
 
 			// 成功拿到上游响应（无论 HTTP 状态码）
 			result.RetryChain = currentResult.RetryChain // 同步 retry_chain

@@ -38,6 +38,8 @@ account_manager:
   global_health_check_interval: 3600           # 全局健康巡检间隔(秒)
   account_status_cache_ttl: 30                 # 状态缓存时间(秒)
   account_key_cache_ttl: 60                    # Key解密缓存(秒)
+  max_stream_retries: 3                        # 流式请求重试次数
+  max_retry_attempts: 3                        # 渠道级快速熔断阈值
   failure_exclude_keywords:                    # 不计入连续失败的错误关键词
     - "context canceled"
 

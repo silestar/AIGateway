@@ -71,6 +71,8 @@ type AccountManagerConfig struct {
 	ChannelRetryStatusCodes        []int   `mapstructure:"channel_retry_status_codes"`        // 触发重试的状态码
 	ChannelDisableKeywords         []string `mapstructure:"channel_disable_keywords"`          // 立即禁用账号的关键词
 	FailureExcludeKeywords          []string `mapstructure:"failure_exclude_keywords"`           // 不计入连续失败的错误关键词
+	MaxStreamRetries               int      `mapstructure:"max_stream_retries"`                  // 流式请求在未写数据前的重试次数
+	MaxRetryAttempts               int      `mapstructure:"max_retry_attempts"`                 // 渠道级：同一请求内跨账号连续失败后跳渠道
 }
 
 type LogConfig struct {
@@ -190,6 +192,8 @@ func (c *Config) GetHotReloadableConfig() map[string]interface{} {
 			"channel_retry_status_codes":         c.AccountManager.ChannelRetryStatusCodes,
 		"channel_disable_keywords":           c.AccountManager.ChannelDisableKeywords,
 		"failure_exclude_keywords":           c.AccountManager.FailureExcludeKeywords,
+		"max_stream_retries":                 c.AccountManager.MaxStreamRetries,
+		"max_retry_attempts":                 c.AccountManager.MaxRetryAttempts,
 		"account_status_cache_ttl":       c.AccountManager.AccountStatusCacheTTL,
 			"account_key_cache_ttl":          c.AccountManager.AccountKeyCacheTTL,
 		},
@@ -307,6 +311,12 @@ func (c *Config) UpdateHotReloadableConfig(updates map[string]interface{}) error
 		if v, ok := toStringSlice(am["failure_exclude_keywords"]); ok {
 			c.AccountManager.FailureExcludeKeywords = v
 		}
+		if v, ok := toInt(am["max_stream_retries"]); ok {
+			c.AccountManager.MaxStreamRetries = v
+		}
+		if v, ok := toInt(am["max_retry_attempts"]); ok {
+			c.AccountManager.MaxRetryAttempts = v
+		}
 		if v, ok := toInt(am["account_status_cache_ttl"]);ok {
 				c.AccountManager.AccountStatusCacheTTL = v
 			}
@@ -381,6 +391,8 @@ func (c *Config) writeConfigFile() error {
 	v.Set("account_manager.channel_retry_status_codes", c.AccountManager.ChannelRetryStatusCodes)
 	v.Set("account_manager.channel_disable_keywords", c.AccountManager.ChannelDisableKeywords)
 	v.Set("account_manager.failure_exclude_keywords", c.AccountManager.FailureExcludeKeywords)
+	v.Set("account_manager.max_stream_retries", c.AccountManager.MaxStreamRetries)
+	v.Set("account_manager.max_retry_attempts", c.AccountManager.MaxRetryAttempts)
 	v.Set("account_manager.account_status_cache_ttl", c.AccountManager.AccountStatusCacheTTL)
 	v.Set("account_manager.account_key_cache_ttl", c.AccountManager.AccountKeyCacheTTL)
 
@@ -465,7 +477,7 @@ func setDefaults(v *viper.Viper) {
 	v.SetDefault("redis.max_retries", 3)
 
 	v.SetDefault("account_manager.affinity_ttl", 3600)
-	v.SetDefault("account_manager.consecutive_failure_threshold", 5)
+	v.SetDefault("account_manager.consecutive_failure_threshold", 3)
 	v.SetDefault("account_manager.min_disable_duration", 120)
 	v.SetDefault("account_manager.probe_interval", 30)
 	v.SetDefault("account_manager.probe_active_ratio_threshold", 0.4)
@@ -495,6 +507,8 @@ func setDefaults(v *viper.Viper) {
 		"account_deactivated",
 		"Insufficient authentication scope",
 	})
+	v.SetDefault("account_manager.max_stream_retries", 3)
+	v.SetDefault("account_manager.max_retry_attempts", 3)
 	v.SetDefault("account_manager.failure_exclude_keywords", []string{"context canceled"})
 
 	// API 密钥加密盐值
@@ -535,6 +549,8 @@ var ensureConfigKeys = []struct {
 	{"account_manager.channel_disable_latency_threshold", "响应时间超此值自动禁用（秒），0=不限制"},
 	{"account_manager.channel_disable_on_failure", "测试失败时累积失败次数"},
 	{"account_manager.failure_exclude_keywords", "不计入连续失败的错误关键词"},
+	{"account_manager.max_stream_retries", "流式请求重试次数"},
+	{"account_manager.max_retry_attempts", "渠道级快速熔断阈值"},
 	{"account_manager.channel_disable_status_codes", "立即禁用账号的状态码"},
 	{"account_manager.account_key_cache_ttl", "账号密钥缓存 TTL（秒）"},
 	// log
