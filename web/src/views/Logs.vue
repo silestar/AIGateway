@@ -579,12 +579,22 @@ const tableColumns = computed<DataTableColumns<RequestLog>>(() => [
     width: 130,
     render: (row) => {
       if (!row.channel_id || row.channel_id <= 0) return h('span', { style: { color: 'var(--n-text-color-3)' } }, '-')
-      const ch = h('span', { style: { fontSize: '12px' } }, [
-        h('span', { style: { display: 'inline-block', width: '6px', height: '6px', borderRadius: '50%', background: '#ff6b6b', marginRight: '4px', verticalAlign: 'middle' } }),
-        h('span', { style: { color: '#ff6b6b', fontFamily: "'JetBrains Mono', monospace" } }, `#${row.channel_id}`),
+      const line1 = h('div', { style: { fontSize: '12px', lineHeight: '1.5' } }, [
+        h('span', { style: { color: '#ff6b6b', fontFamily: "'JetBrains Mono', monospace" } }, `· #${row.channel_id}`),
+        row.channel_name ? h('span', { style: { color: 'var(--n-text-color-1)', marginLeft: '4px' } }, ` ${row.channel_name}`) : null,
       ])
-      const name = row.channel_name ? h('div', { style: { fontSize: '12px', color: 'var(--n-text-color-2)' } }, row.channel_name) : null
-      return h('div', { style: { lineHeight: '1.4' } }, [ch, name])
+      const children = [line1]
+      // 第二行：账号信息
+      if (row.account_id && row.account_id > 0) {
+        const note = row.account_note || ''
+        const truncated = note.length > 15 ? note.slice(0, 15) + '...' : note
+        const line2 = h('div', { style: { fontSize: '11px', lineHeight: '1.4', color: 'var(--n-text-color-3)' } }, [
+          h('span', { style: { color: '#f0a020', fontFamily: "'JetBrains Mono', monospace" } }, `- #${row.account_id}`),
+          note ? h('span', { style: { color: 'var(--n-text-color-3)', marginLeft: '4px' } }, truncated) : null,
+        ])
+        children.push(line2)
+      }
+      return h('div', { style: { lineHeight: '1.4' } }, children)
     },
   },
   {
