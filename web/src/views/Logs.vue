@@ -580,7 +580,10 @@ const tableColumns = computed<DataTableColumns<RequestLog>>(() => [
     render: (row) => {
       if (!row.channel_id || row.channel_id <= 0) return h('span', { style: { color: 'var(--n-text-color-3)' } }, '-')
       const line1 = h('div', { style: { fontSize: '12px', lineHeight: '1.5' } }, [
-        h('span', { style: { color: '#ff6b6b', fontFamily: "'JetBrains Mono', monospace" } }, `· #${row.channel_id}`),
+        h('span', { style: { color: '#ff6b6b', fontFamily: "'JetBrains Mono', monospace" } }, [
+          h('span', { style: { fontSize: '16px' } }, '·'),
+          ` #${row.channel_id}`,
+        ]),
         row.channel_name ? h('span', { style: { color: 'var(--n-text-color-1)', marginLeft: '4px' } }, ` ${row.channel_name}`) : null,
       ])
       const children = [line1]
