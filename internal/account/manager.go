@@ -5,6 +5,7 @@ import (
 	"crypto/rand"
 	"encoding/hex"
 	"fmt"
+	"strings"
 	"time"
 
 	"go.uber.org/zap"
@@ -209,6 +210,25 @@ func (m *Manager) ReportResult(ctx context.Context, accountID uint, success bool
 		return nil
 	}
 
+	// ===== 立即禁用：401/403 等状态码意味着认证/授权彻底失败 =====
+	for _, disableCode := range m.cfg.ChannelDisableStatusCodes {
+		if statusCode == disableCode {
+			now := time.Now()
+			updates := map[string]interface{}{
+				"status":               "disabled",
+				"last_failed_at":       now,
+				"consecutive_failures": acc.ConsecutiveFailures + 1,
+			}
+			m.logger.Warn("account immediately disabled by status code",
+				zap.Uint("account_id", accountID),
+				zap.Uint("channel_id", acc.ChannelID),
+				zap.Int("status_code", statusCode),
+			)
+			m.clearAccountBindings(ctx, &acc)
+			return m.db.WithContext(ctx).Model(&Account{}).Where("id = ?", accountID).Updates(updates).Error
+		}
+	}
+
 	// ===== 429 被动熔断：上游返回 429 时直接禁用到次日 =====
 	if statusCode == 429 {
 		tomorrow := time.Now().AddDate(0, 0, 1)
@@ -259,6 +279,41 @@ func (m *Manager) ReportResult(ctx context.Context, accountID uint, success bool
 	}
 
 	return m.db.WithContext(ctx).Model(&Account{}).Where("id = ?", accountID).Updates(updates).Error
+}
+
+// DisableAccountByKeyword 关键词匹配后直接禁用账号（不走累计失败逻辑）
+func (m *Manager) DisableAccountByKeyword(ctx context.Context, accountID uint, keyword string) error {
+	var acc Account
+	if err := m.db.WithContext(ctx).First(&acc, accountID).Error; err != nil {
+		return err
+	}
+
+	now := time.Now()
+	updates := map[string]interface{}{
+		"status":               "disabled",
+		"last_failed_at":       now,
+		"consecutive_failures": acc.ConsecutiveFailures + 1,
+	}
+
+	m.logger.Warn("account disabled by keyword match",
+		zap.Uint("account_id", accountID),
+		zap.Uint("channel_id", acc.ChannelID),
+		zap.String("keyword", keyword),
+	)
+
+	m.clearAccountBindings(ctx, &acc)
+	return m.db.WithContext(ctx).Model(&Account{}).Where("id = ?", accountID).Updates(updates).Error
+}
+
+// CheckDisableKeywords 检查响应内容是否包含禁用关键词（不区分大小写），返回匹配到的关键词（空串表示未匹配）
+func (m *Manager) CheckDisableKeywords(responseBody string) string {
+	lowerBody := strings.ToLower(responseBody)
+	for _, kw := range m.cfg.ChannelDisableKeywords {
+		if strings.Contains(lowerBody, strings.ToLower(kw)) {
+			return kw
+		}
+	}
+	return ""
 }
 
 // ========== CRUD 方法 ==========

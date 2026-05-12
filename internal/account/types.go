@@ -47,4 +47,8 @@ type AccountManager interface {
 	// 后台调度
 	StartProbeScheduler()
 	StartGlobalHealthCheck()
+
+	// 关键词禁用
+	DisableAccountByKeyword(ctx context.Context, accountID uint, keyword string) error
+	CheckDisableKeywords(responseBody string) string
 }

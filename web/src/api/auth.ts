@@ -1,7 +1,7 @@
 import api from './index'
 
 export const authApi = {
-  login(token: string) {
-    return api.post('/auth/login', { token })
+  login(username: string, password: string) {
+    return api.post('/auth/login', { username, password })
   },
 }

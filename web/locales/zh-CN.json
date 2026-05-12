@@ -13,7 +13,8 @@
     "plugins": "插件",
     "system": "系统",
     "systemSettings": "设置",
-    "systemLogs": "日志"
+    "systemLogs": "日志",
+    "systemMonitor": "监控"
   },
   "common": {
     "create": "新建",
@@ -308,7 +309,22 @@
     "installSuccess": "安装成功",
     "type": "类型",
     "uploading": "上传中...",
-    "statusUploaded": "已上传"
+    "statusUploaded": "已上传",
+    "permissions": "权限",
+    "permTitle": "插件权限管理",
+    "permEmpty": "该插件未声明任何权限",
+    "permRequired": "必需",
+    "permSensitive": "高敏感",
+    "permStatusPending": "待审核",
+    "permStatusGranted": "已授予",
+    "permStatusDenied": "已拒绝",
+    "permGrantAll": "全部授予",
+    "permDenyAll": "全部撤销",
+    "permGranted": "权限已授予",
+    "permDenied": "权限已撤销",
+    "permLoadFailed": "加载权限列表失败",
+    "permHighSensitiveConfirm": "高敏感权限确认",
+    "permHighSensitiveMsg": "权限「{name}」属于高敏感权限，可能允许插件访问请求头（含认证信息）或渠道完整配置（含代理地址）。确认授予？"
   },
   "settings": {
     "title": "系统设置",
@@ -356,6 +372,8 @@
     "readTimeoutHint": "等待上游响应完成的超时时间，长文本/流式建议 120-300 秒",
     "maxIdleConnsHint": "HTTP 连接池大小，高并发场景建议 100-1000",
     "idleConnTimeoutHint": "空闲连接在连接池中的最大存活时间，建议 60-120 秒",
+    "streamReadTimeout": "流式读取超时",
+    "streamReadTimeoutHint": "流式请求 chunk 间最大等待时间，0=不限。冷启动渠道可能需要 300 秒以上，建议 120-600 秒",
     "affinityTTLHint": "同一消费者对同一渠道的粘性绑定有效期，过长会导致负载不均",
     "consecutiveFailureThresholdHint": "账号连续请求失败达到此次数后自动禁用该账号，建议 3-10",
     "minDisableDurationHint": "账号被禁用后的最短等待时间，在此期间不会被探测恢复，建议 60-300 秒",
@@ -371,9 +389,10 @@
   },
   "login": {
     "title": "AIGateway 管理登录",
-    "tokenPlaceholder": "请输入管理令牌 (API Token)",
+    "usernamePlaceholder": "请输入管理员用户名",
+    "passwordPlaceholder": "请输入管理员密码",
     "submit": "登录",
-    "failed": "登录失败，请检查令牌是否正确",
+    "failed": "登录失败，请检查用户名和密码",
     "logout": "退出登录"
   },
   "systemLogs": {
@@ -510,5 +529,64 @@
     "mappedFrom": "映射自",
     "refresh": "刷新",
     "total": "共 {count} 个模型"
+  },
+  "monitor": {
+    "title": "监控与警报",
+    "channelTest": "定期渠道测试",
+    "testInterval": "测试间隔（秒）",
+    "testIntervalHint": "在后台自动探测所有渠道",
+    "disableOnFailure": "失败时累积失败次数",
+    "disableOnFailureHint": "测试失败时累积连续失败次数，达到阈值后自动禁用账号",
+    "enableOnSuccess": "成功后恢复已禁用的账号",
+    "enableOnSuccessHint": "测试通过时恢复同渠道下被禁用的账号",
+    "latencyThreshold": "禁用阈值（秒）",
+    "latencyThresholdHint": "自动禁用超出此响应时间的渠道（0=不限制）",
+    "disableStatusCodes": "自动禁用状态码",
+    "disableStatusCodesHint": "匹配这些状态码时立即禁用账号",
+    "retryStatusCodes": "自动重试状态码",
+    "retryStatusCodesHint": "匹配这些状态码时触发账号级重试",
+    "failureKeywords": "失败关键词/短句",
+    "failureKeywordsHint": "如果上游错误包含以下任何关键词/短句（不区分大小写），账号将自动禁用",
+    "failureKeywordsPlaceholder": "",
+    "keywordsEmpty": "暂无关键词/短句",
+    "keywordsPlaceholder": "输入关键词或短句，回车添加",
+    "keywordsAdd": "添加",
+    "save": "保存监控规则",
+    "saveSuccess": "监控规则已保存"
+  },
+  "home": {
+    "nav": {
+      "home": "首页",
+      "console": "控制台",
+      "docs": "文档",
+      "about": "关于"
+    },
+    "hero": {
+      "subtitle": "高性能 AI API 聚合代理网关",
+      "description": "统一管理多个 AI 服务商的 API 密钥、渠道和账号，智能路由、自动故障转移、用量统计，让 AI API 调用更稳定高效。",
+      "cta": "进入控制台",
+      "docs": "查看文档"
+    },
+    "features": {
+      "title": "核心特性",
+      "subtitle": "一站式 AI API 管理解决方案",
+      "multi": { "title": "多协议适配", "desc": "原生支持 OpenAI、Anthropic、Gemini 等多种 AI 服务商协议，请求自动转换。" },
+      "route": { "title": "智能路由", "desc": "分层确定性路由引擎，支持密钥分组、渠道分组、模型过滤和优先级调度。" },
+      "plugin": { "title": "插件系统", "desc": "Sidecar 代理模式，支持 TLS 指纹伪装、请求改写等高级功能，非侵入式扩展。" },
+      "keys": { "title": "密钥管理", "desc": "AES-256-GCM 加密存储 API 密钥，支持 RPM/TPM 配额控制和用量告警。" },
+      "stats": { "title": "统计监控", "desc": "实时请求日志、日聚合统计、仪表盘可视化，全方位掌握 API 使用情况。" },
+      "ha": { "title": "高可用", "desc": "自动故障探测与恢复，账号级冷却与重试，确保服务持续可用。" }
+    },
+    "tech": { "title": "技术栈" }
+  },
+  "docs": {
+    "title": "文档",
+    "comingSoon": "文档正在建设中，敬请期待..."
+  },
+  "about": {
+    "description": "高性能、多租户的 AI API 聚合代理网关。统一管理多服务商密钥、智能路由分发、自动故障转移、全链路监控。",
+    "license": "开源协议",
+    "tech": "技术栈",
+    "storage": "数据存储"
   }
 }

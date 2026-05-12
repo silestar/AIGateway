@@ -124,6 +124,31 @@ func appendToEnvFile(path, key, value string) error {
 		return err
 	}
 
+	// 读取现有内容，检查是否已有空值行需要替换
+	prefix := key + "="
+	data, err := os.ReadFile(path)
+	if err == nil {
+		lines := splitLines(string(data))
+		for i, line := range lines {
+			if len(line) >= len(prefix) && line[:len(prefix)] == prefix {
+				if line[len(prefix):] == "" {
+					// 找到空值行，替换它
+					lines[i] = prefix + value
+					newContent := ""
+					for j, l := range lines {
+						if j > 0 {
+							newContent += "\n"
+						}
+						newContent += l
+					}
+					newContent += "\n"
+					return os.WriteFile(path, []byte(newContent), 0600)
+				}
+			}
+		}
+	}
+
+	// 没有空值行，追加到文件末尾
 	f, err := os.OpenFile(path, os.O_APPEND|os.O_CREATE|os.O_WRONLY, 0600)
 	if err != nil {
 		return err

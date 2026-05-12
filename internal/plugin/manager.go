@@ -12,6 +12,7 @@ import (
 	"os/exec"
 	"path/filepath"
 	"runtime"
+	"sync"
 	"time"
 
 	adapterregistry "github.com/silestar/AIGateway/pkg/adapter/registry"
@@ -21,14 +22,17 @@ import (
 
 // Manager 插件管理器实现
 type Manager struct {
-	db        *gorm.DB
-	logger    *zap.Logger
-	pluginsDir string
-	client    *http.Client
+	db              *gorm.DB
+	logger          *zap.Logger
+	pluginsDir      string
+	client          *http.Client
+	autoGrantPerms  bool                    // 自动授权所有权限
+	permCache       map[string][]string     // plugin_name → 已授予权限列表
+	permCacheMu     sync.RWMutex
 }
 
 // NewManager 创建插件管理器
-func NewManager(db *gorm.DB, logger *zap.Logger, pluginsDir string, sidecarTimeout int) *Manager {
+func NewManager(db *gorm.DB, logger *zap.Logger, pluginsDir string, sidecarTimeout int, autoGrant bool) *Manager {
 	if pluginsDir == "" {
 		pluginsDir = "plugins"
 	}
@@ -41,16 +45,18 @@ func NewManager(db *gorm.DB, logger *zap.Logger, pluginsDir string, sidecarTimeo
 		timeout = time.Duration(sidecarTimeout) * time.Second
 	}
 	return &Manager{
-		db:         db,
-		logger:     logger,
-		pluginsDir: pluginsDir,
-		client:     &http.Client{Timeout: timeout},
+		db:             db,
+		logger:         logger,
+		pluginsDir:     pluginsDir,
+		client:         &http.Client{Timeout: timeout},
+		autoGrantPerms: autoGrant,
+		permCache:      make(map[string][]string),
 	}
 }
 
 // AutoMigrate 自动迁移
 func (m *Manager) AutoMigrate() error {
-	return m.db.AutoMigrate(&Plugin{}, &ChannelPluginSetting{})
+	return m.db.AutoMigrate(&Plugin{}, &ChannelPluginSetting{}, &PluginPermission{})
 }
 
 // Upload 解析 ZIP 中的 manifest.json，返回预览信息（不安装）
@@ -226,6 +232,13 @@ func (m *Manager) Install(ctx context.Context, zipPath string) (*Plugin, error) 
 		return nil, fmt.Errorf("save plugin: %w", err)
 	}
 
+	// 6. 同步权限声明
+	if len(manifest.Permissions) > 0 {
+		if err := m.SyncPermissions(ctx, manifest.Name, manifest.Version, manifest.Permissions); err != nil {
+			m.logger.Warn("sync plugin permissions failed", zap.String("name", manifest.Name), zap.Error(err))
+		}
+	}
+
 	m.logger.Info("plugin installed", zap.String("name", manifest.Name), zap.String("version", manifest.Version))
 	return plugin, nil
 }
@@ -239,6 +252,15 @@ func (m *Manager) Start(ctx context.Context, pluginID uint) error {
 
 	if plugin.Status == StatusRunning {
 		return fmt.Errorf("plugin already running")
+	}
+
+	// 检查必需权限是否被拒绝
+	if missing, err := m.CheckRequiredPermissions(plugin.Name); err == nil && len(missing) > 0 {
+		m.logger.Warn("plugin start blocked: required permissions denied",
+			zap.String("plugin", plugin.Name),
+			zap.Strings("missing_permissions", missing),
+		)
+		return fmt.Errorf("plugin %s cannot start: required permissions denied: %v", plugin.Name, missing)
 	}
 
 	// 诊断：检查二进制文件是否存在且可执行
@@ -398,6 +420,17 @@ func (m *Manager) Uninstall(ctx context.Context, pluginID uint) error {
 	// 删除目录
 	os.RemoveAll(filepath.Dir(plugin.Binary))
 
+	// 标记权限记录为 uninstalled（保留用于审计）
+	m.db.WithContext(ctx).
+		Model(&PluginPermission{}).
+		Where("plugin_name = ?", plugin.Name).
+		Update("status", StatusUninstalled)
+
+	// 删除缓存
+	m.permCacheMu.Lock()
+	delete(m.permCache, plugin.Name)
+	m.permCacheMu.Unlock()
+
 	// 删除记录
 	m.db.WithContext(ctx).Delete(&plugin)
 
@@ -426,9 +459,13 @@ func (m *Manager) TriggerHook(ctx context.Context, hook HookName, req *HookReque
 			continue
 		}
 
+		// 根据权限过滤 HookRequest
+		granted := m.GetGrantedPermissions(p.Name)
+		filteredReq := m.filterHookRequest(req, granted)
+
 		// HTTP 调用插件
 		url := fmt.Sprintf("http://127.0.0.1:%d/hook/%s", p.Port, hook)
-		body, _ := json.Marshal(req)
+		body, _ := json.Marshal(filteredReq)
 		httpReq, err := http.NewRequestWithContext(ctx, http.MethodPost, url, bytes.NewReader(body))
 		if err != nil {
 			m.logger.Warn("create hook request failed", zap.String("plugin", p.Name), zap.Error(err))
@@ -710,4 +747,295 @@ func isPluginBinary(filename string, m *Manifest) bool {
 		}
 	}
 	return false
+}
+
+// ========== 权限管理方法 ==========
+
+// SyncPermissions 同步插件权限声明（安装/升级时调用）
+func (m *Manager) SyncPermissions(ctx context.Context, pluginName, pluginVersion string, declarations []PermissionDecl) error {
+	if len(declarations) == 0 {
+		return nil
+	}
+
+	for _, decl := range declarations {
+		var existing PluginPermission
+		err := m.db.WithContext(ctx).
+			Where("plugin_name = ? AND permission_name = ?", pluginName, decl.Name).
+			First(&existing).Error
+
+		if err == gorm.ErrRecordNotFound {
+			// 新权限，创建记录
+			record := PluginPermission{
+				PluginName:     pluginName,
+				PluginVersion:  pluginVersion,
+				PermissionName: decl.Name,
+				Status:         PermPending,
+				Description:    decl.Description,
+				Required:       decl.Required,
+			}
+
+			// 自动授权模式
+			if m.autoGrantPerms {
+				record.Status = PermGranted
+				now := time.Now()
+				record.GrantedBy = "auto"
+				record.GrantedAt = &now
+				m.logger.Info("plugin_permission_auto_granted",
+					zap.String("plugin", pluginName),
+					zap.String("permission", decl.Name),
+					zap.String("reason", "auto_grant_permissions=true"),
+				)
+			}
+
+			if err := m.db.WithContext(ctx).Create(&record).Error; err != nil {
+				return fmt.Errorf("create permission %s for plugin %s: %w", decl.Name, pluginName, err)
+			}
+		} else if err == nil {
+			// 已有记录，更新描述和 required（来自新版本 manifest）
+			updates := map[string]interface{}{
+				"description":    decl.Description,
+				"required":       decl.Required,
+				"plugin_version": pluginVersion,
+			}
+			if err := m.db.WithContext(ctx).Model(&existing).Updates(updates).Error; err != nil {
+				return fmt.Errorf("update permission %s for plugin %s: %w", decl.Name, pluginName, err)
+			}
+		} else {
+			return fmt.Errorf("query permission %s for plugin %s: %w", decl.Name, pluginName, err)
+		}
+	}
+
+	// 刷新缓存
+	m.refreshPermissionCache(ctx, pluginName)
+	return nil
+}
+
+// GetPermissions 获取插件权限列表
+func (m *Manager) GetPermissions(ctx context.Context, pluginName string) ([]PluginPermission, error) {
+	var perms []PluginPermission
+	err := m.db.WithContext(ctx).
+		Where("plugin_name = ? AND status != ?", pluginName, StatusUninstalled).
+		Order("id ASC").
+		Find(&perms).Error
+	return perms, err
+}
+
+// GrantPermission 授予插件权限
+func (m *Manager) GrantPermission(ctx context.Context, pluginName, permissionName, grantedBy string) error {
+	now := time.Now()
+	result := m.db.WithContext(ctx).
+		Model(&PluginPermission{}).
+		Where("plugin_name = ? AND permission_name = ?", pluginName, permissionName).
+		Updates(map[string]interface{}{
+			"status":     PermGranted,
+			"granted_by": grantedBy,
+			"granted_at": now,
+		})
+	if result.Error != nil {
+		return result.Error
+	}
+	if result.RowsAffected == 0 {
+		return fmt.Errorf("permission %s not found for plugin %s", permissionName, pluginName)
+	}
+
+	m.logger.Info("plugin_permission_granted",
+		zap.String("plugin", pluginName),
+		zap.String("permission", permissionName),
+		zap.String("granted_by", grantedBy),
+	)
+	m.refreshPermissionCache(ctx, pluginName)
+	return nil
+}
+
+// DenyPermission 撤销插件权限
+func (m *Manager) DenyPermission(ctx context.Context, pluginName, permissionName, grantedBy string) error {
+	now := time.Now()
+	result := m.db.WithContext(ctx).
+		Model(&PluginPermission{}).
+		Where("plugin_name = ? AND permission_name = ?", pluginName, permissionName).
+		Updates(map[string]interface{}{
+			"status":     PermDenied,
+			"revoked_at": now,
+		})
+	if result.Error != nil {
+		return result.Error
+	}
+	if result.RowsAffected == 0 {
+		return fmt.Errorf("permission %s not found for plugin %s", permissionName, pluginName)
+	}
+
+	m.logger.Info("plugin_permission_denied",
+		zap.String("plugin", pluginName),
+		zap.String("permission", permissionName),
+		zap.String("denied_by", grantedBy),
+	)
+	m.refreshPermissionCache(ctx, pluginName)
+	return nil
+}
+
+// GrantAllPermissions 全部授予
+func (m *Manager) GrantAllPermissions(ctx context.Context, pluginName, grantedBy string) error {
+	now := time.Now()
+	result := m.db.WithContext(ctx).
+		Model(&PluginPermission{}).
+		Where("plugin_name = ? AND status != ?", pluginName, StatusUninstalled).
+		Updates(map[string]interface{}{
+			"status":     PermGranted,
+			"granted_by": grantedBy,
+			"granted_at": now,
+		})
+	if result.Error != nil {
+		return result.Error
+	}
+
+	m.logger.Info("plugin_permission_grant_all",
+		zap.String("plugin", pluginName),
+		zap.String("granted_by", grantedBy),
+		zap.Int64("affected", result.RowsAffected),
+	)
+	m.refreshPermissionCache(ctx, pluginName)
+	return nil
+}
+
+// DenyAllPermissions 全部撤销
+func (m *Manager) DenyAllPermissions(ctx context.Context, pluginName, grantedBy string) error {
+	now := time.Now()
+	result := m.db.WithContext(ctx).
+		Model(&PluginPermission{}).
+		Where("plugin_name = ? AND status != ?", pluginName, StatusUninstalled).
+		Updates(map[string]interface{}{
+			"status":     PermDenied,
+			"revoked_at": now,
+		})
+	if result.Error != nil {
+		return result.Error
+	}
+
+	m.logger.Info("plugin_permission_deny_all",
+		zap.String("plugin", pluginName),
+		zap.String("denied_by", grantedBy),
+		zap.Int64("affected", result.RowsAffected),
+	)
+	m.refreshPermissionCache(ctx, pluginName)
+	return nil
+}
+
+// GetGrantedPermissions 从缓存获取已授予的权限列表
+func (m *Manager) GetGrantedPermissions(pluginName string) []string {
+	m.permCacheMu.RLock()
+	defer m.permCacheMu.RUnlock()
+	if perms, ok := m.permCache[pluginName]; ok {
+		result := make([]string, len(perms))
+		copy(result, perms)
+		return result
+	}
+	return nil
+}
+
+// CheckRequiredPermissions 检查插件是否有未满足的必需权限
+func (m *Manager) CheckRequiredPermissions(pluginName string) (missing []string, err error) {
+	var denied []PluginPermission
+	if err := m.db.Where("plugin_name = ? AND required = ? AND status = ?", pluginName, true, PermDenied).
+		Find(&denied).Error; err != nil {
+		return nil, err
+	}
+	for _, p := range denied {
+		missing = append(missing, p.PermissionName)
+	}
+	return missing, nil
+}
+
+// refreshPermissionCache 刷新指定插件的权限缓存
+func (m *Manager) refreshPermissionCache(ctx context.Context, pluginName string) {
+	var perms []PluginPermission
+	m.db.WithContext(ctx).
+		Where("plugin_name = ? AND status = ?", pluginName, PermGranted).
+		Find(&perms)
+
+	granted := make([]string, 0, len(perms))
+	for _, p := range perms {
+		granted = append(granted, p.PermissionName)
+	}
+
+	m.permCacheMu.Lock()
+	m.permCache[pluginName] = granted
+	m.permCacheMu.Unlock()
+}
+
+// filterHookRequest 根据 granted 权限列表过滤 HookRequest 中的字段
+// 如果 granted 为 nil（插件无权限声明），则不进行过滤（向后兼容）
+func (m *Manager) filterHookRequest(req *HookRequest, granted []string) *HookRequest {
+	if granted == nil {
+		// 无权限声明，照原样传递
+		return req
+	}
+
+	// 构建快速查找 map
+	grantedSet := make(map[string]bool, len(granted))
+	for _, p := range granted {
+		grantedSet[p] = true
+	}
+
+	// 复制请求，避免修改原始数据
+	filtered := *req
+
+	// account_id
+	if !grantedSet[string(PermAccountID)] {
+		filtered.AccountID = 0
+	}
+	// channel_id
+	if !grantedSet[string(PermChannelID)] {
+		filtered.ChannelID = 0
+	}
+	// keys_id + keys_name
+	if !grantedSet[string(PermKeysID)] {
+		filtered.KeysID = 0
+		filtered.KeysName = ""
+	}
+	// model_name
+	if !grantedSet[string(PermModelName)] {
+		filtered.Model = ""
+	}
+	// request_headers
+	if !grantedSet[string(PermRequestHeaders)] && filtered.Request != nil {
+		filtered.Request = &HookRequestBody{}
+		if grantedSet[string(PermRequestBodySummary)] {
+			filtered.Request.Body = req.Request.Body
+		}
+	}
+	// request_body_summary
+	if !grantedSet[string(PermRequestBodySummary)] && filtered.Request != nil {
+		if filtered.Request == req.Request {
+			// Request 未被上方复制过，需要浅拷贝
+			clonedReq := *req.Request
+			filtered.Request = &clonedReq
+		}
+		filtered.Request.Body = nil
+	}
+	// response_status
+	if !grantedSet[string(PermResponseStatus)] && filtered.Response != nil {
+		filtered.Response = &HookResponseBody{}
+		if grantedSet[string(PermResponseBodySummary)] {
+			filtered.Response.Body = req.Response.Body
+		}
+	}
+	// response_body_summary
+	if !grantedSet[string(PermResponseBodySummary)] && filtered.Response != nil {
+		if filtered.Response == req.Response {
+			clonedResp := *req.Response
+			filtered.Response = &clonedResp
+		}
+		filtered.Response.Body = nil
+	}
+	// candidate_accounts — 归入 account_id 权限
+	if !grantedSet[string(PermAccountID)] {
+		filtered.CandidateAccounts = nil
+	}
+
+	return &filtered
+}
+
+// IsPermissionHighSensitive 判断权限是否是高敏感
+func IsPermissionHighSensitive(permName string) bool {
+	return HighSensitivePermissions[PermissionName(permName)]
 }

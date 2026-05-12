@@ -2,6 +2,7 @@ package proxy
 
 import (
 	"bytes"
+	"compress/gzip"
 	"context"
 	"crypto/tls"
 	"encoding/json"
@@ -33,11 +34,12 @@ const (
 
 // Engine HTTP 代理引擎
 type Engine struct {
-	logger     *zap.Logger
-	cfg        config.ProxyConfig
-	accountMgr account.AccountManager
-	pluginMgr  plugin.PluginManager
-	client     *http.Client
+	logger             *zap.Logger
+	cfg                config.ProxyConfig
+	accountMgr         account.AccountManager
+	pluginMgr          plugin.PluginManager
+	client             *http.Client
+	latencyThresholdMs int64 // 响应时间阈值（毫秒），0=不限制，仅非流式生效
 }
 
 // NewEngine 创建代理引擎
@@ -53,8 +55,17 @@ func NewEngine(cfg config.ProxyConfig, accountMgr account.AccountManager, plugin
 			// 2. 检查该渠道是否有 running 的 connection_decorator 插件
 			if pluginMgr != nil {
 				if pluginAddr := pluginMgr.GetConnectionDecoratorAddr(channelID); pluginAddr != "" {
+					// 构建权限头部（根据 context 中可用的信息）
+					permHeaders := map[string]string{}
+					accountID, _ := ctx.Value(ctxKeyAccountID).(uint)
+					if accountID > 0 {
+						permHeaders["X-AGW-Account-ID"] = fmt.Sprintf("%d", accountID)
+					}
+					if channelID > 0 {
+						permHeaders["X-AGW-Channel-ID"] = fmt.Sprintf("%d", channelID)
+					}
 					// 尝试通过插件代理连接
-					conn, err := dialViaDecorator(ctx, pluginAddr, addr)
+					conn, err := dialViaDecorator(ctx, pluginAddr, addr, permHeaders)
 					if err == nil {
 						return conn, nil
 					}
@@ -110,6 +121,11 @@ func NewEngine(cfg config.ProxyConfig, accountMgr account.AccountManager, plugin
 	}
 }
 
+// SetLatencyThresholdMs 设置响应时间阈值（毫秒），0=不限制
+func (e *Engine) SetLatencyThresholdMs(ms int64) {
+	e.latencyThresholdMs = ms
+}
+
 // Forward 转发请求到上游（非流式），返回 ProxyResult 含响应体和 token usage
 func (e *Engine) Forward(ctx context.Context, ch *channel.Channel, acc *account.Account, originalReq *http.Request) (*ProxyResult, error) {
 	plainKey, err := e.accountMgr.GetDecryptedAPIKey(ctx, acc.ID)
@@ -138,7 +154,9 @@ func (e *Engine) Forward(ctx context.Context, ch *channel.Channel, acc *account.
 	}
 
 	for k, vv := range originalReq.Header {
-		if k == "Host" || k == "Authorization" {
+		// 不转发 Accept-Encoding：让 Go Transport 自动管理 gzip（自动发送 + 自动解压），
+		// 避免显式设置后 Go 不自动解压导致乱码
+		if k == "Host" || k == "Authorization" || k == "Accept-Encoding" {
 			continue
 		}
 		for _, v := range vv {
@@ -193,7 +211,20 @@ func (e *Engine) Forward(ctx context.Context, ch *channel.Channel, acc *account.
 	}
 	defer resp.Body.Close()
 
-	body, err := io.ReadAll(resp.Body)
+	// 记录请求耗时（用于 latency_threshold 判断）
+	forwardStart := time.Now()
+
+	// 处理 gzip 压缩的响应体（防御性：即使已过滤 Accept-Encoding，上游仍可能返回 gzip）
+	var reader io.Reader = resp.Body
+	if resp.Header.Get("Content-Encoding") == "gzip" {
+		if gzReader, gzErr := gzip.NewReader(resp.Body); gzErr == nil {
+			reader = gzReader
+			defer gzReader.Close()
+		}
+		// gzip 解压失败则回退读原始 body
+	}
+
+	body, err := io.ReadAll(reader)
 	if err != nil {
 		return nil, fmt.Errorf("read response body: %w", err)
 	}
@@ -279,6 +310,26 @@ func (e *Engine) Forward(ctx context.Context, ch *channel.Channel, acc *account.
 		}
 	}
 
+	// 非成功响应：检查关键词匹配
+	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
+		if kw := e.accountMgr.CheckDisableKeywords(string(body)); kw != "" {
+			go e.accountMgr.DisableAccountByKeyword(ctx, acc.ID, kw)
+		}
+	}
+
+	// 响应时间阈值检查（只对非流式请求，通过 ReportResult 累积失败）
+	if e.latencyThresholdMs > 0 {
+		elapsedMs := time.Since(forwardStart).Milliseconds()
+		if elapsedMs > e.latencyThresholdMs {
+			e.logger.Warn("forward latency exceeded threshold",
+				zap.Uint("account_id", acc.ID),
+				zap.Int64("elapsed_ms", elapsedMs),
+				zap.Int64("threshold_ms", e.latencyThresholdMs),
+			)
+			go e.accountMgr.ReportResult(ctx, acc.ID, false, 0)
+		}
+	}
+
 	return &ProxyResult{
 		StatusCode:        resp.StatusCode,
 		Body:              body,
@@ -351,7 +402,9 @@ func (e *Engine) ForwardStream(ctx context.Context, ch *channel.Channel, acc *ac
 	}
 
 	for k, vv := range originalReq.Header {
-		if k == "Host" || k == "Authorization" {
+		// 不转发 Accept-Encoding：让 Go Transport 自动管理 gzip（自动发送 + 自动解压），
+		// 避免显式设置后 Go 不自动解压导致乱码
+		if k == "Host" || k == "Authorization" || k == "Accept-Encoding" {
 			continue
 		}
 		for _, v := range vv {
@@ -369,8 +422,46 @@ func (e *Engine) ForwardStream(ctx context.Context, ch *channel.Channel, acc *ac
 	defer resp.Body.Close()
 
 	if resp.StatusCode != http.StatusOK {
-		body, _ := io.ReadAll(resp.Body)
-		return nil, fmt.Errorf("upstream returned %d: %s", resp.StatusCode, string(body))
+		// 非流式错误响应：尝试 gzip 解压后再读取
+		var reader io.Reader = resp.Body
+		if resp.Header.Get("Content-Encoding") == "gzip" {
+			if gzReader, gzErr := gzip.NewReader(resp.Body); gzErr == nil {
+				reader = gzReader
+				defer gzReader.Close()
+			}
+		}
+		body, _ := io.ReadAll(reader)
+		// 关键词匹配：检查上游错误响应体中是否包含禁用关键词
+		bodyStr := string(body)
+		if kw := e.accountMgr.CheckDisableKeywords(bodyStr); kw != "" {
+			go e.accountMgr.DisableAccountByKeyword(ctx, acc.ID, kw)
+		}
+		return nil, fmt.Errorf("upstream returned %d: %s", resp.StatusCode, bodyStr)
+	}
+
+	// 流式读取超时：每次读到 chunk 后重置 deadline
+	var streamReadTimeout time.Duration
+	if e.cfg.StreamReadTimeout > 0 {
+		streamReadTimeout = time.Duration(e.cfg.StreamReadTimeout) * time.Second
+	}
+
+	// 尝试获取底层连接以设置 read deadline
+	var rawConn net.Conn
+	if tcpConn, ok := resp.Body.(interface{ NetConn() net.Conn }); ok {
+		rawConn = tcpConn.NetConn()
+	} else {
+		// resp.Body 可能被 http 透明 gzip 包装，尝试 unwrap
+		if unwrap, ok := resp.Body.(interface{ Unwrap() io.ReadCloser }); ok {
+			if inner := unwrap.Unwrap(); inner != nil {
+				if tcpConn2, ok2 := inner.(interface{ NetConn() net.Conn }); ok2 {
+					rawConn = tcpConn2.NetConn()
+				}
+			}
+		}
+	}
+
+	if rawConn != nil && streamReadTimeout > 0 {
+		_ = rawConn.SetReadDeadline(time.Now().Add(streamReadTimeout))
 	}
 
 	var lastChunks strings.Builder
@@ -389,6 +480,11 @@ func (e *Engine) ForwardStream(ctx context.Context, ch *channel.Channel, acc *ac
 
 		n, readErr := resp.Body.Read(buf)
 		if n > 0 {
+			// 每次成功读到数据后重置流式读取 deadline
+			if rawConn != nil && streamReadTimeout > 0 {
+				_ = rawConn.SetReadDeadline(time.Now().Add(streamReadTimeout))
+			}
+
 			chunk := buf[:n]
 			// 累积最后 64KB 的 chunk 用于提取摘要（不存完整响应体）
 			lastChunks.Write(chunk)
@@ -590,17 +686,23 @@ func extractUpstreamLatency(headers http.Header) int {
 }
 
 // dialViaDecorator 通过 connection_decorator 插件代理连接
-// 使用简化的 CONNECT 协议：发送目标地址，插件完成 TLS 握手后返回已建立的连接
-func dialViaDecorator(ctx context.Context, pluginAddr, targetAddr string) (net.Conn, error) {
+// 使用简化的 CONNECT 协议：发送目标地址 + 权限头部，插件完成 TLS 握手后返回已建立的连接
+func dialViaDecorator(ctx context.Context, pluginAddr, targetAddr string, permHeaders map[string]string) (net.Conn, error) {
 	// 连接插件进程
 	conn, err := net.DialTimeout("tcp", pluginAddr, 3*time.Second)
 	if err != nil {
 		return nil, fmt.Errorf("connect to decorator plugin: %w", err)
 	}
 
-	// 发送 CONNECT 指令
-	connectReq := fmt.Sprintf("CONNECT %s\r\n\r\n", targetAddr)
-	if _, err := conn.Write([]byte(connectReq)); err != nil {
+	// 构建 CONNECT 请求（含权限头部）
+	var req strings.Builder
+	req.WriteString(fmt.Sprintf("CONNECT %s\r\n", targetAddr))
+	for k, v := range permHeaders {
+		req.WriteString(fmt.Sprintf("%s: %s\r\n", k, v))
+	}
+	req.WriteString("\r\n")
+
+	if _, err := conn.Write([]byte(req.String())); err != nil {
 		conn.Close()
 		return nil, fmt.Errorf("send CONNECT to decorator: %w", err)
 	}

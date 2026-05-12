@@ -3,6 +3,13 @@ import { createRouter, createWebHistory } from 'vue-router'
 const router = createRouter({
   history: createWebHistory(),
   routes: [
+    // === 公开页面 ===
+    {
+      path: '/',
+      name: 'home',
+      component: () => import('../views/Home.vue'),
+      meta: { public: true },
+    },
     {
       path: '/login',
       name: 'login',
@@ -10,7 +17,20 @@ const router = createRouter({
       meta: { public: true },
     },
     {
-      path: '/',
+      path: '/docs',
+      name: 'docs',
+      component: () => import('../views/Docs.vue'),
+      meta: { public: true },
+    },
+    {
+      path: '/about',
+      name: 'about',
+      component: () => import('../views/About.vue'),
+      meta: { public: true },
+    },
+    // === 控制台（需登录） ===
+    {
+      path: '/console',
       name: 'dashboard',
       component: () => import('../views/Dashboard.vue'),
     },
@@ -59,19 +79,28 @@ const router = createRouter({
       name: 'system-logs',
       component: () => import('../views/SystemLogs.vue'),
     },
+    {
+      path: '/settings/monitor',
+      name: 'system-monitor',
+      component: () => import('../views/SystemMonitor.vue'),
+    },
   ],
 })
 
 // 路由守卫：未登录跳转登录页
 router.beforeEach((to, _from, next) => {
   const token = localStorage.getItem('agw_token')
-  if (!to.meta.public && !token) {
-    next({ name: 'login' })
-  } else if (to.meta.public && token && to.name === 'login') {
-    next({ name: 'dashboard' })
-  } else {
+  // 公开页面直接放行
+  if (to.meta.public) {
     next()
+    return
   }
+  // 需要登录但没有 token → 跳转登录
+  if (!token) {
+    next({ name: 'login' })
+    return
+  }
+  next()
 })
 
 export default router

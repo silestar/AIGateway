@@ -5,7 +5,6 @@ import (
 	"encoding/hex"
 	"net/http"
 	"strings"
-	"sync"
 	"time"
 
 	"github.com/gin-gonic/gin"
@@ -14,24 +13,25 @@ import (
 
 // AuthHandler 管理端认证 Handler
 type AuthHandler struct {
-	apiToken string
-	sessions map[string]time.Time // token -> expireAt
-	mu       sync.RWMutex
-	cfg      *config.Config
+	adminUser    string
+	adminPass    string
+	sessionStore SessionStore
+	cfg          *config.Config
 }
 
-func NewAuthHandler(apiToken string, cfg *config.Config) *AuthHandler {
+func NewAuthHandler(cfg *config.Config, sessionStore SessionStore) *AuthHandler {
 	h := &AuthHandler{
-		apiToken: apiToken,
-		sessions: make(map[string]time.Time),
-		cfg:      cfg,
+		adminUser:    cfg.Server.AdminUser,
+		adminPass:    cfg.Server.AdminPass,
+		sessionStore: sessionStore,
+		cfg:          cfg,
 	}
-	// 启动清理协程
+	// 启动清理协程（SQLite 模式需要）
 	go h.cleanupSessions()
 	return h
 }
 
-// RegisterRoutes 注册认证路由（不需要鉴权）
+// RegisterPublicRoutes 注册认证路由（不需要鉴权）
 func (h *AuthHandler) RegisterPublicRoutes(rg *gin.RouterGroup) {
 	auth := rg.Group("/auth")
 	auth.POST("/login", h.Login)
@@ -44,7 +44,7 @@ func (h *AuthHandler) RegisterPublicRoutes(rg *gin.RouterGroup) {
 // SystemInfo 返回系统基本信息（无需认证）
 func (h *AuthHandler) SystemInfo(c *gin.Context) {
 	info := gin.H{
-		"version": "0.1.0",
+		"version": "0.2.0",
 	}
 	if h.cfg != nil {
 		info["go_version"] = "1.25.0"
@@ -54,24 +54,26 @@ func (h *AuthHandler) SystemInfo(c *gin.Context) {
 	c.JSON(http.StatusOK, gin.H{"data": info})
 }
 
-// Login 管理端登录
+// Login 管理端登录（账户+密码方式）
 func (h *AuthHandler) Login(c *gin.Context) {
 	var req struct {
-		Token string `json:"token" binding:"required"`
+		Username string `json:"username" binding:"required"`
+		Password string `json:"password" binding:"required"`
 	}
 	if err := c.ShouldBindJSON(&req); err != nil {
-		c.JSON(http.StatusBadRequest, errorResponse("bad_request", "token is required"))
+		c.JSON(http.StatusBadRequest, errorResponse("bad_request", "username and password are required"))
 		return
 	}
 
-	// 调试：确认 apiToken 是否加载
-	if h.apiToken == "" {
-		c.JSON(http.StatusUnauthorized, errorResponse("unauthorized", "server api_token not configured, set AGW_SERVER_API_TOKEN in .env"))
+	// 检查管理端是否配置
+	if h.adminUser == "" || h.adminPass == "" {
+		c.JSON(http.StatusUnauthorized, errorResponse("unauthorized",
+			"admin credentials not configured, set AGW_ADMIN_USER and AGW_ADMIN_PASS in .env"))
 		return
 	}
 
-	if req.Token != h.apiToken {
-		c.JSON(http.StatusUnauthorized, errorResponse("unauthorized", "invalid token"))
+	if req.Username != h.adminUser || req.Password != h.adminPass {
+		c.JSON(http.StatusUnauthorized, errorResponse("unauthorized", "invalid username or password"))
 		return
 	}
 
@@ -93,8 +95,8 @@ func (h *AuthHandler) Login(c *gin.Context) {
 // AuthMiddleware 管理端鉴权中间件
 func (h *AuthHandler) AuthMiddleware() gin.HandlerFunc {
 	return func(c *gin.Context) {
-		// 如果未配置 api_token，跳过鉴权
-		if h.apiToken == "" {
+		// 如果未配置管理员账号，跳过鉴权（开发/自用场景）
+		if h.adminUser == "" {
 			c.Next()
 			return
 		}
@@ -107,7 +109,8 @@ func (h *AuthHandler) AuthMiddleware() gin.HandlerFunc {
 		}
 
 		token := strings.TrimPrefix(auth, "Bearer ")
-		if !h.validateToken(token) {
+		valid, err := h.sessionStore.Validate(token)
+		if err != nil || !valid {
 			c.JSON(http.StatusUnauthorized, errorResponse("unauthorized", "invalid or expired token"))
 			c.Abort()
 			return
@@ -124,44 +127,19 @@ func (h *AuthHandler) generateToken() (string, error) {
 	}
 	token := hex.EncodeToString(b)
 
-	h.mu.Lock()
-	h.sessions[token] = time.Now().Add(24 * time.Hour)
-	h.mu.Unlock()
+	if err := h.sessionStore.Save(token, time.Now().Add(24*time.Hour)); err != nil {
+		return "", err
+	}
 
 	return token, nil
 }
 
-func (h *AuthHandler) validateToken(token string) bool {
-	h.mu.RLock()
-	expireAt, ok := h.sessions[token]
-	h.mu.RUnlock()
-
-	if !ok {
-		return false
-	}
-
-	if time.Now().After(expireAt) {
-		h.mu.Lock()
-		delete(h.sessions, token)
-		h.mu.Unlock()
-		return false
-	}
-
-	return true
-}
-
+// cleanupSessions 定期清理过期 session
 func (h *AuthHandler) cleanupSessions() {
 	ticker := time.NewTicker(1 * time.Hour)
 	defer ticker.Stop()
 
 	for range ticker.C {
-		h.mu.Lock()
-		now := time.Now()
-		for token, expireAt := range h.sessions {
-			if now.After(expireAt) {
-				delete(h.sessions, token)
-			}
-		}
-		h.mu.Unlock()
+		_ = h.sessionStore.Cleanup()
 	}
 }

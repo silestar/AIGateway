@@ -79,10 +79,14 @@ func main() {
 	keysSvc.SetCache(cache)
 	keysSvc.SetCrypto(cryptoService)
 	channelSvc := channel.NewService(db)
-	pluginMgr := plugin.NewManager(db, logger, cfg.Plugin.PluginDir, cfg.Plugin.SidecarTimeout)
+	pluginMgr := plugin.NewManager(db, logger, cfg.Plugin.PluginDir, cfg.Plugin.SidecarTimeout, cfg.Plugin.AutoGrantPermissions)
 	accountMgr := account.NewManager(db, cache, cryptoService, channelSvc, cfg.AccountManager, logger)
 	groupRouter := group.NewRouter(db, keysSvc, accountMgr, logger, cache)
 	proxyEngine := proxy.NewEngine(cfg.Proxy, accountMgr, pluginMgr, logger)
+	// 设置响应时间阈值（从 account_manager 配置中读取，转换为毫秒）
+	if cfg.AccountManager.ChannelDisableLatencyThreshold > 0 {
+		proxyEngine.SetLatencyThresholdMs(int64(cfg.AccountManager.ChannelDisableLatencyThreshold) * 1000)
+	}
 
 	// 模型目录服务
 	catalogSvc := models.NewCatalogService(db, logger)
@@ -177,13 +181,25 @@ func main() {
 	// 8. 注册路由（代理 + 健康检查）
 	registerRoutes(router, cfg, catalogSvc, logger)
 
-	// 9. 认证 + 管理API
-	authHandler := agwapi.NewAuthHandler(cfg.Server.APIToken, cfg)
-	// 调试：打印 apiToken 长度
-	if cfg.Server.APIToken != "" {
-		logger.Info("api_token loaded", zap.Int("length", len(cfg.Server.APIToken)))
+	// 9. 统一迁移（版本检测 + DB 表迁移 + 版本标记）
+	if err := config.RunMigration("./config/config.yaml", db, logger); err != nil {
+		logger.Error("migration failed", zap.Error(err))
+	}
+
+	// 10. 创建 SessionStore + 认证（Redis → SQLite → 内存 三层降级）
+	redisCfg := agwapi.RedisSessionConfig{
+		Enabled:  cfg.Redis.Enabled,
+		Host:     cfg.Redis.Host,
+		Port:     cfg.Redis.Port,
+		Password: cfg.Redis.Password,
+		DB:       cfg.Redis.DB,
+	}
+	sessionStore := agwapi.NewSessionStore(db, redisCfg, logger.Sugar())
+	authHandler := agwapi.NewAuthHandler(cfg, sessionStore)
+	if cfg.Server.AdminUser != "" {
+		logger.Info("admin credentials configured", zap.String("user", cfg.Server.AdminUser))
 	} else {
-		logger.Warn("api_token is empty, auth will be skipped")
+		logger.Warn("admin_user is empty, auth will be skipped")
 	}
 	apiGroup := router.Group("/api")
 	apiGroup.GET("/health", func(c *gin.Context) {
@@ -409,6 +425,13 @@ func handleChatCompletions(c *gin.Context) {
 	traceID, _ := c.Get("trace_id")
 	traceIDStr, _ := traceID.(string)
 
+	// 缓存请求体，供重试时恢复（ForwardStream/Forward 会消费 c.Request.Body）
+	var reqBodyBytes []byte
+	if c.Request.Body != nil {
+		reqBodyBytes, _ = io.ReadAll(c.Request.Body)
+	}
+	c.Request.Body = io.NopCloser(bytes.NewReader(reqBodyBytes))
+
 	// 7. 转发请求 + 记录日志
 	var statusCode int
 	var latencyMs int
@@ -434,13 +457,17 @@ func handleChatCompletions(c *gin.Context) {
 		var streamResult *proxy.StreamResult
 
 		for attempt := 0; attempt <= maxStreamRetries; attempt++ {
+			// 每次重试前恢复请求体（ForwardStream 会消费 c.Request.Body）
+			c.Request.Body = io.NopCloser(bytes.NewReader(reqBodyBytes))
 			streamResult, err = proxyEngine.ForwardStream(c.Request.Context(), currentStreamResult.Channel, currentStreamResult.Account, c.Request, flusher, c.Writer)
 			latencyMs = int(time.Since(startTime).Milliseconds())
 
 			if err != nil {
 				// 只有在未向客户端发送任何数据时才可安全重试
 				if !c.Writer.Written() && attempt < maxStreamRetries {
-					accountMgr.ReportResult(c.Request.Context(), currentStreamResult.Account.ID, false, 0)
+					// 从 error 中提取上游返回的状态码（如 "upstream returned 429: ..."）
+					sc := extractStatusCode(err)
+					accountMgr.ReportResult(c.Request.Context(), currentStreamResult.Account.ID, false, sc)
 					currentStreamResult.RetryChain.MarkError(shortenError(err.Error()), latencyMs, http.StatusBadGateway)
 					logger.Warn("stream forward failed (pre-write), retrying",
 						zap.Int("attempt", attempt+1),
@@ -523,6 +550,8 @@ func handleChatCompletions(c *gin.Context) {
 			}
 
 			if retryCount > 0 {
+				// 重试前恢复请求体
+				c.Request.Body = io.NopCloser(bytes.NewReader(reqBodyBytes))
 				// 重试：重新路由获取下一个账号/渠道
 				currentResult, err = groupRouter.RerouteAfterFailure(c.Request.Context(), currentResult)
 				if err != nil {
@@ -550,12 +579,18 @@ func handleChatCompletions(c *gin.Context) {
 				continue
 			}
 
-			// 成功！
+			// 成功拿到上游响应（无论 HTTP 状态码）
 			result.RetryChain = currentResult.RetryChain // 同步 retry_chain
 			result.RetryChain.MarkSuccess(latencyMs, proxyResult.StatusCode)
 			statusCode = proxyResult.StatusCode
 			usage = proxyResult.Usage
-			accountMgr.ReportResult(c.Request.Context(), currentResult.Account.ID, true, proxyResult.StatusCode)
+
+			// 非 2xx 响应按失败上报（触发 401/403 立即禁用等逻辑）
+			if proxyResult.StatusCode < 200 || proxyResult.StatusCode >= 300 {
+				accountMgr.ReportResult(c.Request.Context(), currentResult.Account.ID, false, proxyResult.StatusCode)
+			} else {
+				accountMgr.ReportResult(c.Request.Context(), currentResult.Account.ID, true, proxyResult.StatusCode)
+			}
 			respSummary = &ResponseSummary{
 				ResponseModel:     proxyResult.ResponseModel,
 				FinishReason:      proxyResult.FinishReason,
@@ -863,6 +898,26 @@ func min(a, b int) int {
 		return a
 	}
 	return b
+}
+
+// extractStatusCode 从 ForwardStream 的错误消息中提取 HTTP 状态码
+// 错误格式如 "upstream returned 429: {...}" 或 "upstream stream request: ..."
+func extractStatusCode(err error) int {
+	if err == nil {
+		return 0
+	}
+	msg := err.Error()
+	// 匹配 "upstream returned NNN:" 格式
+	const prefix = "upstream returned "
+	if idx := strings.Index(msg, prefix); idx >= 0 {
+		rest := msg[idx+len(prefix):]
+		// 取 prefix 后的数字
+		var code int
+		if n, _ := fmt.Sscanf(rest, "%d", &code); n == 1 {
+			return code
+		}
+	}
+	return 0
 }
 
 // captureHeaders 捕获 HTTP headers（脱敏 key）

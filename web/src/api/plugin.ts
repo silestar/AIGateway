@@ -78,4 +78,20 @@ export const pluginApi = {
   registryInstall(name: string, download_url: string) {
     return api.post('/plugins/registry/install', { name, download_url })
   },
+  // 权限管理
+  getPermissions(pluginId: number) {
+    return api.get(`/plugins/${pluginId}/permissions`)
+  },
+  grantPermission(pluginId: number, permName: string) {
+    return api.put(`/plugins/${pluginId}/permissions/${permName}/grant`)
+  },
+  denyPermission(pluginId: number, permName: string) {
+    return api.put(`/plugins/${pluginId}/permissions/${permName}/deny`)
+  },
+  grantAllPermissions(pluginId: number) {
+    return api.post(`/plugins/${pluginId}/permissions/grant-all`)
+  },
+  denyAllPermissions(pluginId: number) {
+    return api.post(`/plugins/${pluginId}/permissions/deny-all`)
+  },
 }

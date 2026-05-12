@@ -76,6 +76,9 @@
               </n-button>
               <!-- 已安装状态：显示配置/启动/停止/卸载 -->
               <template v-else>
+                <n-button size="small" @click="openPermissions(plugin)">
+                  {{ t('plugins.permissions') }}
+                </n-button>
                 <n-button size="small" @click="openConfig(plugin)">
                   {{ t('plugins.config') }}
                 </n-button>
@@ -237,6 +240,41 @@
       <template #action>
         <n-space justify="end">
           <n-button @click="registryModalShow = false">{{ t('common.cancel') }}</n-button>
+        </n-space>
+      </template>
+    </n-modal>
+
+    <!-- 权限管理弹窗 -->
+    <n-modal v-model:show="permModalShow" preset="card" :title="t('plugins.permTitle')" style="width:600px">
+      <n-spin :show="permLoading">
+        <n-empty v-if="!permLoading && permList.length === 0" :description="t('plugins.permEmpty')" style="padding:40px 0" />
+        <div v-else style="display:flex;flex-direction:column;gap:10px">
+          <div v-for="perm in permList" :key="perm.permission_name"
+            style="display:flex;align-items:center;gap:12px;padding:10px 12px;border-radius:6px;background:rgba(255,255,255,0.04)">
+            <n-switch
+              :value="perm.status === 'granted'"
+              @update:value="v => handlePermToggle(perm, v)"
+              :loading="permActionLoading[perm.permission_name]"
+            />
+            <div style="flex:1;min-width:0">
+              <div style="display:flex;align-items:center;gap:6px">
+                <span style="font-weight:600;font-size:14px">{{ perm.permission_name }}</span>
+                <n-tag v-if="perm.required" size="tiny" type="warning">{{ t('plugins.permRequired') }}</n-tag>
+                <n-tag v-if="isHighSensitive(perm.permission_name)" size="tiny" type="error">{{ t('plugins.permSensitive') }}</n-tag>
+              </div>
+              <div v-if="perm.description" style="font-size:12px;color:var(--text-tertiary);margin-top:2px">{{ perm.description }}</div>
+            </div>
+            <n-tag :type="permStatusType(perm.status)" size="small" round>
+              {{ t('plugins.permStatus' + capitalize(perm.status)) }}
+            </n-tag>
+          </div>
+        </div>
+      </n-spin>
+      <template #action>
+        <n-space>
+          <n-button size="small" @click="handleGrantAll" :loading="permActionLoading._all">{{ t('plugins.permGrantAll') }}</n-button>
+          <n-button size="small" type="error" ghost @click="handleDenyAll" :loading="permActionLoading._denyAll">{{ t('plugins.permDenyAll') }}</n-button>
+          <n-button @click="permModalShow = false">{{ t('common.cancel') }}</n-button>
         </n-space>
       </template>
     </n-modal>
@@ -658,6 +696,118 @@ async function handleRegistryInstall(entry: RegistryEntry) {
     message.error(t('plugins.installFailed') + ': ' + (e?.response?.data?.error?.message || e.message))
   } finally {
     registryInstallLoading[entry.name] = false
+  }
+}
+
+// ========== 权限管理 ==========
+interface PermItem {
+  id: number
+  plugin_name: string
+  plugin_version: string
+  permission_name: string
+  status: string // pending / granted / denied
+  description: string
+  required: boolean
+  granted_by: string
+  granted_at: string | null
+  revoked_at: string | null
+}
+
+const HIGH_SENSITIVE_PERMS = ['request_headers', 'channel_config']
+
+const permModalShow = ref(false)
+const permLoading = ref(false)
+const permList = ref<PermItem[]>([])
+const permPluginId = ref<number>(0)
+const permActionLoading = reactive<Record<string, boolean>>({})
+
+function isHighSensitive(permName: string): boolean {
+  return HIGH_SENSITIVE_PERMS.includes(permName)
+}
+
+function permStatusType(status: string): 'default' | 'success' | 'warning' | 'error' | 'info' {
+  const map: Record<string, 'default' | 'success' | 'warning' | 'error' | 'info'> = {
+    pending: 'warning',
+    granted: 'success',
+    denied: 'error',
+  }
+  return map[status] || 'default'
+}
+
+async function openPermissions(plugin: PluginItem) {
+  permPluginId.value = plugin.id
+  permModalShow.value = true
+  await fetchPermissions()
+}
+
+async function fetchPermissions() {
+  permLoading.value = true
+  try {
+    const { data } = await pluginApi.getPermissions(permPluginId.value)
+    permList.value = data?.data || []
+  } catch {
+    message.error(t('plugins.permLoadFailed'))
+    permList.value = []
+  } finally {
+    permLoading.value = false
+  }
+}
+
+async function handlePermToggle(perm: PermItem, grant: boolean) {
+  // 高敏感权限授予时二次确认
+  if (grant && isHighSensitive(perm.permission_name)) {
+    dialog.warning({
+      title: t('plugins.permHighSensitiveConfirm'),
+      content: t('plugins.permHighSensitiveMsg', { name: perm.permission_name }),
+      positiveText: t('common.confirm'),
+      negativeText: t('common.cancel'),
+      onPositiveClick: () => doPermAction(perm, true),
+    })
+    return
+  }
+  await doPermAction(perm, grant)
+}
+
+async function doPermAction(perm: PermItem, grant: boolean) {
+  permActionLoading[perm.permission_name] = true
+  try {
+    if (grant) {
+      await pluginApi.grantPermission(permPluginId.value, perm.permission_name)
+    } else {
+      await pluginApi.denyPermission(permPluginId.value, perm.permission_name)
+    }
+    message.success(grant ? t('plugins.permGranted') : t('plugins.permDenied'))
+    await fetchPermissions()
+  } catch (e: any) {
+    message.error((e?.response?.data?.error?.message || e.message))
+  } finally {
+    permActionLoading[perm.permission_name] = false
+  }
+}
+
+async function handleGrantAll() {
+  permActionLoading._all = true
+  try {
+    await pluginApi.grantAllPermissions(permPluginId.value)
+    message.success(t('plugins.permGranted'))
+    await fetchPermissions()
+  } catch (e: any) {
+    message.error(e?.response?.data?.error?.message || e.message)
+  } finally {
+    permActionLoading._all = false
+  }
+}
+
+async function handleDenyAll() {
+  permActionLoading._denyAll = true
+  try {
+    await pluginApi.denyAllPermissions(permPluginId.value)
+    message.success(t('plugins.permDenied'))
+    await fetchPermissions()
+  } catch (e: any) {
+    message.error(e?.response?.data?.error?.message || e.message)
+  } finally {
+    permActionLoading._denyAll = false
   }
 }
 

@@ -29,7 +29,7 @@ func (m *Manager) StartProbeScheduler() {
 // StartGlobalHealthCheck 启动全局健康巡检
 func (m *Manager) StartGlobalHealthCheck() {
 	go func() {
-		ticker := time.NewTicker(time.Duration(m.cfg.GlobalHealthCheckInterval) * time.Second)
+		ticker := time.NewTicker(time.Duration(m.cfg.ChannelHealthCheckInterval) * time.Second)
 		defer ticker.Stop()
 
 		for range ticker.C {
@@ -37,7 +37,7 @@ func (m *Manager) StartGlobalHealthCheck() {
 		}
 	}()
 	m.logger.Info("global health check started",
-		zap.Int("interval_seconds", m.cfg.GlobalHealthCheckInterval),
+		zap.Int("interval_seconds", m.cfg.ChannelHealthCheckInterval),
 	)
 }
 
@@ -177,47 +177,101 @@ func (m *Manager) runGlobalHealthCheck(ctx context.Context) {
 }
 
 // healthCheckChannel 巡检单个渠道
+// 1. 尝试恢复 disabled/cooling 账号（原有逻辑）
+// 2. 对 active 渠道进行主动健康探测（新增逻辑）
 func (m *Manager) healthCheckChannel(ctx context.Context, ch *channel.Channel, traceID string) {
-	// 获取第一个 disabled/cooling 账号
-	var acc Account
+	// ===== 阶段1：恢复 disabled/cooling 账号 =====
+	var disabledAcc Account
+	hasDisabled := true
 	if err := m.db.WithContext(ctx).
 		Where("channel_id = ? AND status IN ?", ch.ID, []string{"disabled", "cooling"}).
 		Where("probe_cooldown_until IS NULL OR probe_cooldown_until < ?", time.Now()).
 		Order("last_failed_at ASC").
-		First(&acc).Error; err != nil {
-		return // 无需巡检
+		First(&disabledAcc).Error; err != nil {
+		hasDisabled = false
 	}
 
-	// 检查 min_disable_duration
-	if acc.LastFailedAt != nil {
-		disabledDuration := time.Since(*acc.LastFailedAt)
-		if disabledDuration < time.Duration(m.cfg.MinDisableDuration)*time.Second {
-			return
+	if hasDisabled {
+		// 检查 min_disable_duration
+		if disabledAcc.LastFailedAt != nil {
+			disabledDuration := time.Since(*disabledAcc.LastFailedAt)
+			if disabledDuration < time.Duration(m.cfg.MinDisableDuration)*time.Second {
+				hasDisabled = false
+			}
 		}
 	}
 
-	// 获取锁
-	lockKey := fmt.Sprintf("probe_lock:%d", ch.ID)
+	if hasDisabled {
+		// 获取锁
+		lockKey := fmt.Sprintf("probe_lock:%d", ch.ID)
+		acquired, _ := m.cache.SetNX(lockKey, "1", 30*time.Second)
+		if acquired {
+			defer m.cache.Del(lockKey)
+
+			startTime := time.Now()
+			plainKey, keyErr := m.GetDecryptedAPIKey(ctx, disabledAcc.ID)
+			if keyErr != nil {
+				elapsedMs := int(time.Since(startTime).Milliseconds())
+				m.recordProbeLog(ctx, ch.ID, disabledAcc.ID, false, "health_check", elapsedMs, 0, keyErr.Error(), 0, 0)
+			} else {
+				testResult, testErr := m.channelSvc.TestAccount(ctx, ch.ID, disabledAcc.ID, plainKey)
+				elapsedMs := int(time.Since(startTime).Milliseconds())
+
+				if testErr != nil || !testResult.Success {
+					statusCode := 0
+					errMsg := "health check failed"
+					if testResult != nil {
+						statusCode = testResult.Status
+						if testResult.Error != "" {
+							errMsg = testResult.Error
+						}
+					} else if testErr != nil {
+						errMsg = testErr.Error()
+					}
+					m.recordProbeLog(ctx, ch.ID, disabledAcc.ID, false, "health_check", elapsedMs, statusCode, errMsg, 0, 0)
+				} else {
+					m.recordProbeLog(ctx, ch.ID, disabledAcc.ID, true, "health_check", elapsedMs, testResult.Status, "", testResult.PromptTokens, testResult.CompletionTokens)
+					m.recoverAccount(ctx, &disabledAcc)
+					m.resetCooldownCycles(ctx, ch.ID)
+				}
+			}
+		}
+	}
+
+	// ===== 阶段2：对 active 渠道做主动健康探测 =====
+	// 只对启用中的渠道，取优先级最高的 active 账号做一次轻量测试
+	if !m.cfg.ChannelDisableOnFailure {
+		return
+	}
+
+	var activeAcc Account
+	if err := m.db.WithContext(ctx).
+		Where("channel_id = ? AND status = ?", ch.ID, "active").
+		Order("priority DESC, id ASC").
+		First(&activeAcc).Error; err != nil {
+		return // 无 active 账号
+	}
+
+	// 获取锁（使用不同 key 避免与阶段1冲突）
+	lockKey := fmt.Sprintf("active_probe_lock:%d", ch.ID)
 	acquired, _ := m.cache.SetNX(lockKey, "1", 30*time.Second)
 	if !acquired {
 		return
 	}
 	defer m.cache.Del(lockKey)
 
-	// 探测（复用渠道可用性检查）
 	startTime := time.Now()
-	plainKey, keyErr := m.GetDecryptedAPIKey(ctx, acc.ID)
+	plainKey, keyErr := m.GetDecryptedAPIKey(ctx, activeAcc.ID)
 	if keyErr != nil {
-		elapsedMs := int(time.Since(startTime).Milliseconds())
-		m.recordProbeLog(ctx, ch.ID, acc.ID, false, "health_check", elapsedMs, 0, keyErr.Error(), 0, 0)
 		return
 	}
-	testResult, testErr := m.channelSvc.TestAccount(ctx, ch.ID, acc.ID, plainKey)
+
+	testResult, testErr := m.channelSvc.TestAccount(ctx, ch.ID, activeAcc.ID, plainKey)
 	elapsedMs := int(time.Since(startTime).Milliseconds())
 
 	if testErr != nil || !testResult.Success {
 		statusCode := 0
-		errMsg := "health check failed"
+		errMsg := "active health check failed"
 		if testResult != nil {
 			statusCode = testResult.Status
 			if testResult.Error != "" {
@@ -226,11 +280,31 @@ func (m *Manager) healthCheckChannel(ctx context.Context, ch *channel.Channel, t
 		} else if testErr != nil {
 			errMsg = testErr.Error()
 		}
-		m.recordProbeLog(ctx, ch.ID, acc.ID, false, "health_check", elapsedMs, statusCode, errMsg, 0, 0)
+		m.recordProbeLog(ctx, ch.ID, activeAcc.ID, false, "active_health_check", elapsedMs, statusCode, errMsg, 0, 0)
+		// 通过 ReportResult 累积失败次数，由已有阈值机制决定是否禁用
+		m.ReportResult(ctx, activeAcc.ID, false, statusCode)
 	} else {
-		m.recordProbeLog(ctx, ch.ID, acc.ID, true, "health_check", elapsedMs, testResult.Status, "", testResult.PromptTokens, testResult.CompletionTokens)
-		m.recoverAccount(ctx, &acc)
-		m.resetCooldownCycles(ctx, ch.ID)
+		m.recordProbeLog(ctx, ch.ID, activeAcc.ID, true, "active_health_check", elapsedMs, testResult.Status, "", testResult.PromptTokens, testResult.CompletionTokens)
+		// 成功：重置连续失败计数
+		m.ReportResult(ctx, activeAcc.ID, true, testResult.Status)
+
+		// 如果 channel_enable_on_success 且有 disabled 账号，尝试恢复
+		if m.cfg.ChannelEnableOnSuccess {
+			var disabledAccounts []Account
+			m.db.WithContext(ctx).
+				Where("channel_id = ? AND status IN ?", ch.ID, []string{"disabled", "cooling"}).
+				Where("probe_cooldown_until IS NULL OR probe_cooldown_until < ?", time.Now()).
+				Find(&disabledAccounts)
+			for _, da := range disabledAccounts {
+				if da.LastFailedAt != nil {
+					disabledDuration := time.Since(*da.LastFailedAt)
+					if disabledDuration >= time.Duration(m.cfg.MinDisableDuration)*time.Second {
+						m.recoverAccount(ctx, &da)
+					}
+				}
+			}
+			m.resetCooldownCycles(ctx, ch.ID)
+		}
 	}
 }
 

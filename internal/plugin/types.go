@@ -8,11 +8,42 @@ import (
 
 // PluginStatus 插件状态常量
 const (
-	StatusInstalled = "installed"
-	StatusRunning   = "running"
-	StatusStopped   = "stopped"
-	StatusUnhealthy = "unhealthy"
-	StatusError     = "error"
+	StatusInstalled  = "installed"
+	StatusRunning    = "running"
+	StatusStopped    = "stopped"
+	StatusUnhealthy  = "unhealthy"
+	StatusError      = "error"
+	StatusUninstalled = "uninstalled"
+)
+
+// PermissionName 权限名称常量
+type PermissionName string
+
+const (
+	PermAccountID          PermissionName = "account_id"
+	PermChannelID          PermissionName = "channel_id"
+	PermKeysID             PermissionName = "keys_id"
+	PermModelName          PermissionName = "model_name"
+	PermRequestHeaders     PermissionName = "request_headers"
+	PermRequestBodySummary PermissionName = "request_body_summary"
+	PermResponseStatus     PermissionName = "response_status"
+	PermResponseBodySummary PermissionName = "response_body_summary"
+	PermServerInfo         PermissionName = "server_info"
+	PermChannelInfo        PermissionName = "channel_info"
+	PermChannelConfig      PermissionName = "channel_config"
+)
+
+// HighSensitivePermissions 高敏感权限列表（授予时需二次确认）
+var HighSensitivePermissions = map[PermissionName]bool{
+	PermRequestHeaders: true,
+	PermChannelConfig:  true,
+}
+
+// PermissionStatus 权限状态常量
+const (
+	PermPending  = "pending"
+	PermGranted  = "granted"
+	PermDenied   = "denied"
 )
 
 // HookName 钩子名称（对齐设计文档）
@@ -111,18 +142,44 @@ type HookResponse struct {
 	ExcludeIDs       []uint                 `json:"exclude_ids,omitempty"` // account_select 用
 }
 
+// PluginPermission 插件权限授权记录
+type PluginPermission struct {
+	ID              uint      `gorm:"primaryKey;autoIncrement" json:"id"`
+	PluginName      string    `gorm:"size:100;not null;uniqueIndex:uk_plugin_perm" json:"plugin_name"`
+	PluginVersion   string    `gorm:"size:20;not null;default:''" json:"plugin_version"`
+	PermissionName  string    `gorm:"size:100;not null;uniqueIndex:uk_plugin_perm" json:"permission_name"`
+	Status          string    `gorm:"size:20;not null;default:'pending'" json:"status"` // pending/granted/denied
+	Description     string    `gorm:"type:text" json:"description"`                      // 插件声明的权限描述
+	Required        bool      `gorm:"not null;default:false" json:"required"`           // 插件声明的 required
+	GrantedBy       string    `gorm:"size:100" json:"granted_by"`                        // 操作者
+	GrantedAt       *time.Time `gorm:"" json:"granted_at,omitempty"`
+	RevokedAt       *time.Time `gorm:"" json:"revoked_at,omitempty"`
+	CreatedAt       time.Time `gorm:"autoCreateTime" json:"created_at"`
+	UpdatedAt       time.Time `gorm:"autoUpdateTime" json:"updated_at"`
+}
+
+func (PluginPermission) TableName() string { return "plugin_permissions" }
+
 // Manifest 插件描述文件
 type Manifest struct {
 	Name         string            `json:"name"`
 	Version      string            `json:"version"`
 	Description  string            `json:"description"`
 	Author       string            `json:"author"`
-	Type         string            `json:"type,omitempty"`        // 插件类型：sidecar（默认）/ system
-	Binary       string            `json:"binary"`               // 单架构二进制文件名（向后兼容）
-	Binaries     map[string]string `json:"binaries,omitempty"`    // 多架构映射：GOOS/GOARCH → 二进制文件名
-	Port         int             `json:"port"`
-	Hooks        []string        `json:"hooks"`
-	ConfigSchema json.RawMessage `json:"config_schema"`
+	Type         string            `json:"type,omitempty"`
+	Binary       string            `json:"binary"`
+	Binaries     map[string]string `json:"binaries,omitempty"`
+	Port         int               `json:"port"`
+	Hooks        []string          `json:"hooks"`
+	ConfigSchema json.RawMessage   `json:"config_schema"`
+	Permissions  []PermissionDecl  `json:"permissions,omitempty"`
+}
+
+// PermissionDecl 插件权限声明
+type PermissionDecl struct {
+	Name        string `json:"name"`
+	Description string `json:"description"`
+	Required    bool   `json:"required"`
 }
 
 // PluginManager 插件管理器接口
@@ -147,6 +204,22 @@ type PluginManager interface {
 	UpdateConfig(ctx context.Context, id uint, config string) error
 	// 健康检查（定时调用所有运行中插件的 /health）
 	HealthCheck(ctx context.Context)
+	// 获取插件权限列表
+	GetPermissions(ctx context.Context, pluginName string) ([]PluginPermission, error)
+	// 授予插件权限
+	GrantPermission(ctx context.Context, pluginName, permissionName, grantedBy string) error
+	// 撤销插件权限
+	DenyPermission(ctx context.Context, pluginName, permissionName, grantedBy string) error
+	// 全部授予
+	GrantAllPermissions(ctx context.Context, pluginName, grantedBy string) error
+	// 全部撤销
+	DenyAllPermissions(ctx context.Context, pluginName, grantedBy string) error
+	// 获取已授予的权限列表（从缓存读取）
+	GetGrantedPermissions(pluginName string) []string
+	// 检查插件是否有未满足的必需权限
+	CheckRequiredPermissions(pluginName string) (missing []string, err error)
+	// 同步插件权限声明（安装/升级时调用）
+	SyncPermissions(ctx context.Context, pluginName, pluginVersion string, declarations []PermissionDecl) error
 }
 
 // ContinueHook 快速构造 continue 响应

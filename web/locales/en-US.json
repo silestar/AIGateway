@@ -13,7 +13,8 @@
     "plugins": "Plugins",
     "system": "System",
     "systemSettings": "Settings",
-    "systemLogs": "Logs"
+    "systemLogs": "Logs",
+    "systemMonitor": "Monitor"
   },
   "common": {
     "create": "Create",
@@ -310,7 +311,22 @@
     "installSuccess": "Installed successfully",
     "type": "Type",
     "uploading": "Uploading...",
-    "statusUploaded": "Uploaded"
+    "statusUploaded": "Uploaded",
+    "permissions": "Permissions",
+    "permTitle": "Plugin Permissions",
+    "permEmpty": "This plugin has no permission declarations",
+    "permRequired": "Required",
+    "permSensitive": "High Sensitive",
+    "permStatusPending": "Pending",
+    "permStatusGranted": "Granted",
+    "permStatusDenied": "Denied",
+    "permGrantAll": "Grant All",
+    "permDenyAll": "Deny All",
+    "permGranted": "Permission granted",
+    "permDenied": "Permission denied",
+    "permLoadFailed": "Failed to load permissions",
+    "permHighSensitiveConfirm": "High Sensitive Permission",
+    "permHighSensitiveMsg": "Permission '{name}' is high sensitive. It may allow the plugin to access request headers (including auth info) or full channel config (including proxy addresses). Confirm grant?"
   },
   "settings": {
     "title": "System Settings",
@@ -356,6 +372,8 @@
     "readTimeoutHint": "Timeout for waiting upstream responses. For long/streaming: 120-300s",
     "maxIdleConnsHint": "HTTP connection pool size. For high concurrency: 100-1000",
     "idleConnTimeoutHint": "Max lifetime of idle connections in the pool. Recommended: 60-120s",
+    "streamReadTimeout": "Stream Read Timeout",
+    "streamReadTimeoutHint": "Max wait between stream chunks. 0=unlimited. Cold-start channels may need 300s+. Recommended: 120-600s",
     "affinityTTLHint": "Sticky binding duration per consumer-channel pair. Too long causes load imbalance",
     "consecutiveFailureThresholdHint": "Auto-disable an account after consecutive request failures reach this count. Recommended: 3-10",
     "minDisableDurationHint": "Minimum wait time after an account is disabled, during which it won't be probed. Recommended: 60-300s",
@@ -371,9 +389,10 @@
   },
   "login": {
     "title": "AIGateway Admin Login",
-    "tokenPlaceholder": "Enter API Token",
+    "usernamePlaceholder": "Enter admin username",
+    "passwordPlaceholder": "Enter admin password",
     "submit": "Login",
-    "failed": "Login failed, please check your token",
+    "failed": "Login failed, please check your username and password",
     "logout": "Logout"
   },
   "systemLogs": {
@@ -506,5 +525,64 @@
     "mappedFrom": "Mapped from",
     "refresh": "Refresh",
     "total": "{count} models in total"
+  },
+  "monitor": {
+    "title": "Monitor & Alerts",
+    "channelTest": "Periodic Channel Test",
+    "testInterval": "Test Interval (seconds)",
+    "testIntervalHint": "Automatically probe all channels in the background",
+    "disableOnFailure": "Accumulate failures on test failure",
+    "disableOnFailureHint": "Accumulate consecutive failures when test fails, auto-disable when threshold reached",
+    "enableOnSuccess": "Recover disabled accounts on success",
+    "enableOnSuccessHint": "Recover disabled accounts in the same channel when test passes",
+    "latencyThreshold": "Disable Threshold (seconds)",
+    "latencyThresholdHint": "Auto-disable channels exceeding this response time (0=no limit)",
+    "disableStatusCodes": "Auto-disable Status Codes",
+    "disableStatusCodesHint": "Immediately disable account when these status codes are matched",
+    "retryStatusCodes": "Auto-retry Status Codes",
+    "retryStatusCodesHint": "Trigger account-level retry when these status codes are matched",
+    "failureKeywords": "Failure Keywords/Phrases",
+    "failureKeywordsHint": "If upstream error contains any of these keywords/phrases (case-insensitive), account will be auto-disabled",
+    "failureKeywordsPlaceholder": "",
+    "keywordsEmpty": "No keywords/phrases yet",
+    "keywordsPlaceholder": "Enter keyword or phrase, press Enter to add",
+    "keywordsAdd": "Add",
+    "save": "Save Monitor Rules",
+    "saveSuccess": "Monitor rules saved"
+  },
+  "home": {
+    "nav": {
+      "home": "Home",
+      "console": "Console",
+      "docs": "Docs",
+      "about": "About"
+    },
+    "hero": {
+      "subtitle": "High-Performance AI API Aggregation Gateway",
+      "description": "Unified management of multiple AI service providers' API keys, channels, and accounts. Smart routing, automatic failover, and usage statistics for reliable AI API calls.",
+      "cta": "Go to Console",
+      "docs": "View Docs"
+    },
+    "features": {
+      "title": "Core Features",
+      "subtitle": "All-in-one AI API Management Solution",
+      "multi": { "title": "Multi-Protocol", "desc": "Native support for OpenAI, Anthropic, Gemini and more. Automatic request format conversion." },
+      "route": { "title": "Smart Routing", "desc": "Hierarchical deterministic routing engine with key groups, channel groups, model filters and priority scheduling." },
+      "plugin": { "title": "Plugin System", "desc": "Sidecar proxy for TLS fingerprinting, request rewriting and more. Non-invasive extensibility." },
+      "keys": { "title": "Key Management", "desc": "AES-256-GCM encrypted API key storage with RPM/TPM quota control and usage alerts." },
+      "stats": { "title": "Monitoring", "desc": "Real-time request logs, daily aggregated stats, dashboard visualization for full API observability." },
+      "ha": { "title": "High Availability", "desc": "Automatic fault detection and recovery, account-level cooldown and retry for continuous service." }
+    },
+    "tech": { "title": "Tech Stack" }
+  },
+  "docs": {
+    "title": "Documentation",
+    "comingSoon": "Documentation is under development. Stay tuned!"
+  },
+  "about": {
+    "description": "A high-performance, multi-tenant AI API aggregation gateway. Unified multi-provider key management, intelligent routing, automatic failover, and full-chain monitoring.",
+    "license": "License",
+    "tech": "Tech Stack",
+    "storage": "Storage"
   }
 }

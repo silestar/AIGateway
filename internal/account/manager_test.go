@@ -51,7 +51,7 @@ func setupTestManager(t *testing.T) (*Manager, *gorm.DB) {
 		MaxProbeRecoverPerCycle:     1,
 		ProbeCooldownDuration:       7200,
 		ProbeCooldownDurationL2:     86400,
-		GlobalHealthCheckInterval:   3600,
+		ChannelHealthCheckInterval:   3600,
 		AccountStatusCacheTTL:       30,
 		AccountKeyCacheTTL:          60,
 	}

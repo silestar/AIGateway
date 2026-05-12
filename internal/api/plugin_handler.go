@@ -67,6 +67,12 @@ func (h *PluginHandler) RegisterRoutes(rg *gin.RouterGroup) {
 	p.GET("/:id/channel-configs", h.ListChannelConfigs)
 	p.PUT("/:id/channel-configs/:channelId", h.SetChannelConfig)
 	p.DELETE("/:id/channel-configs/:channelId", h.DeleteChannelConfig)
+	// 权限管理
+	p.GET("/:id/permissions", h.GetPermissions)
+	p.PUT("/:id/permissions/:permName/grant", h.GrantPermission)
+	p.PUT("/:id/permissions/:permName/deny", h.DenyPermission)
+	p.POST("/:id/permissions/grant-all", h.GrantAllPermissions)
+	p.POST("/:id/permissions/deny-all", h.DenyAllPermissions)
 	// 注册中心
 	p.GET("/registry/list", h.RegistryList)
 	p.POST("/registry/install", h.RegistryInstall)
@@ -442,4 +448,120 @@ func (h *PluginHandler) DeleteChannelConfig(c *gin.Context) {
 func (h *PluginHandler) ListChannelTypes(c *gin.Context) {
 	types := adapterregistry.ListChannelTypes()
 	c.JSON(http.StatusOK, gin.H{"data": types})
+}
+
+// ========== 权限管理 API ==========
+
+// GetPermissions 获取插件权限列表
+func (h *PluginHandler) GetPermissions(c *gin.Context) {
+	id, err := parseID(c)
+	if err != nil {
+		c.JSON(http.StatusBadRequest, errorResponse("invalid_id", "invalid plugin id"))
+		return
+	}
+	p, err := h.pluginMgr.GetByID(c.Request.Context(), id)
+	if err != nil {
+		c.JSON(http.StatusNotFound, errorResponse("not_found", "plugin not found"))
+		return
+	}
+	perms, err := h.pluginMgr.GetPermissions(c.Request.Context(), p.Name)
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, errorResponse("query_failed", err.Error()))
+		return
+	}
+	c.JSON(http.StatusOK, gin.H{"data": perms})
+}
+
+// GrantPermission 授予插件权限
+func (h *PluginHandler) GrantPermission(c *gin.Context) {
+	id, err := parseID(c)
+	if err != nil {
+		c.JSON(http.StatusBadRequest, errorResponse("invalid_id", "invalid plugin id"))
+		return
+	}
+	permName := c.Param("permName")
+	p, err := h.pluginMgr.GetByID(c.Request.Context(), id)
+	if err != nil {
+		c.JSON(http.StatusNotFound, errorResponse("not_found", "plugin not found"))
+		return
+	}
+	grantedBy := c.GetString("username")
+	if grantedBy == "" {
+		grantedBy = "admin"
+	}
+	if err := h.pluginMgr.GrantPermission(c.Request.Context(), p.Name, permName, grantedBy); err != nil {
+		c.JSON(http.StatusInternalServerError, errorResponse("grant_failed", err.Error()))
+		return
+	}
+	c.JSON(http.StatusOK, gin.H{"data": gin.H{"plugin_name": p.Name, "permission": permName, "status": "granted"}})
+}
+
+// DenyPermission 撤销插件权限
+func (h *PluginHandler) DenyPermission(c *gin.Context) {
+	id, err := parseID(c)
+	if err != nil {
+		c.JSON(http.StatusBadRequest, errorResponse("invalid_id", "invalid plugin id"))
+		return
+	}
+	permName := c.Param("permName")
+	p, err := h.pluginMgr.GetByID(c.Request.Context(), id)
+	if err != nil {
+		c.JSON(http.StatusNotFound, errorResponse("not_found", "plugin not found"))
+		return
+	}
+	grantedBy := c.GetString("username")
+	if grantedBy == "" {
+		grantedBy = "admin"
+	}
+	if err := h.pluginMgr.DenyPermission(c.Request.Context(), p.Name, permName, grantedBy); err != nil {
+		c.JSON(http.StatusInternalServerError, errorResponse("deny_failed", err.Error()))
+		return
+	}
+	c.JSON(http.StatusOK, gin.H{"data": gin.H{"plugin_name": p.Name, "permission": permName, "status": "denied"}})
+}
+
+// GrantAllPermissions 全部授予
+func (h *PluginHandler) GrantAllPermissions(c *gin.Context) {
+	id, err := parseID(c)
+	if err != nil {
+		c.JSON(http.StatusBadRequest, errorResponse("invalid_id", "invalid plugin id"))
+		return
+	}
+	p, err := h.pluginMgr.GetByID(c.Request.Context(), id)
+	if err != nil {
+		c.JSON(http.StatusNotFound, errorResponse("not_found", "plugin not found"))
+		return
+	}
+	grantedBy := c.GetString("username")
+	if grantedBy == "" {
+		grantedBy = "admin"
+	}
+	if err := h.pluginMgr.GrantAllPermissions(c.Request.Context(), p.Name, grantedBy); err != nil {
+		c.JSON(http.StatusInternalServerError, errorResponse("grant_all_failed", err.Error()))
+		return
+	}
+	c.JSON(http.StatusOK, gin.H{"data": gin.H{"plugin_name": p.Name, "status": "all_granted"}})
+}
+
+// DenyAllPermissions 全部撤销
+func (h *PluginHandler) DenyAllPermissions(c *gin.Context) {
+	id, err := parseID(c)
+	if err != nil {
+		c.JSON(http.StatusBadRequest, errorResponse("invalid_id", "invalid plugin id"))
+		return
+	}
+	p, err := h.pluginMgr.GetByID(c.Request.Context(), id)
+	if err != nil {
+		c.JSON(http.StatusNotFound, errorResponse("not_found", "plugin not found"))
+		return
+	}
+	grantedBy := c.GetString("username")
+	if grantedBy == "" {
+		grantedBy = "admin"
+	}
+	if err := h.pluginMgr.DenyAllPermissions(c.Request.Context(), p.Name, grantedBy); err != nil {
+		c.JSON(http.StatusInternalServerError, errorResponse("deny_all_failed", err.Error()))
+		return
+	}
+	c.JSON(http.StatusOK, gin.H{"data": gin.H{"plugin_name": p.Name, "status": "all_denied"}})
 }

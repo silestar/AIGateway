@@ -5,16 +5,24 @@
       <div class="login-brand">
         <div class="login-icon">⚡</div>
         <h1 class="login-title">AIGateway</h1>
-        <p class="login-subtitle">高性能 AI API 聚合代理网关</p>
+        <p class="login-subtitle">{{ t('home.hero.description') }}</p>
       </div>
       <n-form @submit.prevent="handleLogin">
         <n-form-item>
           <n-input
-            v-model:value="token"
+            v-model:value="username"
+            size="large"
+            :placeholder="t('login.usernamePlaceholder')"
+            @keyup.enter="handleLogin"
+          />
+        </n-form-item>
+        <n-form-item>
+          <n-input
+            v-model:value="password"
             type="password"
             show-password-on="click"
             size="large"
-            :placeholder="t('login.tokenPlaceholder')"
+            :placeholder="t('login.passwordPlaceholder')"
             @keyup.enter="handleLogin"
           />
         </n-form-item>
@@ -37,18 +45,19 @@ const { t } = useI18n()
 const router = useRouter()
 const message = useMessage()
 
-const token = ref('')
+const username = ref('')
+const password = ref('')
 const loading = ref(false)
 
 async function handleLogin() {
-  if (!token.value) return
+  if (!username.value || !password.value) return
   loading.value = true
   try {
-    const res = await authApi.login(token.value)
+    const res = await authApi.login(username.value, password.value)
     const sessionToken = res.data.data.token
     localStorage.setItem('agw_token', sessionToken)
     message.success(t('common.success'))
-    router.push('/')
+    router.push('/console')
   } catch {
     message.error(t('login.failed'))
   } finally {

@@ -91,6 +91,12 @@
             </n-input-number>
             <div class="form-hint">{{ t('settings.idleConnTimeoutHint') }}</div>
           </n-form-item>
+          <n-form-item :label="t('settings.streamReadTimeout')">
+            <n-input-number v-model:value="form.proxy.stream_read_timeout" :min="0" :max="3600" style="width:200px">
+              <template #suffix>{{ t('settings.seconds') }}</template>
+            </n-input-number>
+            <div class="form-hint">{{ t('settings.streamReadTimeoutHint') }}</div>
+          </n-form-item>
         </n-form>
       </div>
     </n-card>
@@ -153,7 +159,7 @@
             <div class="form-hint">{{ t('settings.probeCooldownDurationL2Hint') }}</div>
           </n-form-item>
           <n-form-item :label="t('settings.globalHealthCheckInterval')">
-            <n-input-number v-model:value="form.account_manager.global_health_check_interval" :min="0" style="width:200px">
+            <n-input-number v-model:value="form.account_manager.channel_health_check_interval" :min="0" style="width:200px">
               <template #suffix>{{ t('settings.seconds') }}</template>
             </n-input-number>
             <div class="form-hint">{{ t('settings.globalHealthCheckIntervalHint') }}</div>
@@ -209,12 +215,12 @@ function toggleSection(key: string) {
 const form = reactive({
   server: { mode: 'debug' } as Record<string, any>,
   log: { level: 'info', dir: 'logs', max_age_days: 30, detail_log_enabled: true, refresh_interval: 5 } as Record<string, any>,
-  proxy: { connect_timeout: 5, read_timeout: 60, max_idle_conns: 100, idle_conn_timeout: 90 } as Record<string, any>,
+  proxy: { connect_timeout: 5, read_timeout: 60, max_idle_conns: 100, idle_conn_timeout: 90, stream_read_timeout: 300 } as Record<string, any>,
   account_manager: {
     affinity_ttl: 3600, consecutive_failure_threshold: 5, min_disable_duration: 120,
     probe_interval: 30, probe_active_ratio_threshold: 0.4, max_probe_failures: 10,
     max_probe_recover_per_cycle: 1, probe_cooldown_duration: 7200,
-    probe_cooldown_duration_l2: 86400, global_health_check_interval: 3600,
+    probe_cooldown_duration_l2: 86400, channel_health_check_interval: 3600,
     account_status_cache_ttl: 30, account_key_cache_ttl: 60,
   } as Record<string, any>,
 })

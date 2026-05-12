@@ -2,8 +2,8 @@
   <n-config-provider :theme="naiveTheme" :theme-overrides="naiveThemeOverrides" :locale="naiveLocale">
     <n-message-provider>
       <n-dialog-provider>
-        <!-- 登录页：全屏无侧边栏 -->
-        <router-view v-if="isLoginPage" />
+        <!-- 登录页 & 公开独立页面：全屏无侧边栏 -->
+        <router-view v-if="isPublicPage" />
 
         <!-- 管理面板：侧边栏布局 -->
         <n-layout v-else has-sider class="app-layout">
@@ -39,6 +39,20 @@
               </div>
               <!-- === 图标按钮组 === -->
               <n-space align="center" :size="4">
+                <!-- 公开页面链接 -->
+                <router-link to="/" custom v-slot="{ navigate }">
+                  <n-button quaternary size="small" class="toolbar-btn" title="首页" @click="navigate">
+                    <template #icon><span class="toolbar-icon">🏠</span></template>
+                  </n-button>
+                </router-link>
+                <router-link to="/docs" custom v-slot="{ navigate }">
+                  <n-button quaternary size="small" class="toolbar-btn" title="文档" @click="navigate">
+                    <template #icon><span class="toolbar-icon">📖</span></template>
+                  </n-button>
+                </router-link>
+
+                <n-divider vertical style="height: 20px; margin: 0 4px;" />
+
                 <!-- 语言切换 -->
                 <n-popover trigger="click" placement="bottom-end" ref="langPopoverRef">
                   <template #trigger>
@@ -85,7 +99,7 @@
 
                 <!-- 退出登录：图标 + 文字 -->
                 <n-button quaternary size="small" class="toolbar-btn" @click="handleLogout">
-                  <template #icon><span class="toolbar-icon">🚪</span></template>
+                  <template #icon><span class="toolbar-icon">🔒</span></template>
                   {{ t('login.logout') }}
                 </n-button>
               </n-space>
@@ -132,6 +146,7 @@ import {
   NPopover,
   NSpace,
   NButton,
+  NDivider,
   darkTheme,
   zhCN,
   enUS,
@@ -150,7 +165,10 @@ watch(currentLang, (val) => {
 }, { immediate: true })
 
 const currentRoute = computed(() => route.path)
-const isLoginPage = computed(() => route.path === '/login')
+const isPublicPage = computed(() => {
+  const publicPaths = ['/login', '/', '/docs', '/about']
+  return publicPaths.includes(route.path)
+})
 const collapsed = computed(() => false)
 const naiveLocale = computed(() => currentLang.value === 'zh-CN' ? zhCN : enUS)
 
@@ -169,6 +187,7 @@ const pageTitle = computed(() => {
     '/models': 'menu.models',
     '/plugins': 'menu.plugins',
     '/settings': 'menu.systemSettings',
+    '/settings/monitor': 'menu.systemMonitor',
     '/settings/logs': 'menu.systemLogs',
   }
   const key = keyMap[route.path]
@@ -395,6 +414,7 @@ const menuOptions = computed(() => [
     icon: (): string => '⚙️',
     children: [
       { label: t('menu.systemSettings'), key: '/settings', icon: (): string => '🔧' },
+      { label: t('menu.systemMonitor'), key: '/settings/monitor', icon: (): string => '📡' },
       { label: t('menu.systemLogs'), key: '/settings/logs', icon: (): string => '📄' },
     ],
   },
