@@ -332,6 +332,7 @@ func (m *Manager) recoverAccount(ctx context.Context, acc *Account) {
 		"probe_failures":       0,
 		"probe_cooldown_until": nil,
 		"last_failed_at":       nil,
+		"disabled_reason":      "",
 	})
 
 	m.logger.Info("account recovered",

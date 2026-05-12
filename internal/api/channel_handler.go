@@ -42,6 +42,9 @@ func (h *ChannelHandler) RegisterRoutes(rg *gin.RouterGroup) {
 	channels.POST("/:id/test-models", h.BatchTestModels)
 	channels.PUT("/:id/test-model", h.UpdateTestModel)
 	channels.POST("/:id/copy", h.CopyChannel)
+	// 账号测试与恢复（渠道维度）
+	channels.POST("/:id/accounts/:accountId/test", h.TestAccount)
+	channels.POST("/:id/accounts/batch-recover", h.BatchRecoverAccounts)
 }
 
 // Create 创建渠道
@@ -487,4 +490,41 @@ func (h *ChannelHandler) getActiveAPIKey(c *gin.Context, channelID uint) (string
 	}
 
 	return plainKey, nil
+}
+
+// TestAccount 手动测试单个账号
+func (h *ChannelHandler) TestAccount(c *gin.Context) {
+	channelID, err := parseID(c)
+	if err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+		return
+	}
+	accountID, err := parseIDFromParam(c, "accountId")
+	if err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+		return
+	}
+
+	result, err := h.accountMgr.TestAccount(c.Request.Context(), channelID, accountID)
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+		return
+	}
+	c.JSON(http.StatusOK, result)
+}
+
+// BatchRecoverAccounts 批量恢复渠道下所有 disabled 账号
+func (h *ChannelHandler) BatchRecoverAccounts(c *gin.Context) {
+	channelID, err := parseID(c)
+	if err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+		return
+	}
+
+	results, err := h.accountMgr.BatchRecover(c.Request.Context(), channelID)
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+		return
+	}
+	c.JSON(http.StatusOK, gin.H{"results": results})
 }

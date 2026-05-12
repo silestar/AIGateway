@@ -218,7 +218,10 @@
         <!-- 账号管理 -->
         <n-tab-pane name="accounts" :tab="t('channels.accounts')">
           <n-space vertical>
-            <n-button type="primary" @click="showAddAccount = true">{{ t('channels.addAccount') }}</n-button>
+            <n-space>
+              <n-button type="primary" @click="showAddAccount = true">{{ t('channels.addAccount') }}</n-button>
+              <n-button v-if="hasDisabledAccounts" type="warning" @click="batchRecover" :loading="batchLoading">{{ t('channels.batchRecover') }}</n-button>
+            </n-space>
             <n-data-table :columns="accountColumns" :data="accounts" />
           </n-space>
         </n-tab-pane>
@@ -679,6 +682,9 @@ const showCreateModal = ref(false)
 const showAddAccount = ref(false)
 const showBatchTest = ref(false)
 const showUpstreamUpdate = ref(false)
+const testingIds = ref<number[]>([])
+const batchLoading = ref(false)
+const hasDisabledAccounts = computed(() => accounts.value.some((a: Account) => a.status === 'disabled'))
 
 const testingChannelId = ref<number | null>(null)
 
@@ -1345,13 +1351,57 @@ const accountColumns = computed(() => [
     render: (row: Account) => h(NTag, { type: row.status === 'active' ? 'success' : 'error', size: 'small' }, () => row.status === 'active' ? t('common.active') : t('common.disabled')),
   },
   {
+    title: t('channels.disabledReason'), key: 'disabled_reason', width: 160, ellipsis: { tooltip: true },
+    render: (row: Account) => row.status === 'disabled' ? (row as any).disabled_reason || '-' : '-',
+  },
+  {
     title: t('common.actions'), key: 'actions', width: 200,
     render: (row: Account) => h(NSpace, { size: 'small' }, () => [
       h(NButton, { size: 'small', type: row.status === 'active' ? 'error' : 'success', onClick: () => handleToggleAccount(row) }, () => row.status === 'active' ? t('common.disable') : t('common.enable')),
+      row.status === 'disabled' ? h(NButton, { size: 'small', type: 'warning', onClick: () => testAccount(row), loading: testingIds.value.includes(row.id) }, () => t('channels.accountTest')) : null,
       h(NButton, { size: 'small', type: 'error', ghost: true, onClick: () => handleDeleteAccount(row.id) }, () => t('common.delete')),
     ]),
   },
 ])
+
+async function testAccount(row: Account) {
+  testingIds.value.push(row.id)
+  try {
+    const res: any = await accountApi.testAccount(row.channel_id, row.id)
+    const result = res.data
+    if (result.success) {
+      message.success(t('channels.accountTestPassed'))
+      if (selectedChannel.value) await selectChannel(selectedChannel.value)
+    } else {
+      message.error(result.error || t('channels.accountTestFailed'))
+    }
+  } catch {
+    message.error(t('channels.accountTestFailed'))
+  } finally {
+    testingIds.value = testingIds.value.filter(id => id !== row.id)
+  }
+}
+
+async function batchRecover() {
+  if (!selectedChannel.value) return
+  batchLoading.value = true
+  try {
+    const res: any = await accountApi.batchRecover(selectedChannel.value.id)
+    const results = res.data?.results || []
+    for (const r of results) {
+      if (r.success) {
+        message.success(`账号 #${r.account_id} 恢复成功`)
+      } else {
+        message.error(`账号 #${r.account_id} ${r.error || '测试失败'}`)
+      }
+    }
+    if (selectedChannel.value) await selectChannel(selectedChannel.value)
+  } catch {
+    message.error(t('common.operationFailed'))
+  } finally {
+    batchLoading.value = false
+  }
+}
 
 // 创建时自动填充默认 Base URL
 watch(() => createForm.type, (newType) => {

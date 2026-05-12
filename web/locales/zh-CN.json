@@ -160,7 +160,12 @@
     "checkingUpstream": "正在检查上游模型变动...",
     "goToModelConfig": "前往模型配置",
     "noRemovedModels": "所有模型均在线，无已下线模型",
-    "missingFields": "请填写必填项："
+    "missingFields": "请填写必填项：",
+    "disabledReason": "禁用原因",
+    "accountTest": "测试",
+    "accountTestPassed": "测试通过，账号已恢复",
+    "accountTestFailed": "测试失败",
+    "batchRecover": "批量恢复"
   },
   "groups": {
     "selectGroup": "请选择一个分组",

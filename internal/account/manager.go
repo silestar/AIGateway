@@ -231,6 +231,7 @@ func (m *Manager) ReportResult(ctx context.Context, accountID uint, success bool
 			now := time.Now()
 			updates := map[string]interface{}{
 				"status":               "disabled",
+				"disabled_reason":      fmt.Sprintf("status_code: %d", disableCode),
 				"last_failed_at":       now,
 				"consecutive_failures": acc.ConsecutiveFailures + 1,
 			}
@@ -248,6 +249,7 @@ func (m *Manager) ReportResult(ctx context.Context, accountID uint, success bool
 	if statusCode == 429 {
 		updates := map[string]interface{}{
 			"status":               "disabled",
+			"disabled_reason":      "rate_limited: 429",
 			"consecutive_failures": acc.ConsecutiveFailures + 1,
 		}
 		m.logger.Warn("account disabled due to upstream 429 rate limit",
@@ -276,6 +278,7 @@ func (m *Manager) ReportResult(ctx context.Context, accountID uint, success bool
 	// 达到阈值 → 禁用
 	if newFailures >= m.cfg.ConsecutiveFailureThreshold {
 		updates["status"] = "disabled"
+		updates["disabled_reason"] = fmt.Sprintf("consecutive_failures: %d", newFailures)
 		now := time.Now()
 		updates["last_failed_at"] = now
 
@@ -302,6 +305,7 @@ func (m *Manager) DisableAccountByKeyword(ctx context.Context, accountID uint, k
 	now := time.Now()
 	updates := map[string]interface{}{
 		"status":               "disabled",
+		"disabled_reason":      fmt.Sprintf("keyword: %s", keyword),
 		"last_failed_at":       now,
 		"consecutive_failures": acc.ConsecutiveFailures + 1,
 	}
@@ -493,4 +497,64 @@ func (m *Manager) getTotalCount(ctx context.Context, channelID uint) int64 {
 	var count int64
 	m.db.WithContext(ctx).Model(&Account{}).Where("channel_id = ?", channelID).Count(&count)
 	return count
+}
+
+// TestAccount 手动测试单个账号，通过则自动恢复
+func (m *Manager) TestAccount(ctx context.Context, channelID, accountID uint) (*channel.TestResult, error) {
+	plainKey, err := m.GetDecryptedAPIKey(ctx, accountID)
+	if err != nil {
+		return nil, fmt.Errorf("decrypt key: %w", err)
+	}
+
+	testResult, testErr := m.channelSvc.TestAccount(ctx, channelID, accountID, plainKey)
+	if testErr != nil || !testResult.Success {
+		reason := "manual_test_failed"
+		if testErr != nil {
+			reason = "manual_test: " + testErr.Error()
+		}
+		// 截断不超过255字符
+		if len(reason) > 255 {
+			reason = reason[:255]
+		}
+		m.db.WithContext(ctx).Model(&Account{}).Where("id = ?", accountID).Update("disabled_reason", reason)
+		return testResult, testErr
+	}
+
+	// 测试通过 → 恢复账号
+	var acc Account
+	if err := m.db.WithContext(ctx).First(&acc, accountID).Error; err != nil {
+		return testResult, nil
+	}
+	acc.Status = "active"
+	m.recoverAccount(ctx, &acc)
+
+	return testResult, nil
+}
+
+// BatchRecover 批量恢复渠道下所有 disabled 账号
+func (m *Manager) BatchRecover(ctx context.Context, channelID uint) ([]map[string]interface{}, error) {
+	all, _ := m.ListByChannel(ctx, channelID)
+	var disabledAccounts []Account
+	for _, acc := range all {
+		if acc.Status == "disabled" {
+			disabledAccounts = append(disabledAccounts, acc)
+		}
+	}
+
+	results := make([]map[string]interface{}, 0, len(disabledAccounts))
+	for _, acc := range disabledAccounts {
+		result, err := m.TestAccount(ctx, channelID, acc.ID)
+		outcome := map[string]interface{}{
+			"account_id": acc.ID,
+			"success":    err == nil && result != nil && result.Success,
+		}
+		if err != nil {
+			outcome["error"] = err.Error()
+		} else if result != nil && !result.Success {
+			outcome["error"] = result.Error
+		}
+		results = append(results, outcome)
+	}
+
+	return results, nil
 }

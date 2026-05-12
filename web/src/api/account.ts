@@ -36,4 +36,10 @@ export const accountApi = {
   delete(id: number) {
     return api.delete(`/accounts/${id}`)
   },
+  testAccount(channelId: number, accountId: number) {
+    return api.post(`/channels/${channelId}/accounts/${accountId}/test`)
+  },
+  batchRecover(channelId: number) {
+    return api.post(`/channels/${channelId}/accounts/batch-recover`)
+  },
 }
