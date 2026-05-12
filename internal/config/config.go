@@ -661,6 +661,20 @@ func EnsureConfigCompleteness(configPath string, v *viper.Viper, logger *zap.Log
 		// 获取默认值
 		defaultVal := v.Get(item.Key)
 		valStr := formatYamlValue(defaultVal)
+		// 多行值（列表类型）：后续行需要额外缩进
+		if strings.Contains(valStr, "\n") {
+			subIndent := "  " // key 下的列表项缩进
+			if section != "" {
+				subIndent = "      " // section内：6空格（4+2）
+			}
+			parts := strings.Split(valStr, "\n")
+			for i := 1; i < len(parts); i++ {
+				if parts[i] != "" {
+					parts[i] = subIndent + parts[i]
+				}
+			}
+			valStr = strings.Join(parts, "\n")
+		}
 
 		if _, exists := missingBySection[section]; !exists {
 			sectionOrder = append(sectionOrder, section)
