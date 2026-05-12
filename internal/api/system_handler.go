@@ -46,7 +46,7 @@ func (h *SystemHandler) RegisterRoutes(rg *gin.RouterGroup) {
 func (h *SystemHandler) Info(c *gin.Context) {
 	c.JSON(http.StatusOK, gin.H{
 		"data": gin.H{
-			"version":    "0.1.0",
+			"version":    h.version,
 			"go_version": "1.25.0",
 			"port":       h.cfg.Server.Port,
 			"db_type":    h.cfg.DB.Type,
