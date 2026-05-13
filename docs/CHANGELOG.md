@@ -1,9 +1,12 @@
 # Changelog
 
-## [Unreleased]
+## [0.2.2] - 2026-05-13
 
-- 2026-05-13：修复 `upstreamReq.Body` 被插件 `pre_request` 代码读空导致转发给上游时请求体丢失的 bug — 在创建 `upstreamReq` 后立即预读并独立备份 body
-- 2026-05-12：修复 Web 端版本号显示硬编码 `0.1.0`，改为从 `docs/VERSION` 动态读取
+### 代理引擎修复
+- 修复 `upstreamReq.Body` 被插件 `pre_request` 代码读空导致转发给上游时请求体丢失 — 在创建 `upstreamReq` 后立即预读并独立备份 body
+
+### 模型可见性修复
+- 修复 `GetVisibleModels` 与 `GetUpstreamModels` 可见性判断不一致 — `/v1/models` 改用 `GROUP BY + HAVING MIN(visible)=1`，确保同名模型跨多渠道时全部行勾选才暴露
 
 ## [0.2.1] - 2026-05-13
 

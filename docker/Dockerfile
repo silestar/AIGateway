@@ -22,6 +22,9 @@ WORKDIR /app/web
 COPY web/package.json web/package-lock.json* ./
 RUN npm install
 
+# 复制版本文件到构建上下文
+COPY docs/VERSION ../docs/VERSION
+
 COPY web/ .
 RUN npm run build
 

@@ -24,7 +24,7 @@ type Manager struct {
 	channelSvc channel.ChannelService
 	cfg        config.AccountManagerConfig
 	logger     *zap.Logger
-	onProbeDone func(channelID, accountID uint, success bool, logType string, elapsedMs int, statusCode int, errMsg string, promptTokens int, completionTokens int)
+	onProbeDone func(channelID, accountID uint, success bool, logType string, modelName string, elapsedMs int, statusCode int, errMsg string, promptTokens int, completionTokens int)
 	lastCooldownProbeAt map[uint]time.Time // 每个账号的上次冷却探测时间
 }
 
@@ -42,7 +42,7 @@ func NewManager(db *gorm.DB, cache Cache, cryptoSvc *crypto.CryptoService, chann
 }
 
 // SetOnProbeDone 设置探测完成回调
-func (m *Manager) SetOnProbeDone(fn func(channelID, accountID uint, success bool, logType string, elapsedMs int, statusCode int, errMsg string, promptTokens int, completionTokens int)) {
+func (m *Manager) SetOnProbeDone(fn func(channelID, accountID uint, success bool, logType string, modelName string, elapsedMs int, statusCode int, errMsg string, promptTokens int, completionTokens int)) {
 	m.onProbeDone = fn
 }
 

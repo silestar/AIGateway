@@ -120,7 +120,7 @@ func main() {
 	}, db)
 
 	// 启动账号池后台任务
-	accountMgr.SetOnProbeDone(func(channelID, accountID uint, success bool, logType string, elapsedMs int, statusCode int, errMsg string, promptTokens int, completionTokens int) {
+	accountMgr.SetOnProbeDone(func(channelID, accountID uint, success bool, logType string, modelName string, elapsedMs int, statusCode int, errMsg string, promptTokens int, completionTokens int) {
 		chID := channelID
 		accID := accountID
 		if success {
@@ -131,11 +131,14 @@ func main() {
 		if errMsg == "" && !success {
 			errMsg = logType + " failed"
 		}
+		if modelName == "" {
+			modelName = logType // fallback：如果上游没返回模型名，用 logType
+		}
 		log := &stats.RequestLog{
 			Timestamp:       time.Now(),
 			ChannelID:       &chID,
 			AccountID:       &accID,
-			ModelName:       logType,
+			ModelName:       modelName,
 			StatusCode:      statusCode,
 			LatencyMs:       elapsedMs,
 			LogType:         logType,

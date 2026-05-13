@@ -122,7 +122,7 @@ func (m *Manager) probeChannel(ctx context.Context, ch *channel.Channel, traceID
 		plainKey, keyErr := m.GetDecryptedAPIKey(ctx, acc.ID)
 		if keyErr != nil {
 			elapsedMs := int(time.Since(startTime).Milliseconds())
-			m.recordProbeLog(ctx, ch.ID, acc.ID, false, "probe", elapsedMs, 0, keyErr.Error(), 0, 0)
+			m.recordProbeLog(ctx, ch.ID, acc.ID, false, "probe", "", elapsedMs, 0, keyErr.Error(), 0, 0)
 			continue
 		}
 		testResult, testErr := m.channelSvc.TestAccount(ctx, ch.ID, acc.ID, plainKey)
@@ -131,15 +131,17 @@ func (m *Manager) probeChannel(ctx context.Context, ch *channel.Channel, traceID
 		if testErr != nil || !testResult.Success {
 			statusCode := 0
 			errMsg := "probe failed"
+			modelName := ""
 			if testResult != nil {
 				statusCode = testResult.Status
+				modelName = testResult.Model
 				if testResult.Error != "" {
 					errMsg = testResult.Error
 				}
 			} else if testErr != nil {
 				errMsg = testErr.Error()
 			}
-			m.recordProbeLog(ctx, ch.ID, acc.ID, false, "probe", elapsedMs, statusCode, errMsg, 0, 0)
+			m.recordProbeLog(ctx, ch.ID, acc.ID, false, "probe", modelName, elapsedMs, statusCode, errMsg, 0, 0)
 			// 探测失败 → 增加探测失败计数
 			newProbeFailures := acc.ProbeFailures + 1
 			updates := map[string]interface{}{
@@ -161,7 +163,7 @@ func (m *Manager) probeChannel(ctx context.Context, ch *channel.Channel, traceID
 			m.db.WithContext(ctx).Model(&Account{}).Where("id = ?", acc.ID).Updates(updates)
 		} else {
 			// 探测成功 → 恢复账号
-			m.recordProbeLog(ctx, ch.ID, acc.ID, true, "probe", elapsedMs, testResult.Status, "", testResult.PromptTokens, testResult.CompletionTokens)
+			m.recordProbeLog(ctx, ch.ID, acc.ID, true, "probe", testResult.Model, elapsedMs, testResult.Status, "", testResult.PromptTokens, testResult.CompletionTokens)
 			m.recoverAccount(ctx, &acc)
 			recovered++
 		}
@@ -226,7 +228,7 @@ func (m *Manager) healthCheckChannel(ctx context.Context, ch *channel.Channel, t
 			plainKey, keyErr := m.GetDecryptedAPIKey(ctx, disabledAcc.ID)
 			if keyErr != nil {
 				elapsedMs := int(time.Since(startTime).Milliseconds())
-				m.recordProbeLog(ctx, ch.ID, disabledAcc.ID, false, "health_check", elapsedMs, 0, keyErr.Error(), 0, 0)
+				m.recordProbeLog(ctx, ch.ID, disabledAcc.ID, false, "health_check", "", elapsedMs, 0, keyErr.Error(), 0, 0)
 			} else {
 				testResult, testErr := m.channelSvc.TestAccount(ctx, ch.ID, disabledAcc.ID, plainKey)
 				elapsedMs := int(time.Since(startTime).Milliseconds())
@@ -234,17 +236,19 @@ func (m *Manager) healthCheckChannel(ctx context.Context, ch *channel.Channel, t
 				if testErr != nil || !testResult.Success {
 					statusCode := 0
 					errMsg := "health check failed"
+					modelName := ""
 					if testResult != nil {
 						statusCode = testResult.Status
+						modelName = testResult.Model
 						if testResult.Error != "" {
 							errMsg = testResult.Error
 						}
 					} else if testErr != nil {
 						errMsg = testErr.Error()
 					}
-					m.recordProbeLog(ctx, ch.ID, disabledAcc.ID, false, "health_check", elapsedMs, statusCode, errMsg, 0, 0)
+					m.recordProbeLog(ctx, ch.ID, disabledAcc.ID, false, "health_check", modelName, elapsedMs, statusCode, errMsg, 0, 0)
 				} else {
-					m.recordProbeLog(ctx, ch.ID, disabledAcc.ID, true, "health_check", elapsedMs, testResult.Status, "", testResult.PromptTokens, testResult.CompletionTokens)
+					m.recordProbeLog(ctx, ch.ID, disabledAcc.ID, true, "health_check", testResult.Model, elapsedMs, testResult.Status, "", testResult.PromptTokens, testResult.CompletionTokens)
 					m.recoverAccount(ctx, &disabledAcc)
 					m.resetCooldownCycles(ctx, ch.ID)
 				}
@@ -286,19 +290,21 @@ func (m *Manager) healthCheckChannel(ctx context.Context, ch *channel.Channel, t
 	if testErr != nil || !testResult.Success {
 		statusCode := 0
 		errMsg := "active health check failed"
+		modelName := ""
 		if testResult != nil {
 			statusCode = testResult.Status
+			modelName = testResult.Model
 			if testResult.Error != "" {
 				errMsg = testResult.Error
 			}
 		} else if testErr != nil {
 			errMsg = testErr.Error()
 		}
-		m.recordProbeLog(ctx, ch.ID, activeAcc.ID, false, "active_health_check", elapsedMs, statusCode, errMsg, 0, 0)
+		m.recordProbeLog(ctx, ch.ID, activeAcc.ID, false, "active_health_check", modelName, elapsedMs, statusCode, errMsg, 0, 0)
 		// 通过 ReportResult 累积失败次数，由已有阈值机制决定是否禁用
 		m.ReportResult(ctx, activeAcc.ID, false, statusCode, testErr)
 	} else {
-		m.recordProbeLog(ctx, ch.ID, activeAcc.ID, true, "active_health_check", elapsedMs, testResult.Status, "", testResult.PromptTokens, testResult.CompletionTokens)
+		m.recordProbeLog(ctx, ch.ID, activeAcc.ID, true, "active_health_check", testResult.Model, elapsedMs, testResult.Status, "", testResult.PromptTokens, testResult.CompletionTokens)
 		// 成功：重置连续失败计数
 		m.ReportResult(ctx, activeAcc.ID, true, testResult.Status, nil)
 	}
@@ -359,8 +365,8 @@ func (m *Manager) recoverAccount(ctx context.Context, acc *Account) {
 }
 
 // recordProbeLog 记录探测日志（通过回调通知外部写入）
-func (m *Manager) recordProbeLog(ctx context.Context, channelID, accountID uint, success bool, logType string, elapsedMs int, statusCode int, errMsg string, promptTokens int, completionTokens int) {
+func (m *Manager) recordProbeLog(ctx context.Context, channelID, accountID uint, success bool, logType string, modelName string, elapsedMs int, statusCode int, errMsg string, promptTokens int, completionTokens int) {
 	if m.onProbeDone != nil {
-		m.onProbeDone(channelID, accountID, success, logType, elapsedMs, statusCode, errMsg, promptTokens, completionTokens)
+		m.onProbeDone(channelID, accountID, success, logType, modelName, elapsedMs, statusCode, errMsg, promptTokens, completionTokens)
 	}
 }
