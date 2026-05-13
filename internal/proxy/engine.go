@@ -152,6 +152,13 @@ func (e *Engine) Forward(ctx context.Context, ch *channel.Channel, acc *account.
 	if err != nil {
 		return nil, fmt.Errorf("create upstream request: %w", err)
 	}
+	// 预先缓存请求 body，后续插件 pre_request 会读空 originalReq.Body，需独立备份给 upstreamReq
+	if originalReq.Body != nil {
+		cachedReqBody, _ := io.ReadAll(originalReq.Body)
+		originalReq.Body = io.NopCloser(bytes.NewReader(cachedReqBody))
+		upstreamReq.Body = io.NopCloser(bytes.NewReader(cachedReqBody))
+		upstreamReq.ContentLength = int64(len(cachedReqBody))
+	}
 
 	for k, vv := range originalReq.Header {
 		// 不转发 Accept-Encoding：让 Go Transport 自动管理 gzip（自动发送 + 自动解压），

@@ -2,6 +2,7 @@
 
 ## [Unreleased]
 
+- 2026-05-13：修复 `upstreamReq.Body` 被插件 `pre_request` 代码读空导致转发给上游时请求体丢失的 bug — 在创建 `upstreamReq` 后立即预读并独立备份 body
 - 2026-05-12：修复 Web 端版本号显示硬编码 `0.1.0`，改为从 `docs/VERSION` 动态读取
 
 ## [0.2.1] - 2026-05-13
