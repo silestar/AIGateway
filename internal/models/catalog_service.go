@@ -130,27 +130,35 @@ func (s *catalogService) BatchSetDisplayVisible(ctx context.Context, modelName s
 }
 
 // GetVisibleModels 获取 /v1/models 应暴露的模型列表（去重）
+// 规则：同名模型的所有 channel_models 行都 upstream_visible=true 才算可见
 func (s *catalogService) GetVisibleModels(ctx context.Context) ([]string, error) {
 	var models []string
 
-	// 上游可见模型
+	// 上游可见模型：要求该 actual_model_name 的所有行 upstream_visible 都为 true
 	err := s.db.WithContext(ctx).Raw(`
-		SELECT DISTINCT cm.actual_model_name
+		SELECT cm.actual_model_name
 		FROM channel_models cm
 		JOIN channels c ON c.id = cm.channel_id
-		WHERE c.status != 'disabled' AND cm.status = 'enabled' AND cm.upstream_visible = true
+		WHERE c.status != 'disabled' AND cm.status = 'enabled'
+		GROUP BY cm.actual_model_name
+		HAVING MIN(CASE WHEN cm.upstream_visible THEN 1 ELSE 0 END) = 1
+		ORDER BY LOWER(cm.actual_model_name)
 	`).Scan(&models).Error
 	if err != nil {
 		return nil, err
 	}
 
-	// 映射可见模型
+	// 映射可见模型：规则同上
 	var displayModels []string
 	err = s.db.WithContext(ctx).Raw(`
-		SELECT DISTINCT cm.display_model_name
+		SELECT cm.display_model_name
 		FROM channel_models cm
 		JOIN channels c ON c.id = cm.channel_id
-		WHERE c.status != 'disabled' AND cm.status = 'enabled' AND cm.display_visible = true
+		WHERE c.status != 'disabled' AND cm.status = 'enabled'
+		  AND cm.display_model_name != cm.actual_model_name
+		GROUP BY cm.display_model_name
+		HAVING MIN(CASE WHEN cm.display_visible THEN 1 ELSE 0 END) = 1
+		ORDER BY LOWER(cm.display_model_name)
 	`).Scan(&displayModels).Error
 	if err != nil {
 		return nil, err
