@@ -46,4 +46,7 @@ export const accountApi = {
   batchTest(channelId: number, mode: string) {
     return api.post(`/channels/${channelId}/accounts/batch-test`, null, { params: { mode } })
   },
+  batchStatus(channelId: number) {
+    return api.get(`/channels/${channelId}/accounts/batch-status`)
+  },
 }

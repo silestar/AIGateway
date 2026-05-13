@@ -220,7 +220,6 @@
           <n-space vertical>
             <n-space>
               <n-button type="primary" @click="showAddAccount = true">{{ t('channels.addAccount') }}</n-button>
-              <n-button v-if="hasDisabledAccounts" type="warning" @click="batchRecover" :loading="batchLoading">{{ t('channels.batchRecover') }}</n-button>
               <n-dropdown trigger="click" @select="handleBatchTestAccountSelect" :options="batchTestAccountOptions">
                 <n-button :loading="batchTestAccountLoading" type="info">{{ t('channels.batchTest') || '批量测试' }}</n-button>
               </n-dropdown>
@@ -230,6 +229,26 @@
         </n-tab-pane>
       </n-tabs>
     </n-card>
+
+    <!-- 批量操作进度弹层 -->
+    <div v-if="batchInProgress" class="batch-progress-panel">
+      <n-card size="small" :bordered="true" style="width: 260px">
+        <template #header>
+          <div style="display:flex; justify-content:space-between; align-items:center">
+            <span style="font-size:13px; font-weight:600">{{ batchProgressLabel }}</span>
+            <span style="font-size:12px; color:var(--n-text-color-3)">{{ batchProgressDone }}/{{ batchProgressTotal }}</span>
+          </div>
+        </template>
+        <n-progress
+          type="line"
+          :percentage="batchProgressPercent"
+          :color="'var(--n-color-primary)'"
+          :height="6"
+          :border-radius="3"
+          :show-indicator="false"
+        />
+      </n-card>
+    </div>
 
     <!-- 创建渠道弹窗 -->
     <n-modal v-model:show="showCreateModal" preset="dialog" :title="t('channels.create')" :positive-text="t('common.confirm')" :negative-text="t('common.cancel')" @positive-click="handleCreateChannel">
@@ -686,14 +705,22 @@ const showAddAccount = ref(false)
 const showBatchTest = ref(false)
 const showUpstreamUpdate = ref(false)
 const testingIds = ref<number[]>([])
-const batchLoading = ref(false)
 const batchTestAccountLoading = ref(false)
 const batchTestAccountOptions = [
   { label: t('channels.batchTestDisabled'), key: 'disabled' },
   { label: t('channels.batchTestActive'), key: 'active' },
   { label: t('channels.batchTestAll'), key: 'all' },
 ]
-const hasDisabledAccounts = computed(() => accounts.value.some((a: Account) => a.status === 'disabled'))
+
+// 批量操作进度
+const batchInProgress = ref(false)
+const batchProgressLabel = ref('')
+const batchProgressDone = ref(0)
+const batchProgressTotal = ref(0)
+const batchProgressPercent = computed(() =>
+  batchProgressTotal.value > 0 ? Math.round((batchProgressDone.value / batchProgressTotal.value) * 100) : 0
+)
+let batchPollTimer: ReturnType<typeof setInterval> | null = null
 
 const testingChannelId = ref<number | null>(null)
 
@@ -1367,7 +1394,7 @@ const accountColumns = computed(() => [
     title: t('common.actions'), key: 'actions', width: 200,
     render: (row: Account) => h(NSpace, { size: 'small' }, () => [
       h(NButton, { size: 'small', type: row.status === 'active' ? 'error' : 'success', onClick: () => handleToggleAccount(row) }, () => row.status === 'active' ? t('common.disable') : t('common.enable')),
-      row.status === 'disabled' ? h(NButton, { size: 'small', type: 'warning', onClick: () => testAccount(row), loading: testingIds.value.includes(row.id) }, () => t('channels.accountTest')) : null,
+      row.status === 'disabled' && !batchInProgress.value ? h(NButton, { size: 'small', type: 'warning', onClick: () => testAccount(row), loading: testingIds.value.includes(row.id) }, () => t('channels.accountTest')) : null,
       h(NButton, { size: 'small', type: 'error', ghost: true, onClick: () => handleDeleteAccount(row.id) }, () => t('common.delete')),
     ]),
   },
@@ -1391,36 +1418,69 @@ async function testAccount(row: Account) {
   }
 }
 
-async function batchRecover() {
-  if (!selectedChannel.value) return
-  batchLoading.value = true
-  try {
-    await accountApi.batchRecover(selectedChannel.value.id)
-    message.success('批量恢复已提交，正在后台执行')
-    // 延迟刷新，等待后台恢复完成
-    setTimeout(async () => {
-      if (selectedChannel.value) await selectChannel(selectedChannel.value)
-    }, 3000)
-  } catch {
-    message.error(t('common.operationFailed'))
-  } finally {
-    batchLoading.value = false
-  }
-}
-
 async function handleBatchTestAccountSelect(mode: string) {
   if (!selectedChannel.value) return
   batchTestAccountLoading.value = true
   try {
     await accountApi.batchTest(selectedChannel.value.id, mode)
-    message.success('批量测试已提交，正在后台执行')
-    setTimeout(async () => {
-      if (selectedChannel.value) await selectChannel(selectedChannel.value)
-    }, 3000)
+
+    // 开始轮询进度
+    batchTestChannelId.value = selectedChannel.value.id
+    const modeLabels: Record<string, string> = {
+      disabled: t('channels.batchTestDisabled'),
+      active: t('channels.batchTestActive'),
+      all: t('channels.batchTestAll'),
+    }
+    batchProgressLabel.value = modeLabels[mode] || mode
+    batchProgressDone.value = 0
+    batchProgressTotal.value = 0
+    batchInProgress.value = true
+
+    startBatchPolling()
   } catch {
     message.error(t('common.operationFailed'))
-  } finally {
     batchTestAccountLoading.value = false
+  }
+}
+
+function startBatchPolling() {
+  stopBatchPolling()
+  batchPollTimer = setInterval(async () => {
+    try {
+      const res: any = await accountApi.batchStatus(batchTestChannelId.value)
+      const s = res.data
+      if (!s || !s.running) {
+        // 完成了
+        stopBatchPolling()
+        batchInProgress.value = false
+        batchTestAccountLoading.value = false
+        // 计算结果
+        const successCount = s?.results?.filter((r: any) => r.success).length || 0
+        const failCount = (s?.results?.length || 0) - successCount
+        let msg = '批量测试完成'
+        if (s?.results?.length > 0) {
+          msg = `批量测试完成：成功 ${successCount} 个`
+          if (failCount > 0) msg += `，失败 ${failCount} 个`
+        }
+        message.info(msg)
+        // 刷新账号列表
+        if (selectedChannel.value) {
+          await selectChannel(selectedChannel.value)
+        }
+        return
+      }
+      batchProgressDone.value = s.done
+      batchProgressTotal.value = s.total
+    } catch {
+      // 404 说明还没开始或已结束，忽略
+    }
+  }, 1000)
+}
+
+function stopBatchPolling() {
+  if (batchPollTimer) {
+    clearInterval(batchPollTimer)
+    batchPollTimer = null
   }
 }
 
@@ -1439,4 +1499,12 @@ onMounted(() => {
 </script>
 
 <style scoped>
+.batch-progress-panel {
+  position: fixed;
+  bottom: 20px;
+  right: 20px;
+  z-index: 9999;
+  box-shadow: 0 4px 20px rgba(0, 0, 0, 0.3);
+  border-radius: 8px;
+}
 </style>

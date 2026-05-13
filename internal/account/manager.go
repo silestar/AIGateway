@@ -543,6 +543,10 @@ func (m *Manager) BatchRecover(ctx context.Context, channelID uint) ([]map[strin
 		}
 	}
 
+	bp := GetBatchProgress()
+	bp.Start(channelID, len(disabledAccounts))
+	defer bp.Finish(channelID)
+
 	results := make([]map[string]interface{}, 0, len(disabledAccounts))
 	for _, acc := range disabledAccounts {
 		result, err := m.TestAccount(ctx, channelID, acc.ID)
@@ -556,6 +560,12 @@ func (m *Manager) BatchRecover(ctx context.Context, channelID uint) ([]map[strin
 			outcome["error"] = result.Error
 		}
 		results = append(results, outcome)
+
+		br := BatchResult{AccountID: acc.ID, Success: outcome["success"].(bool)}
+		if e, ok := outcome["error"].(string); ok {
+			br.Error = e
+		}
+		bp.AddResult(channelID, br)
 	}
 
 	return results, nil
@@ -580,8 +590,22 @@ func (m *Manager) BatchTest(ctx context.Context, channelID uint, mode string) er
 		}
 	}
 
+	bp := GetBatchProgress()
+	bp.Start(channelID, len(targets))
+	defer bp.Finish(channelID)
+
 	for _, acc := range targets {
-		m.TestAccount(ctx, channelID, acc.ID)
+		result, err := m.TestAccount(ctx, channelID, acc.ID)
+		br := BatchResult{AccountID: acc.ID}
+		if err != nil {
+			br.Error = err.Error()
+		} else if result != nil {
+			br.Success = result.Success
+			if !result.Success {
+				br.Error = result.Error
+			}
+		}
+		bp.AddResult(channelID, br)
 	}
 	return nil
 }

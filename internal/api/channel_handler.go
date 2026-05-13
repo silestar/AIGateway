@@ -47,6 +47,7 @@ func (h *ChannelHandler) RegisterRoutes(rg *gin.RouterGroup) {
 	channels.POST("/:id/accounts/:accountId/test", h.TestAccount)
 	channels.POST("/:id/accounts/batch-recover", h.BatchRecoverAccounts)
 	channels.POST("/:id/accounts/batch-test", h.BatchTestAccounts)
+	channels.GET("/:id/accounts/batch-status", h.GetBatchStatus)
 }
 
 // Create 创建渠道
@@ -548,4 +549,20 @@ func (h *ChannelHandler) BatchTestAccounts(c *gin.Context) {
 	}(channelID, mode)
 
 	c.JSON(http.StatusAccepted, gin.H{"message": "批量测试已提交，正在后台执行"})
+}
+
+// GetBatchStatus 查询批量操作进度
+func (h *ChannelHandler) GetBatchStatus(c *gin.Context) {
+	channelID, err := parseID(c)
+	if err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+		return
+	}
+	bp := account.GetBatchProgress()
+	status := bp.GetStatus(channelID)
+	if status == nil {
+		c.JSON(http.StatusNotFound, gin.H{"error": "no batch operation in progress"})
+		return
+	}
+	c.JSON(http.StatusOK, status)
 }

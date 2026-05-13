@@ -168,8 +168,16 @@
                     <span class="latency-dot"></span>
                     {{ formatMs(detailLog.latency_ms) }}
                   </span>
-                  <template v-if="detailLog.is_stream && detailLog.frt_ms > 0">
-                    <span class="latency-tag-new latency-tag-frt">FRT {{ formatMs(detailLog.frt_ms) }}</span>
+                  <template v-if="detailLog.is_stream && detailLog.first_token_ms > 0">
+                    <n-tooltip>
+                      <template #trigger>
+                        <span class="latency-tag-new latency-tag-frt">
+                          <span class="latency-dot latency-dot-frt"></span>
+                          {{ formatMs(detailLog.first_token_ms) }}
+                        </span>
+                      </template>
+                      {{ t('requestLogs.latencyFrt') }}
+                    </n-tooltip>
                   </template>
                 </div>
               </div>
@@ -671,7 +679,7 @@ const tableColumns = computed<DataTableColumns<RequestLog>>(() => [
     key: 'latency',
     width: 140,
     render: (row) => {
-      const hasFrt = row.is_stream && (row as any).frt_ms > 0
+      const hasFrt = row.is_stream && (row as any).first_token_ms > 0
       const tagBase = {
         display: 'inline-flex', alignItems: 'center', gap: '4px',
         borderRadius: '6px', padding: '1px 6px',
@@ -697,14 +705,25 @@ const tableColumns = computed<DataTableColumns<RequestLog>>(() => [
       ]
       if (hasFrt) {
         tags.push(
-          h('span', {
-            style: {
-              ...tagBase,
-              border: '1px solid rgba(34, 197, 94, 0.5)',
-              background: 'rgba(34, 197, 94, 0.08)',
-              color: 'rgba(74, 222, 128, 0.85)',
-            }
-          }, ['FRT ', formatMs((row as any).frt_ms)])
+          h(NTooltip, null, {
+            trigger: () => h('span', {
+              style: {
+                ...tagBase,
+                border: '1px solid rgba(34, 197, 94, 0.5)',
+                background: 'rgba(34, 197, 94, 0.08)',
+                color: 'rgba(74, 222, 128, 0.85)',
+              }
+            }, [
+              h('span', {
+                style: {
+                  display: 'inline-block', width: '6px', height: '6px',
+                  borderRadius: '50%', background: 'rgba(34, 197, 94, 0.8)', flexShrink: '0',
+                }
+              }),
+              formatMs((row as any).first_token_ms),
+            ]),
+            default: () => t('requestLogs.latencyFrt')
+          })
         )
       }
       return h('div', { style: { lineHeight: '1.6' } }, [
@@ -1107,6 +1126,10 @@ function onVisibilityChange() {
   border: 1px solid rgba(34, 197, 94, 0.5);
   background: rgba(34, 197, 94, 0.08);
   color: rgba(74, 222, 128, 0.85);
+}
+
+.latency-dot-frt {
+  background: rgba(34, 197, 94, 0.8);
 }
 
 .latency-dot {
