@@ -22,6 +22,7 @@ type RequestLog struct {
 	ErrorMsg         *string         `gorm:"type:text" json:"error_msg"`
 	LatencyMs        int             `json:"latency_ms"`
 	UpstreamLatencyMs int            `gorm:"default:0" json:"upstream_latency_ms"` // 上游处理耗时(ms)
+    FirstTokenMs      int            `gorm:"default:0" json:"first_token_ms"`         // 首Token时间(ms)，仅流式有意义
 	Cost             float64         `json:"cost"`
 	CacheTokens      int             `gorm:"default:0" json:"cache_tokens"`       // 缓存命中Token数
 	MappedModel      string          `gorm:"size:100;default:''" json:"mapped_model"` // 映射后请求模型

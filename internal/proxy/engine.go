@@ -358,6 +358,7 @@ type StreamResult struct {
 	FinishReason      string `json:"finish_reason,omitempty"`
 	SystemFingerprint string `json:"system_fingerprint,omitempty"`
 	UpstreamLatencyMs int    `json:"upstream_latency_ms,omitempty"` // 上游处理耗时(ms)
+    FirstTokenMs      int    `json:"first_token_ms,omitempty"`      // 首Token时间(ms)，仅流式
 	// Body 流式响应的完整内容（上限 5MB），供 detail writer 写入文件
 	Body []byte `json:"-"`
 	// DisconnectType 请求终止原因（仅内部排查，不返回客户端）
@@ -471,7 +472,9 @@ func (e *Engine) ForwardStream(ctx context.Context, ch *channel.Channel, acc *ac
 		_ = rawConn.SetReadDeadline(time.Now().Add(streamReadTimeout))
 	}
 
-	var lastChunks strings.Builder
+	var firstTokenMs int                          // FRT：首Token时间
+    upstreamStart := time.Now()                   // 流式请求发出时间
+    var lastChunks strings.Builder
 	var fullBody bytes.Buffer // 累积完整流式响应体（上限 5MB）
 	buf := make([]byte, 4096)
 	const maxBodySize = 5 * 1024 * 1024 // 5MB
@@ -486,8 +489,12 @@ func (e *Engine) ForwardStream(ctx context.Context, ch *channel.Channel, acc *ac
 		}
 
 		n, readErr := resp.Body.Read(buf)
-		if n > 0 {
-			// 每次成功读到数据后重置流式读取 deadline
+if n > 0 {
+            // 记录首Token时间（仅第一次读到数据时记录）
+            if firstTokenMs == 0 {
+                firstTokenMs = int(time.Since(upstreamStart).Milliseconds())
+            }
+            // 每次成功读到数据后重置流式读取 deadline
 			if rawConn != nil && streamReadTimeout > 0 {
 				_ = rawConn.SetReadDeadline(time.Now().Add(streamReadTimeout))
 			}
@@ -586,6 +593,7 @@ func (e *Engine) ForwardStream(ctx context.Context, ch *channel.Channel, acc *ac
 		FinishReason:      finishReason,
 		SystemFingerprint: sysFP,
 		UpstreamLatencyMs: extractUpstreamLatency(resp.Header),
+        FirstTokenMs:      firstTokenMs,
 		Body:              fullBody.Bytes(),
 	}, nil
 }

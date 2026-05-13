@@ -7,6 +7,7 @@ export interface Account {
   priority: number
   api_key_mask: string
   remark: string
+  disabled_reason?: string
   created_at?: string
   updated_at?: string
 }
@@ -41,5 +42,8 @@ export const accountApi = {
   },
   batchRecover(channelId: number) {
     return api.post(`/channels/${channelId}/accounts/batch-recover`)
+  },
+  batchTest(channelId: number, mode: string) {
+    return api.post(`/channels/${channelId}/accounts/batch-test`, null, { params: { mode } })
   },
 }

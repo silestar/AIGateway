@@ -58,4 +58,5 @@ type AccountManager interface {
 	// 手动测试与恢复
 	TestAccount(ctx context.Context, channelID, accountID uint) (*channel.TestResult, error)
 	BatchRecover(ctx context.Context, channelID uint) ([]map[string]interface{}, error)
+	BatchTest(ctx context.Context, channelID uint, mode string) error
 }

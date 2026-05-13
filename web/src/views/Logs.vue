@@ -168,8 +168,8 @@
                     <span class="latency-dot"></span>
                     {{ formatMs(detailLog.latency_ms) }}
                   </span>
-                  <template v-if="detailLog.upstream_latency_ms > 0">
-                    <span class="latency-tag-new latency-tag-upstream">{{ formatMs(detailLog.upstream_latency_ms) }}</span>
+                  <template v-if="detailLog.is_stream && detailLog.frt_ms > 0">
+                    <span class="latency-tag-new latency-tag-frt">FRT {{ formatMs(detailLog.frt_ms) }}</span>
                   </template>
                 </div>
               </div>
@@ -671,7 +671,7 @@ const tableColumns = computed<DataTableColumns<RequestLog>>(() => [
     key: 'latency',
     width: 140,
     render: (row) => {
-      const hasUpstream = row.upstream_latency_ms > 0
+      const hasFrt = row.is_stream && (row as any).frt_ms > 0
       const tagBase = {
         display: 'inline-flex', alignItems: 'center', gap: '4px',
         borderRadius: '6px', padding: '1px 6px',
@@ -695,16 +695,16 @@ const tableColumns = computed<DataTableColumns<RequestLog>>(() => [
           formatMs(row.latency_ms),
         ]),
       ]
-      if (hasUpstream) {
+      if (hasFrt) {
         tags.push(
           h('span', {
             style: {
               ...tagBase,
-              border: '1px solid rgba(244, 63, 94, 0.5)',
-              background: 'rgba(244, 63, 94, 0.08)',
-              color: 'rgba(251, 113, 133, 0.85)',
+              border: '1px solid rgba(34, 197, 94, 0.5)',
+              background: 'rgba(34, 197, 94, 0.08)',
+              color: 'rgba(74, 222, 128, 0.85)',
             }
-          }, formatMs(row.upstream_latency_ms))
+          }, ['FRT ', formatMs((row as any).frt_ms)])
         )
       }
       return h('div', { style: { lineHeight: '1.6' } }, [
@@ -1101,6 +1101,12 @@ function onVisibilityChange() {
   border: 1px solid rgba(244, 63, 94, 0.5);
   background: rgba(244, 63, 94, 0.08);
   color: rgba(251, 113, 133, 0.85);
+}
+
+.latency-tag-frt {
+  border: 1px solid rgba(34, 197, 94, 0.5);
+  background: rgba(34, 197, 94, 0.08);
+  color: rgba(74, 222, 128, 0.85);
 }
 
 .latency-dot {

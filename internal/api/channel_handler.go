@@ -1,6 +1,7 @@
 package api
 
 import (
+	"context"
 	"fmt"
 	"net/http"
 	"time"
@@ -45,6 +46,7 @@ func (h *ChannelHandler) RegisterRoutes(rg *gin.RouterGroup) {
 	// 账号测试与恢复（渠道维度）
 	channels.POST("/:id/accounts/:accountId/test", h.TestAccount)
 	channels.POST("/:id/accounts/batch-recover", h.BatchRecoverAccounts)
+	channels.POST("/:id/accounts/batch-test", h.BatchTestAccounts)
 }
 
 // Create 创建渠道
@@ -513,7 +515,7 @@ func (h *ChannelHandler) TestAccount(c *gin.Context) {
 	c.JSON(http.StatusOK, result)
 }
 
-// BatchRecoverAccounts 批量恢复渠道下所有 disabled 账号
+// BatchRecoverAccounts 批量恢复渠道下所有 disabled 账号（异步执行，避免超时）
 func (h *ChannelHandler) BatchRecoverAccounts(c *gin.Context) {
 	channelID, err := parseID(c)
 	if err != nil {
@@ -521,10 +523,29 @@ func (h *ChannelHandler) BatchRecoverAccounts(c *gin.Context) {
 		return
 	}
 
-	results, err := h.accountMgr.BatchRecover(c.Request.Context(), channelID)
+	go func(chID uint) {
+		h.accountMgr.BatchRecover(context.Background(), chID)
+	}(channelID)
+
+	c.JSON(http.StatusAccepted, gin.H{"message": "批量恢复已提交，正在后台执行"})
+}
+
+// BatchTestAccounts 批量测试渠道下的账号（mode: disabled/active/all）
+func (h *ChannelHandler) BatchTestAccounts(c *gin.Context) {
+	channelID, err := parseID(c)
 	if err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
 		return
 	}
-	c.JSON(http.StatusOK, gin.H{"results": results})
+	mode := c.DefaultQuery("mode", "disabled")
+	if mode != "disabled" && mode != "active" && mode != "all" {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "mode must be disabled/active/all"})
+		return
+	}
+
+	go func(chID uint, m string) {
+		h.accountMgr.BatchTest(context.Background(), chID, m)
+	}(channelID, mode)
+
+	c.JSON(http.StatusAccepted, gin.H{"message": "批量测试已提交，正在后台执行"})
 }

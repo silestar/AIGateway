@@ -8,6 +8,18 @@
 ### 模型可见性修复
 - 修复 `GetVisibleModels` 与 `GetUpstreamModels` 可见性判断不一致 — `/v1/models` 改用 `GROUP BY + HAVING MIN(visible)=1`，确保同名模型跨多渠道时全部行勾选才暴露
 
+### 请求日志增强
+- 新增 `first_token_ms`（FRT 首Token时间）字段，流式请求计时从请求发出到收到首个 chunk 的耗时
+- 前端延迟列：流式请求展示 FRT 标签（绿色），替换原有的上游延迟展示
+
+### 批量测试与恢复优化
+- 批量恢复改为异步执行 + 202 响应，解决大数据量同步超时问题
+- 新增批量测试功能：支持按 disabled/active/all 三种模式批量测试渠道下账号
+- 批量测试下拉按钮：测试禁用密钥 / 测试有效密钥 / 测试所有密钥
+
+### 管理 API 修复
+- 修复 `ListByChannel` 返回结果遗漏 `disabled_reason` 字段
+
 ## [0.2.1] - 2026-05-13
 
 ### 账号池稳定性优化

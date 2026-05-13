@@ -165,7 +165,10 @@
     "accountTest": "测试",
     "accountTestPassed": "测试通过，账号已恢复",
     "accountTestFailed": "测试失败",
-    "batchRecover": "批量恢复"
+    "batchRecover": "批量恢复",
+    "batchTestDisabled": "测试禁用密钥",
+    "batchTestActive": "测试有效密钥",
+    "batchTestAll": "测试所有密钥"
   },
   "groups": {
     "selectGroup": "请选择一个分组",

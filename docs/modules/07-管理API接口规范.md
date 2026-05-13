@@ -1262,6 +1262,7 @@
       "status_code": 200,
       "error_msg": null,
       "latency_ms": 850,
+      "first_token_ms": 320,
       "retry_chain_summary": "1次重试后成功"
     }
   ],
@@ -1291,6 +1292,7 @@
   "completion_tokens": 800,
   "status_code": 200,
   "latency_ms": 850,
+  "first_token_ms": 320,
   "retry_chain": [
     {"channel_id": 3, "account_id": 12, "error": "429"},
     {"channel_id": 3, "account_id": 15, "error": "timeout"},

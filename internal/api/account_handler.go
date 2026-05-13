@@ -106,14 +106,15 @@ func (h *AccountHandler) ListByChannel(c *gin.Context) {
 	// 批量脱敏
 	result := make([]gin.H, len(accounts))
 	for i, acc := range accounts {
-		result[i] = gin.H{
-			"id":           acc.ID,
-			"channel_id":    acc.ChannelID,
-			"status":       acc.Status,
-			"priority":     acc.Priority,
-			"api_key_mask": maskKey(acc.APIKeyPrefix),
-			"remark":       acc.Remark,
-		}
+result[i] = gin.H{
+            "id":              acc.ID,
+            "channel_id":      acc.ChannelID,
+            "status":          acc.Status,
+            "priority":        acc.Priority,
+            "api_key_mask":    maskKey(acc.APIKeyPrefix),
+            "remark":          acc.Remark,
+            "disabled_reason": acc.DisabledReason,
+        }
 	}
 
 	c.JSON(http.StatusOK, gin.H{"data": result})

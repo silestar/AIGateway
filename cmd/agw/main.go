@@ -518,6 +518,7 @@ func handleChatCompletions(c *gin.Context) {
 				FinishReason:      streamResult.FinishReason,
 				SystemFingerprint: streamResult.SystemFingerprint,
 				UpstreamLatencyMs: streamResult.UpstreamLatencyMs,
+            FirstTokenMs:      streamResult.FirstTokenMs,
 			}
 			// 缓存流式完整响应体供 detail writer 使用
 			c.Set("streamResultBody", streamResult.Body)
@@ -748,9 +749,12 @@ func buildRequestLog(keysID uint, modelName string, mappedModel string, result *
 		if respMeta.SystemFingerprint != "" {
 			respMetaMap["system_fingerprint"] = respMeta.SystemFingerprint
 		}
-		if respMeta.UpstreamLatencyMs > 0 {
-			log.UpstreamLatencyMs = respMeta.UpstreamLatencyMs
-		}
+if respMeta.UpstreamLatencyMs > 0 {
+        log.UpstreamLatencyMs = respMeta.UpstreamLatencyMs
+    }
+    if respMeta.FirstTokenMs > 0 {
+        log.FirstTokenMs = respMeta.FirstTokenMs
+    }
 		if len(respMetaMap) > 0 {
 			rm, _ := json.Marshal(respMetaMap)
 			log.ResponseMeta = rm
@@ -766,6 +770,7 @@ type ResponseSummary struct {
 	FinishReason      string
 	SystemFingerprint string
 	UpstreamLatencyMs int
+    FirstTokenMs      int
 }
 
 // shortenError 精简错误信息，移除冗长 URL 和堆栈，保留核心错误类型

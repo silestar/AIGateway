@@ -167,7 +167,10 @@
     "accountTest": "Test",
     "accountTestPassed": "Test passed, account recovered",
     "accountTestFailed": "Test failed",
-    "batchRecover": "Batch Recover"
+    "batchRecover": "Batch Recover",
+    "batchTestDisabled": "Test Disabled",
+    "batchTestActive": "Test Active",
+    "batchTestAll": "Test All"
   },
   "groups": {
     "selectGroup": "Select a group",

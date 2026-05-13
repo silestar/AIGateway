@@ -561,6 +561,31 @@ func (m *Manager) BatchRecover(ctx context.Context, channelID uint) ([]map[strin
 	return results, nil
 }
 
+// BatchTest 批量测试渠道下的账号（按 mode 筛选：disabled/active/all）
+func (m *Manager) BatchTest(ctx context.Context, channelID uint, mode string) error {
+	all, _ := m.ListByChannel(ctx, channelID)
+	var targets []Account
+	for _, acc := range all {
+		switch mode {
+		case "disabled":
+			if acc.Status == "disabled" {
+				targets = append(targets, acc)
+			}
+		case "active":
+			if acc.Status == "active" {
+				targets = append(targets, acc)
+			}
+		case "all":
+			targets = append(targets, acc)
+		}
+	}
+
+	for _, acc := range targets {
+		m.TestAccount(ctx, channelID, acc.ID)
+	}
+	return nil
+}
+
 // rebalancePriorities 重新分配渠道内所有 active 账号的优先级
 // 按原 priority 降序排列，从 active_count 开始重新编号，保持相对顺序
 func (m *Manager) rebalancePriorities(ctx context.Context, channelID uint) error {

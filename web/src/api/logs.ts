@@ -45,6 +45,7 @@ export interface RequestLog {
   error_msg?: string
   latency_ms: number
   upstream_latency_ms: number
+  frt_ms: number
   cost: number
   mapped_model: string
   upstream_model: string

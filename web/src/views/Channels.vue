@@ -221,6 +221,9 @@
             <n-space>
               <n-button type="primary" @click="showAddAccount = true">{{ t('channels.addAccount') }}</n-button>
               <n-button v-if="hasDisabledAccounts" type="warning" @click="batchRecover" :loading="batchLoading">{{ t('channels.batchRecover') }}</n-button>
+              <n-dropdown trigger="click" @select="handleBatchTestAccountSelect" :options="batchTestAccountOptions">
+                <n-button :loading="batchTestAccountLoading" type="info">{{ t('channels.batchTest') || '批量测试' }}</n-button>
+              </n-dropdown>
             </n-space>
             <n-data-table :columns="accountColumns" :data="accounts" />
           </n-space>
@@ -684,6 +687,12 @@ const showBatchTest = ref(false)
 const showUpstreamUpdate = ref(false)
 const testingIds = ref<number[]>([])
 const batchLoading = ref(false)
+const batchTestAccountLoading = ref(false)
+const batchTestAccountOptions = [
+  { label: t('channels.batchTestDisabled'), key: 'disabled' },
+  { label: t('channels.batchTestActive'), key: 'active' },
+  { label: t('channels.batchTestAll'), key: 'all' },
+]
 const hasDisabledAccounts = computed(() => accounts.value.some((a: Account) => a.status === 'disabled'))
 
 const testingChannelId = ref<number | null>(null)
@@ -1386,20 +1395,32 @@ async function batchRecover() {
   if (!selectedChannel.value) return
   batchLoading.value = true
   try {
-    const res: any = await accountApi.batchRecover(selectedChannel.value.id)
-    const results = res.data?.results || []
-    for (const r of results) {
-      if (r.success) {
-        message.success(`账号 #${r.account_id} 恢复成功`)
-      } else {
-        message.error(`账号 #${r.account_id} ${r.error || '测试失败'}`)
-      }
-    }
-    if (selectedChannel.value) await selectChannel(selectedChannel.value)
+    await accountApi.batchRecover(selectedChannel.value.id)
+    message.success('批量恢复已提交，正在后台执行')
+    // 延迟刷新，等待后台恢复完成
+    setTimeout(async () => {
+      if (selectedChannel.value) await selectChannel(selectedChannel.value)
+    }, 3000)
   } catch {
     message.error(t('common.operationFailed'))
   } finally {
     batchLoading.value = false
+  }
+}
+
+async function handleBatchTestAccountSelect(mode: string) {
+  if (!selectedChannel.value) return
+  batchTestAccountLoading.value = true
+  try {
+    await accountApi.batchTest(selectedChannel.value.id, mode)
+    message.success('批量测试已提交，正在后台执行')
+    setTimeout(async () => {
+      if (selectedChannel.value) await selectChannel(selectedChannel.value)
+    }, 3000)
+  } catch {
+    message.error(t('common.operationFailed'))
+  } finally {
+    batchTestAccountLoading.value = false
   }
 }
 
