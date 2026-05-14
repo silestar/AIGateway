@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"net/http"
@@ -585,10 +586,14 @@ func handleChatCompletions(c *gin.Context) {
 
 			// 渠道级快速熔断：跨不同账号的失败才计数
 			isExcluded := false
-			for _, kw := range cfg.AccountManager.FailureExcludeKeywords {
-				if strings.Contains(err.Error(), kw) {
-					isExcluded = true
-					break
+			// context.DeadlineExceeded 不排除，允许触发渠道级快速熔断
+			isTimeout := errors.Is(err, context.DeadlineExceeded)
+			if !isTimeout {
+				for _, kw := range cfg.AccountManager.FailureExcludeKeywords {
+					if strings.Contains(err.Error(), kw) {
+						isExcluded = true
+						break
+					}
 				}
 			}
 			if !isExcluded {

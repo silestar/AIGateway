@@ -4,6 +4,7 @@ import (
 	"context"
 	"crypto/rand"
 	"encoding/hex"
+	"errors"
 	"fmt"
 	"strings"
 	"time"
@@ -212,16 +213,38 @@ func (m *Manager) ReportResult(ctx context.Context, accountID uint, success bool
 		return nil
 	}
 
-	// ===== 排除不计入连续失败的错误（如 context canceled）=====
-	if err != nil && m.cfg.FailureExcludeKeywords != nil {
+	// ===== 区分 context 错误类型 =====
+	var isTimeoutFailure bool // 是否为超时导致的失败（需要触发渠道级熔断但不计入账号失败）
+	if err != nil {
+		if errors.Is(err, context.Canceled) {
+			// 客户端主动取消：完全排除，清除粘性
+			m.logger.Debug("context canceled (client), excluded from counting",
+				zap.Uint("account_id", accountID))
+			m.clearAccountBindings(ctx, &acc)
+			return nil
+		}
+		if errors.Is(err, context.DeadlineExceeded) {
+			// 超时：不计入账号失败，但标记为需要触发渠道级快速熔断
+			m.logger.Warn("context deadline exceeded (upstream latency), counting as channel failure",
+				zap.Uint("account_id", accountID))
+			m.clearAccountBindings(ctx, &acc)
+			isTimeoutFailure = true
+			// 不 return，继续执行但后续会跳过账号失败计数
+		}
+	}
+
+	// ===== 原有 keyword 匹配逻辑 =====
+	if err != nil && m.cfg.FailureExcludeKeywords != nil && !isTimeoutFailure {
 		for _, kw := range m.cfg.FailureExcludeKeywords {
 			if strings.Contains(err.Error(), kw) {
 				m.logger.Debug("failure excluded from counting",
 					zap.Uint("account_id", accountID),
 					zap.Error(err),
 				)
-				// 清除粘性缓存（避免下次继续走可能不稳定的连接）
-				m.clearAccountBindings(ctx, &acc)
+				// 清除粘性缓存（已在上面或下面处理）
+				if !isTimeoutFailure {
+					m.clearAccountBindings(ctx, &acc)
+				}
 				return nil
 			}
 		}
@@ -268,6 +291,13 @@ func (m *Manager) ReportResult(ctx context.Context, accountID uint, success bool
 			zap.Uint("account_id", accountID),
 			zap.Int("status_code", statusCode),
 		)
+		return nil
+	}
+
+	// 超时不计入账号失败计数（但已清除粘性，触发渠道级熔断）
+	if isTimeoutFailure {
+		m.logger.Debug("timeout failure not counted against account",
+			zap.Uint("account_id", accountID))
 		return nil
 	}
 
