@@ -33,7 +33,7 @@
               <n-space vertical :size="1" style="width:100%">
                 <div v-for="item in upstreamModels" :key="'u-'+item.actual_model_name" style="display:flex;align-items:center;gap:10px;padding:5px 8px;border-radius:4px">
                   <n-checkbox :value="item.actual_model_name" />
-                  <n-tag size="small" :bordered="false" type="info">{{ item.actual_model_name }}</n-tag>
+                  <n-tag size="small" :bordered="false" type="info" class="copyable-tag" @click="copyText(item.actual_model_name)">{{ item.actual_model_name }}</n-tag>
                   <span style="color:#999;font-size:12px">{{ t('models.refCount') }}: {{ item.ref_count }}</span>
                 </div>
               </n-space>
@@ -57,7 +57,7 @@
               <n-space vertical :size="1" style="width:100%">
                 <div v-for="item in displayModels" :key="'d-'+item.display_model_name" style="display:flex;align-items:center;gap:10px;padding:5px 8px;border-radius:4px">
                   <n-checkbox :value="item.display_model_name" />
-                  <n-tag size="small" :bordered="false" type="warning">{{ item.display_model_name }}</n-tag>
+                  <n-tag size="small" :bordered="false" type="warning" class="copyable-tag" @click="copyText(item.display_model_name)">{{ item.display_model_name }}</n-tag>
                   <span style="color:#999;font-size:12px">{{ t('models.refCount') }}: {{ item.ref_count }}</span>
                 </div>
               </n-space>
@@ -79,6 +79,14 @@ import { modelApi, type UpstreamModelItem, type DisplayModelItem } from '../api/
 
 const { t } = useI18n()
 const message = useMessage()
+
+function copyText(text: string) {
+  navigator.clipboard.writeText(text).then(() => {
+    message.success(t('common.copied'))
+  }).catch(() => {
+    message.error(t('common.copyFailed'))
+  })
+}
 
 const loading = ref(false)
 const saving = ref(false)
@@ -186,3 +194,12 @@ async function handleSave() {
 
 onMounted(loadData)
 </script>
+
+<style scoped>
+.copyable-tag {
+  cursor: pointer;
+}
+.copyable-tag:hover {
+  opacity: 0.8;
+}
+</style>

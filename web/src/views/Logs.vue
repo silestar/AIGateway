@@ -141,17 +141,18 @@
               <div class="detail-value">{{ formatFullTimestamp(detailLog.timestamp) }}</div>
               <template v-if="detailLog.keys_name">
                 <div class="detail-label">{{ t('requestLogs.detailKeys') }}</div>
-                <div class="detail-value">🔑 {{ detailLog.keys_name }}</div>
+                <div class="detail-value clickable" @click="copyText(detailLog.keys_name)">🔑 {{ detailLog.keys_name }} <span style="opacity:0.5;font-size:11px">📋</span></div>
               </template>
               <template v-if="detailLog.group_name">
                 <div class="detail-label">{{ t('requestLogs.detailGroup') }}</div>
                 <div class="detail-value">{{ detailLog.group_name }}</div>
               </template>
               <div class="detail-label">{{ t('requestLogs.detailChannel') }}</div>
-              <div class="detail-value">
+              <div class="detail-value clickable" @click="copyText(detailLog.channel_name || `#${detailLog.channel_id}`)">
                 <template v-if="detailLog.channel_id && detailLog.channel_id > 0">
                   <span class="channel-id">· #{{ detailLog.channel_id }}</span>
                   <span v-if="detailLog.channel_name"> {{ detailLog.channel_name }}</span>
+                  <span style="opacity:0.5;font-size:11px;margin-left:4px">📋</span>
                 </template>
                 <template v-else>-</template>
               </div>
@@ -277,7 +278,7 @@
               <div class="detail-value monospace">{{ detailLog.completion_tokens > 0 ? detailLog.completion_tokens.toLocaleString('en-US') : '-' }}</div>
               <template v-if="detailLog.cache_tokens > 0">
                 <div class="detail-label">{{ t('requestLogs.detailCacheTokens') }}</div>
-                <div class="detail-value"><span class="cache-badge">缓存↓ {{ detailLog.cache_tokens.toLocaleString('en-US') }}</span></div>
+                <div class="detail-value"><span class="cache-badge">{{ t('requestLogs.cacheDown') }} {{ detailLog.cache_tokens.toLocaleString('en-US') }}</span></div>
               </template>
             </div>
           </div>
@@ -324,11 +325,11 @@
           <!-- 详细请求/响应内容 -->
           <template v-if="detailLog.has_detail === 1">
             <n-collapse>
-              <n-collapse-item title="📋 请求/响应详细内容" name="detail-content">
-                <div v-if="detailContentLoading" style="text-align:center;padding:16px;">加载中...</div>
+              <n-collapse-item :title="t('requestLogs.detailContentTitle')" name="detail-content">
+                <div v-if="detailContentLoading" style="text-align:center;padding:16px;">{{ t('requestLogs.loading') }}</div>
                 <template v-else-if="detailContent">
                   <div class="detail-section">
-                    <div class="detail-section-title">📤 请求</div>
+                    <div class="detail-section-title">{{ t('requestLogs.request') }}</div>
                     <div class="detail-kv">
                       <span class="detail-key">Method</span>
                       <span class="detail-value">{{ detailContent.request.method }}</span>
@@ -354,7 +355,7 @@
                   </div>
                   <n-divider style="margin: 12px 0" />
                   <div class="detail-section">
-                    <div class="detail-section-title">📥 响应</div>
+                    <div class="detail-section-title">{{ t('requestLogs.response') }}</div>
                     <div class="detail-kv">
                       <span class="detail-key">Status</span>
                       <span class="detail-value">{{ detailContent.response.status_code }}</span>
@@ -375,7 +376,7 @@
                     </div>
                   </div>
                 </template>
-                <div v-else style="color: var(--text-tertiary);padding:8px;">无法加载详细内容</div>
+                <div v-else style="color: var(--text-tertiary);padding:8px;">{{ t('requestLogs.contentLoadFailed') }}</div>
               </n-collapse-item>
             </n-collapse>
           </template>
@@ -605,7 +606,7 @@ const tableColumns = computed<DataTableColumns<RequestLog>>(() => [
         ])
         children.push(line2)
       }
-      return h('div', { style: { lineHeight: '1.4' } }, children)
+      return h('div', { style: { lineHeight: '1.4', cursor: 'pointer' }, onClick: (e: Event) => { e.stopPropagation(); copyText(row.channel_name || `#${row.channel_id}`) } }, children)
     },
   },
   {
@@ -620,8 +621,9 @@ const tableColumns = computed<DataTableColumns<RequestLog>>(() => [
           display: 'inline-flex', alignItems: 'center', gap: '4px',
           fontSize: '12px', padding: '1px 8px', borderRadius: '4px',
           background: 'rgba(46, 179, 184, 0.12)', border: '1px solid rgba(46, 179, 184, 0.3)',
-          color: 'rgba(46, 179, 184, 0.82)', cursor: 'default',
+          color: 'rgba(46, 179, 184, 0.82)', cursor: 'pointer',
         },
+        onClick: (e: Event) => { e.stopPropagation(); copyText(row.keys_name || `#${row.keys_id}`) },
       }, [
         h('span', null, '🔑'),
         h('span', null, display),

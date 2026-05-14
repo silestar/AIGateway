@@ -293,7 +293,7 @@
         <template v-if="batchTestEnabledModels.length > 0">
           <n-space align="center">
             <n-checkbox :checked="batchTestModels.length === batchTestEnabledModels.length && batchTestEnabledModels.length > 0" :indeterminate="batchTestModels.length > 0 && batchTestModels.length < batchTestEnabledModels.length" @update:checked="toggleAllBatchTest" />
-            <n-text depth="3" style="font-size: 12px">{{ t('channels.selectAll') }} ({{ batchTestModels.length }}/{{ batchTestEnabledModels.length }})</n-text>
+            <n-text depth="3" style="font-size: 12px">{{ t('common.selectAll') }} ({{ batchTestModels.length }}/{{ batchTestEnabledModels.length }})</n-text>
           </n-space>
           <div style="max-height: 200px; overflow-y: auto; border: 1px solid var(--n-border-color, rgba(255,255,255,0.1)); border-radius: 6px; padding: 8px">
             <n-checkbox-group v-model:value="batchTestModels">
