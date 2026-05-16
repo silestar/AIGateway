@@ -235,11 +235,16 @@ func main() {
 	})
 
 	// 11. 启动服务
+	// WriteTimeout 设为 0（禁用写超时），让超时控制下放到代理层：
+	//   - AGW → 上游：由 proxy.stream_read_timeout 控制
+	//   - 客户端断开：由 Context 级联取消机制自动处理
+	// 之前的 WriteTimeout: 60s 会导致 SSE 流式响应在 60 秒后被 Server 层强制断开，
+	// 与 proxy 层的 stream_read_timeout 无关，Server 层先掐断连接 → context canceled
 	srv := &http.Server{
 		Addr:         fmt.Sprintf("%s:%d", cfg.Server.Host, cfg.Server.Port),
 		Handler:      router,
 		ReadTimeout:  30 * time.Second,
-		WriteTimeout: 60 * time.Second,
+		WriteTimeout: 0,
 	}
 
 	go func() {
@@ -499,8 +504,21 @@ func handleChatCompletions(c *gin.Context) {
 		if err != nil {
 			result.RetryChain = currentStreamResult.RetryChain
 			result.RetryChain.MarkError(shortenError(err.Error()), latencyMs, http.StatusBadGateway)
-			statusCode = http.StatusBadGateway
-			logger.Error("stream forward error", zap.Error(err))
+
+			// 区分 context.Canceled（客户端主动断开）和其他错误
+			// context.Canceled 说明上游已正常返回部分/全部数据，客户端主动关闭了连接
+			// 不应标记为 502，应记 499（客户端断开）以反映真实调用状态
+			if errors.Is(err, context.Canceled) || strings.Contains(err.Error(), "context canceled") {
+				statusCode = 499 // Nginx 标准：客户端主动断开连接
+				logger.Warn("stream forward: client disconnected (context canceled), logging as 499",
+					zap.String("trace_id", traceIDStr),
+					zap.Error(err))
+				// 客户端主动断开：不触发故障降级
+				accountMgr.ReportResult(c.Request.Context(), currentStreamResult.Account.ID, false, 499, context.Canceled)
+			} else {
+				statusCode = http.StatusBadGateway
+				logger.Error("stream forward error", zap.Error(err))
+			}
 			asyncWriter.Record(buildRequestLog(cons.ID, modelName, result.ActualModelName, result, isStream, statusCode, latencyMs, clientIP, nil, shortenError(err.Error()), traceIDStr, nil))
 
 			c.JSON(http.StatusBadGateway, gin.H{
@@ -512,6 +530,10 @@ func handleChatCompletions(c *gin.Context) {
 		result.RetryChain = currentStreamResult.RetryChain
 		result.RetryChain.MarkSuccess(latencyMs, http.StatusOK)
 		statusCode = http.StatusOK
+
+		// 流式成功：重置账号连续失败计数
+		accountMgr.ReportResult(c.Request.Context(), currentStreamResult.Account.ID, true, http.StatusOK, nil)
+
 		if streamResult != nil {
 			usage = streamResult.Usage
 			respSummary = &ResponseSummary{
