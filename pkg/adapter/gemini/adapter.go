@@ -156,6 +156,14 @@ func (a *Adapter) ConvertStreamChunk(ctx context.Context, chunk []byte) ([]byte,
 	return []byte("data: " + string(b) + "\n\n"), nil
 }
 
+// TestEndpoints 返回 Gemini 渠道支持的测试端点
+func (a *Adapter) TestEndpoints() []adapter.TestEndpointInfo {
+	return []adapter.TestEndpointInfo{
+		{ID: "auto", Label: "自动检测（默认）", IsAuto: true},
+		{ID: "gemini-generate", Label: "Gemini (/v1beta/models/{model}:generateContent)", Path: "/v1beta/models/{model}:generateContent"},
+	}
+}
+
 // FetchModels Gemini 返回预设模型列表
 func (a *Adapter) FetchModels(ctx context.Context, baseURL, apiKey string) ([]adapter.ModelInfo, error) {
 	models := []adapter.ModelInfo{

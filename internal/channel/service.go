@@ -7,12 +7,14 @@ import (
 	"fmt"
 	"io"
 	"net/http"
+	"strings"
 	"time"
 
 	"gorm.io/gorm"
 
-	"github.com/silestar/AIGateway/pkg/usage"
+	"github.com/silestar/AIGateway/pkg/adapter"
 	adapterregistry "github.com/silestar/AIGateway/pkg/adapter/registry"
+	"github.com/silestar/AIGateway/pkg/usage"
 )
 
 type service struct {
@@ -343,7 +345,7 @@ func (s *service) TestAccount(ctx context.Context, channelID, accountID uint, ap
 		}
 	}
 
-	result, err := s.sendTestRequest(ctx, &ch, testModel, apiKey)
+	result, err := s.sendTestRequest(ctx, &ch, testModel, apiKey, "auto", false)
 	if err != nil {
 		return nil, err
 	}
@@ -396,7 +398,7 @@ func (s *service) TestChannel(ctx context.Context, id uint, apiKey string) (*Tes
 		}
 	}
 
-	result, err := s.sendTestRequest(ctx, &ch, testModel, apiKey)
+	result, err := s.sendTestRequest(ctx, &ch, testModel, apiKey, "auto", false)
 	if err != nil {
 		return nil, err
 	}
@@ -412,7 +414,7 @@ func (s *service) TestChannel(ctx context.Context, id uint, apiKey string) (*Tes
 }
 
 // BatchTestModels 批量测试指定模型
-func (s *service) BatchTestModels(ctx context.Context, id uint, modelNames []string, apiKey string) ([]BatchTestResultItem, error) {
+func (s *service) BatchTestModels(ctx context.Context, id uint, modelNames []string, apiKey string, endpoint string, stream bool) ([]BatchTestResultItem, error) {
 	var ch Channel
 	if err := s.db.WithContext(ctx).First(&ch, id).Error; err != nil {
 		return nil, fmt.Errorf("渠道不存在")
@@ -449,7 +451,7 @@ func (s *service) BatchTestModels(ctx context.Context, id uint, modelNames []str
 
 		result := BatchTestResultItem{Model: displayName}
 
-		testResult, err := s.sendTestRequest(ctx, &ch, actualName, apiKey)
+		testResult, err := s.sendTestRequest(ctx, &ch, actualName, apiKey, endpoint, stream)
 		if err != nil {
 			result.Success = false
 			result.Error = err.Error()
@@ -472,40 +474,142 @@ func (s *service) BatchTestModels(ctx context.Context, id uint, modelNames []str
 	return results, nil
 }
 
+// TestSingleModel 测试单个模型
+func (s *service) TestSingleModel(ctx context.Context, id uint, model string, apiKey string, endpoint string, stream bool) (*TestResult, error) {
+	var ch Channel
+	if err := s.db.WithContext(ctx).First(&ch, id).Error; err != nil {
+		return nil, fmt.Errorf("渠道不存在")
+	}
+
+	if ch.BaseURL == "" {
+		return nil, fmt.Errorf("该渠道未配置上游地址（Base URL）")
+	}
+	if apiKey == "" {
+		return nil, fmt.Errorf("未找到可用账号密钥")
+	}
+
+	// 获取模型映射表，将 display 转为 actual
+	var allModels []ChannelModel
+	s.db.WithContext(ctx).Where("channel_id = ? AND status = ?", id, "enabled").Find(&allModels)
+	modelMap := make(map[string]string)
+	for _, m := range allModels {
+		if m.ActualModelName != "" {
+			modelMap[m.DisplayModelName] = m.ActualModelName
+		}
+	}
+
+	actualName := model
+	if mapped, ok := modelMap[model]; ok {
+		actualName = mapped
+	}
+
+	result, err := s.sendTestRequest(ctx, &ch, actualName, apiKey, endpoint, stream)
+	if err != nil {
+		return nil, err
+	}
+
+	// 更新渠道测试记录
+	now := time.Now()
+	s.db.WithContext(ctx).Model(&Channel{}).Where("id = ?", id).Updates(map[string]interface{}{
+		"last_tested_at": now,
+	})
+
+	return result, nil
+}
+
 // sendTestRequest 发送测试请求（通用方法）
-func (s *service) sendTestRequest(ctx context.Context, ch *Channel, model string, apiKey string) (*TestResult, error) {
+// endpoint: "auto" 时根据渠道类型自动选择，否则从注册的端点中查找
+func (s *service) sendTestRequest(ctx context.Context, ch *Channel, model string, apiKey string, endpoint string, stream bool) (*TestResult, error) {
 	var url string
 	var bodyBytes []byte
 
-	switch ch.Type {
-	case "anthropic":
-		url = ch.BaseURL + "/v1/messages"
-		reqBody := map[string]interface{}{
-			"model":      model,
-			"messages":   []map[string]string{{"role": "user", "content": "hi"}},
-			"max_tokens": 5,
+	if endpoint == "" || endpoint == "auto" {
+		// 原有逻辑：根据渠道类型自动选择端点
+		switch ch.Type {
+		case "anthropic":
+			url = ch.BaseURL + "/v1/messages"
+			reqBody := map[string]interface{}{
+				"model":      model,
+				"messages":   []map[string]string{{"role": "user", "content": "hi"}},
+				"max_tokens": 5,
+				"stream":     stream,
+			}
+			bodyBytes, _ = json.Marshal(reqBody)
+		case "gemini":
+			method := "generateContent"
+			if stream {
+				method = "streamGenerateContent"
+			}
+			url = ch.BaseURL + "/v1beta/models/" + model + ":" + method
+			reqBody := map[string]interface{}{
+				"contents": []map[string]interface{}{
+					{"parts": []map[string]string{{"text": "hi"}}},
+				},
+				"generationConfig": map[string]interface{}{
+					"maxOutputTokens": 5,
+				},
+			}
+			bodyBytes, _ = json.Marshal(reqBody)
+		default: // openai, openai-response
+			url = ch.BaseURL + "/v1/chat/completions"
+			reqBody := map[string]interface{}{
+				"model":      model,
+				"messages":   []map[string]string{{"role": "user", "content": "hi"}},
+				"max_tokens": 5,
+				"stream":     stream,
+			}
+			bodyBytes, _ = json.Marshal(reqBody)
 		}
-		bodyBytes, _ = json.Marshal(reqBody)
-	case "gemini":
-		url = ch.BaseURL + "/v1beta/models/" + model + ":generateContent"
-		reqBody := map[string]interface{}{
-			"contents": []map[string]interface{}{
-				{"parts": []map[string]string{{"text": "hi"}}},
-			},
-			"generationConfig": map[string]interface{}{
-				"maxOutputTokens": 5,
-			},
+	} else {
+		// 从注册的端点中查找指定端点
+		endpoints := adapterregistry.GetChannelTestEndpoints(ch.Type)
+		var selected *adapter.TestEndpointInfo
+		for i := range endpoints {
+			if endpoints[i].ID == endpoint {
+				selected = &endpoints[i]
+				break
+			}
 		}
-		bodyBytes, _ = json.Marshal(reqBody)
-	default: // openai, openai-response
-		url = ch.BaseURL + "/v1/chat/completions"
-		reqBody := map[string]interface{}{
-			"model":      model,
-			"messages":   []map[string]string{{"role": "user", "content": "hi"}},
-			"max_tokens": 5,
-			"stream":     false,
+		if selected == nil {
+			return nil, fmt.Errorf("未找到端点: %s", endpoint)
 		}
-		bodyBytes, _ = json.Marshal(reqBody)
+
+		// 构造 URL：Path 中的 {model} 替换为实际模型名
+		path := strings.ReplaceAll(selected.Path, "{model}", model)
+		url = ch.BaseURL + path
+
+		// 根据 Path 格式构造请求体
+		switch {
+		case strings.Contains(selected.Path, "/v1/messages"):
+			// Anthropic 格式
+			reqBody := map[string]interface{}{
+				"model":      model,
+				"messages":   []map[string]string{{"role": "user", "content": "hi"}},
+				"max_tokens": 5,
+				"stream":     stream,
+			}
+			bodyBytes, _ = json.Marshal(reqBody)
+		case strings.Contains(selected.Path, "generateContent"):
+			// Gemini 格式
+			reqBody := map[string]interface{}{
+				"contents": []map[string]interface{}{
+					{"parts": []map[string]string{{"text": "hi"}}},
+				},
+				"generationConfig": map[string]interface{}{
+					"maxOutputTokens": 5,
+				},
+			}
+			bodyBytes, _ = json.Marshal(reqBody)
+		default:
+			// OpenAI 格式（默认）
+			reqBody := map[string]interface{}{
+				"model":      model,
+				"messages":   []map[string]string{{"role": "user", "content": "hi"}},
+				"max_tokens": 5,
+				"stream":     stream,
+			}
+			bodyBytes, _ = json.Marshal(reqBody)
+		}
 	}
 
 	req, err := http.NewRequestWithContext(ctx, "POST", url, bytes.NewReader(bodyBytes))

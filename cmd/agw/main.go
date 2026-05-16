@@ -509,12 +509,38 @@ func handleChatCompletions(c *gin.Context) {
 			// context.Canceled 说明上游已正常返回部分/全部数据，客户端主动关闭了连接
 			// 不应标记为 502，应记 499（客户端断开）以反映真实调用状态
 			if errors.Is(err, context.Canceled) || strings.Contains(err.Error(), "context canceled") {
-				statusCode = 499 // Nginx 标准：客户端主动断开连接
-				logger.Warn("stream forward: client disconnected (context canceled), logging as 499",
-					zap.String("trace_id", traceIDStr),
-					zap.Error(err))
-				// 客户端主动断开：不触发故障降级
-				accountMgr.ReportResult(c.Request.Context(), currentStreamResult.Account.ID, false, 499, context.Canceled)
+				if c.Writer.Written() {
+					// 已向客户端写入过数据：说明上游已正常返回部分/全部数据，请求实质成功
+					// 标记为 200 保持统计准确，error_msg 留作提示
+					statusCode = http.StatusOK
+					clientGoneMsg := "client_gone"
+					logger.Warn("stream forward: client disconnected after data sent, logging as 200 with hint",
+						zap.String("trace_id", traceIDStr),
+						zap.Error(err))
+					// 客户端主动断开：不触发故障降级
+					accountMgr.ReportResult(c.Request.Context(), currentStreamResult.Account.ID, true, http.StatusOK, nil)
+					asyncWriter.Record(buildRequestLog(cons.ID, modelName, result.ActualModelName, result, isStream, statusCode, latencyMs, clientIP, nil, clientGoneMsg, traceIDStr, nil))
+
+					// 记录详细内容（至少有请求体，响应体不可用）
+					if detailWriter, ok := c.Get("detailWriter"); ok {
+						if dw, ok := detailWriter.(*agwlog.DetailWriter); ok {
+							captureAndWriteDetail(c, dw, traceIDStr, nil)
+						}
+					}
+				} else {
+					// 未向客户端写入任何数据时客户端断开：标记为 499
+					statusCode = 499
+					logger.Warn("stream forward: client disconnected before any data sent",
+						zap.String("trace_id", traceIDStr),
+						zap.Error(err))
+					// 客户端主动断开：不触发故障降级
+					accountMgr.ReportResult(c.Request.Context(), currentStreamResult.Account.ID, false, 499, context.Canceled)
+					asyncWriter.Record(buildRequestLog(cons.ID, modelName, result.ActualModelName, result, isStream, statusCode, latencyMs, clientIP, nil, shortenError(err.Error()), traceIDStr, nil))
+				}
+				c.JSON(http.StatusBadGateway, gin.H{
+					"error": gin.H{"code": "upstream_error", "message": shortenError(err.Error())},
+				})
+				return
 			} else {
 				statusCode = http.StatusBadGateway
 				logger.Error("stream forward error", zap.Error(err))

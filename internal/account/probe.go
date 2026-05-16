@@ -300,11 +300,11 @@ func (m *Manager) healthCheckChannel(ctx context.Context, ch *channel.Channel, t
 		} else if testErr != nil {
 			errMsg = testErr.Error()
 		}
-		m.recordProbeLog(ctx, ch.ID, activeAcc.ID, false, "active_health_check", modelName, elapsedMs, statusCode, errMsg, 0, 0)
+		m.recordProbeLog(ctx, ch.ID, activeAcc.ID, false, "health_check", modelName, elapsedMs, statusCode, errMsg, 0, 0)
 		// 通过 ReportResult 累积失败次数，由已有阈值机制决定是否禁用
 		m.ReportResult(ctx, activeAcc.ID, false, statusCode, testErr)
 	} else {
-		m.recordProbeLog(ctx, ch.ID, activeAcc.ID, true, "active_health_check", testResult.Model, elapsedMs, testResult.Status, "", testResult.PromptTokens, testResult.CompletionTokens)
+		m.recordProbeLog(ctx, ch.ID, activeAcc.ID, true, "health_check", testResult.Model, elapsedMs, testResult.Status, "", testResult.PromptTokens, testResult.CompletionTokens)
 		// 成功：重置连续失败计数
 		m.ReportResult(ctx, activeAcc.ID, true, testResult.Status, nil)
 	}

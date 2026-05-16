@@ -230,6 +230,14 @@ func (a *Adapter) ConvertStreamChunk(ctx context.Context, chunk []byte) ([]byte,
 	}
 }
 
+// TestEndpoints 返回 Anthropic 渠道支持的测试端点
+func (a *Adapter) TestEndpoints() []adapter.TestEndpointInfo {
+	return []adapter.TestEndpointInfo{
+		{ID: "auto", Label: "自动检测（默认）", IsAuto: true},
+		{ID: "anthropic-messages", Label: "Anthropic (/v1/messages)", Path: "/v1/messages"},
+	}
+}
+
 // FetchModels Anthropic 不提供公开模型列表 API，返回预设列表
 func (a *Adapter) FetchModels(ctx context.Context, baseURL, apiKey string) ([]adapter.ModelInfo, error) {
 	// Anthropic 没有类似 /v1/models 的接口，返回已知模型列表

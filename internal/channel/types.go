@@ -128,7 +128,8 @@ type ChannelService interface {
 	TestChannel(ctx context.Context, id uint, apiKey string) (*TestResult, error)
 	// TestAccount 测试指定账号（不限状态）
 	TestAccount(ctx context.Context, channelID, accountID uint, apiKey string) (*TestResult, error)
-	BatchTestModels(ctx context.Context, id uint, modelNames []string, apiKey string) ([]BatchTestResultItem, error)
+	BatchTestModels(ctx context.Context, id uint, modelNames []string, apiKey string, endpoint string, stream bool) ([]BatchTestResultItem, error)
+	TestSingleModel(ctx context.Context, id uint, model string, apiKey string, endpoint string, stream bool) (*TestResult, error)
 	UpdateTestModel(ctx context.Context, id uint, testModel string) error
 	CopyChannel(ctx context.Context, id uint) (*Channel, error)
 	// SetOnModelsChange 设置模型变更回调（用于同步 model_catalog）

@@ -1,6 +1,45 @@
 # Changelog
 
-## [Unreleased]
+## [0.2.3]
+
+### 流式请求日志 502 误标记修复（context canceled）
+- **问题**：Hermes 等客户端在**正常完成 SSE 流式接收后主动关闭连接**，AGW 的 `ForwardStream` 循环中检查 `ctx.Done()` → 返回 `client disconnected: context canceled`。但 `main.go` 第 507 行对所有流式转发错误**统一写 `statusCode=502`**，导致正常完成的请求被错误标记为 `502 Bad Gateway`
+- **根因**：`context.Canceled` 表示「客户端主动断开」，并非上游错误。AGW 的 `account_manager.failure_exclude_keywords` 虽已排除 `context canceled`（不计入连续失败），但**日志记录的 status_code 不受此配置影响**，所有流式错误都写死 502
+- **修复**：`cmd/agw/main.go` 流式错误处理中区分两种情况：
+  - **已向客户端发送过数据后断开**（`c.Writer.Written()`）：日志 `statusCode=200`，`error_msg="client_gone"`（前端显示红色感叹号图标，tooltip 提示"流状态异常：client_gone"），不触发故障降级
+  - **未发送数据即断开**：日志 `statusCode=499`（Nginx 标准：客户端过早断开），触发故障降级
+  - 两种情况下客户端返回的 HTTP 状态码均保持 502 让 Hermes 触发重试（只影响日志记录，不影响客户端响应）
+
+### 模型测试弹窗重构
+- **改造**：将「批量测试」弹窗升级为「模型测试」弹窗，新增端点类型选择（自动检测 / OpenAI Chat / OpenAI Responses / Anthropic Messages / Gemini 等）、流式模式开关、单模型测试按钮
+- **后端**：新增 `TestEndpointInfo` + `TestEndpointProvider` 接口到 Adapter 层，内置适配器（OpenAI/Anthropic/Gemini）实现各端点注册；Registry 新增 `GetChannelTestEndpoints` / `RegisterTestEndpoint`；新增 `POST /:id/test-model`（单模型测试）和 `GET /:id/test-endpoints`（获取端点列表）API；`sendTestRequest` 支持 endpoint/stream 参数，`BatchTestModels` 兼容新参数
+- **前端**：新建独立 `ModelTestDialog.vue` 组件替代 Channels.vue 中的内联弹窗；模型排序（上游优先、自定义排后）；状态圆点（未测试黑色、成功绿色+延迟ms、失败红色）；API 层新增 `testSingleModel` / `getTestEndpoints`；i18n 双语 key
+
+### 请求日志时间区间筛选修复
+- **问题**：前端 `toISOString()` 输出 ISO 8601 格式（`2026-05-15T04:59:59.000Z`），GORM+SQLite 存储空格分隔格式（`2026-05-15 23:25:14`），SQLite 字符串比较时空格(ASCII 32) < T(ASCII 84)，导致 `timestamp < '...T...'` 条件对当天所有记录都返回 true，时间上限失效
+- **根因**：`QueryRequestLogs` 直接将 ISO 格式的字符串传入 GORM Where 子句，SQLite 按字符串对比而非时间语义对比
+- **修复**：在 `internal/stats/manager.go` 的 `QueryRequestLogs` 中，对 Start/End 参数先尝试用 `time.Parse(time.RFC3339Nano, ...)` 解析为 `time.Time`，成功则传入 GORM 做 native 时间比较；失败时回退原字符串行为。兼容所有 ISO 8601 格式输入
+
+### 请求日志类型 `active_health_check` 显示异常修复
+- **问题**：后端 `probe.go` 写入的 log_type 为 `active_health_check`，但前端 `Logs.vue` 的显示映射表只定义了 `health_check`，匹配失败后直接显示原始字段值 `active_health_check`
+- **修复**：`internal/account/probe.go` 两处 `"active_health_check"` 改为 `"health_check"`，与前端映射 key 统一
+
+### 批量测试进度条不显示修复
+- **问题**：`Channels.vue` 的 `n-progress` 显式指定 `color="var(--n-color-primary)"` CSS 变量，在暗色主题下该变量未正确定义，导致填充条颜色透明不可见
+- **修复**：移除 `:color` 自定义属性，让 `n-progress` 使用 Naive UI 默认的 progress 主题色（在暗色主题下自动生效）
+
+### 渠道列表点击直接进入账号管理页
+- **问题**：渠道列表行点击无实际操作（`onClick: () => {}`），需从更多菜单选择「管理密钥」才能进账号页
+- **修复**：`rowProps` 的 `onClick` 改为 `selectChannel(_row, 'accounts')`，点击行直接进入该渠道的账号管理 Tab
+
+### 复制渠道增加二次确认
+- **问题**：复制渠道按钮无确认弹窗，误触即执行
+- **修复**：`handleCopyChannel` 先弹 `dialog.warning` 确认窗口，显示渠道名，用户确认后才执行复制操作。新增中英文 i18n key：`copyChannelConfirm`
+
+### 修复 SSE 流式响应被 Server 层 60 秒强制断开
+- `http.Server.WriteTimeout` 从 `60s` 改为 `0`（禁用写超时），让超时控制下放到代理层（`proxy.stream_read_timeout`）
+- 根因：Go `http.Server.WriteTimeout` 限制的是从请求开始到响应写完的总时间，SSE 流式响应的整个生命周期都在这个计时内，60 秒后 Server 层强制关闭连接 → `context canceled`
+- 此修改解决了生产环境中大量 `stream forward error: read stream/client disconnected: context canceled` 错误（今日 394 次，占全部错误的 79%）
 
 ### 账号池稳定性优化
 - 优化 `context` 错误区分处理：区分 `context.Canceled`（客户端主动取消）和 `context.DeadlineExceeded`（上游超时）

@@ -35,6 +35,16 @@ func (a *Adapter) ConvertStreamChunk(ctx context.Context, chunk []byte) ([]byte,
 	return chunk, nil
 }
 
+// TestEndpoints 返回 OpenAI 渠道支持的测试端点
+func (a *Adapter) TestEndpoints() []adapter.TestEndpointInfo {
+	return []adapter.TestEndpointInfo{
+		{ID: "auto", Label: "自动检测（默认）", IsAuto: true},
+		{ID: "openai-chat", Label: "OpenAI (/v1/chat/completions)", Path: "/v1/chat/completions"},
+		{ID: "openai-responses", Label: "OpenAI Responses (/v1/responses)", Path: "/v1/responses"},
+		{ID: "openai-responses-compact", Label: "OpenAI Response Compaction (/v1/responses/compact)", Path: "/v1/responses/compact"},
+	}
+}
+
 // FetchModels 获取上游可用模型列表
 func (a *Adapter) FetchModels(ctx context.Context, baseURL, apiKey string) ([]adapter.ModelInfo, error) {
 	url := fmt.Sprintf("%s/v1/models", baseURL)

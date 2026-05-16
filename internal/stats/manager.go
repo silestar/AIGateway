@@ -236,10 +236,18 @@ func (m *Manager) QueryRequestLogs(ctx context.Context, filter LogFilter) ([]Req
 		query = query.Where("trace_id LIKE ? OR error_msg LIKE ?", kw, kw)
 	}
 	if filter.Start != "" {
-		query = query.Where("timestamp >= ?", filter.Start)
+		if t, err := time.Parse(time.RFC3339Nano, filter.Start); err == nil {
+			query = query.Where("timestamp >= ?", t.Local())
+		} else {
+			query = query.Where("timestamp >= ?", filter.Start)
+		}
 	}
 	if filter.End != "" {
-		query = query.Where("timestamp < ?", filter.End)
+		if t, err := time.Parse(time.RFC3339Nano, filter.End); err == nil {
+			query = query.Where("timestamp < ?", t.Local())
+		} else {
+			query = query.Where("timestamp < ?", filter.End)
+		}
 	}
 
 	var total int64

@@ -416,7 +416,7 @@ import {
 } from 'naive-ui'
 import { requestLogApi, type RequestLog, type RetryChainEntry, type LogDetailContent } from '../api/logs'
 import { systemApi } from '../api/system'
-import { UpOutlined, DownOutlined } from '@vicons/antd'
+import { UpOutlined, DownOutlined, ExclamationCircleOutlined } from '@vicons/antd'
 import routeIcon from '../assets/icons/route.svg'
 
 const { t } = useI18n()
@@ -679,9 +679,10 @@ const tableColumns = computed<DataTableColumns<RequestLog>>(() => [
   {
     title: t('requestLogs.colLatency'),
     key: 'latency',
-    width: 140,
+    width: 170,
     render: (row) => {
       const hasFrt = row.is_stream && (row as any).first_token_ms > 0
+      const isClientGone = is2xx(row.status_code) && row.error_msg === 'client_gone'
       const tagBase = {
         display: 'inline-flex', alignItems: 'center', gap: '4px',
         borderRadius: '6px', padding: '1px 6px',
@@ -730,8 +731,24 @@ const tableColumns = computed<DataTableColumns<RequestLog>>(() => [
       }
       return h('div', { style: { lineHeight: '1.6' } }, [
         h('div', { style: { display: 'flex', gap: '6px', alignItems: 'center' } }, tags),
-        h('div', { style: { fontSize: '11px', color: 'var(--n-text-color-3)' } },
-          row.is_stream ? t('requestLogs.stream') : t('requestLogs.nonStream')),
+        h('div', { style: { display: 'flex', alignItems: 'center', gap: '4px', fontSize: '11px', color: isClientGone ? '#ff4d4f' : 'var(--n-text-color-3)' } }, [
+          row.is_stream ? t('requestLogs.stream') : t('requestLogs.nonStream'),
+          isClientGone ? h(NTooltip, { placement: 'bottom' }, {
+            trigger: () => h(ExclamationCircleOutlined, {
+              style: {
+                color: '#ff4d4f',
+                width: '11px',
+                height: '11px',
+                cursor: 'pointer',
+                verticalAlign: 'middle',
+              },
+            }),
+            default: () => h('div', { style: { fontSize: '12px', lineHeight: '1.6' } }, [
+              h('div', { style: { fontWeight: '600', color: '#ff4d4f' } }, t('requestLogs.streamStatusError')),
+              h('div', { style: { color: 'var(--n-text-color-3)' } }, t('requestLogs.clientGone')),
+            ]),
+          }) : null,
+        ]),
       ])
     },
   },

@@ -10,6 +10,7 @@ import (
 	"github.com/silestar/AIGateway/internal/account"
 	"github.com/silestar/AIGateway/internal/channel"
 	"github.com/silestar/AIGateway/internal/stats"
+	adapterregistry "github.com/silestar/AIGateway/pkg/adapter/registry"
 )
 
 // ChannelHandler 渠道管理 API
@@ -41,6 +42,8 @@ func (h *ChannelHandler) RegisterRoutes(rg *gin.RouterGroup) {
 	// 新增端点
 	channels.POST("/:id/test", h.TestChannel)
 	channels.POST("/:id/test-models", h.BatchTestModels)
+	channels.POST("/:id/test-model", h.TestSingleModel)
+	channels.GET("/:id/test-endpoints", h.GetTestEndpoints)
 	channels.PUT("/:id/test-model", h.UpdateTestModel)
 	channels.POST("/:id/copy", h.CopyChannel)
 	// 账号测试与恢复（渠道维度）
@@ -388,7 +391,9 @@ func (h *ChannelHandler) BatchTestModels(c *gin.Context) {
 	}
 
 	var req struct {
-		Models []string `json:"models" binding:"required"`
+		Models   []string `json:"models" binding:"required"`
+		Endpoint string   `json:"endpoint"`
+		Stream   bool     `json:"stream"`
 	}
 	if err := c.ShouldBindJSON(&req); err != nil {
 		c.JSON(http.StatusBadRequest, errorResponse("invalid_request", err.Error()))
@@ -401,13 +406,74 @@ func (h *ChannelHandler) BatchTestModels(c *gin.Context) {
 		return
 	}
 
-	results, err := h.svc.BatchTestModels(c.Request.Context(), id, req.Models, apiKey)
+	endpoint := req.Endpoint
+	if endpoint == "" {
+		endpoint = "auto"
+	}
+
+	results, err := h.svc.BatchTestModels(c.Request.Context(), id, req.Models, apiKey, endpoint, req.Stream)
 	if err != nil {
 		c.JSON(http.StatusBadRequest, errorResponse("test_failed", err.Error()))
 		return
 	}
 
 	c.JSON(http.StatusOK, gin.H{"data": results})
+}
+
+// TestSingleModel 单模型测试
+func (h *ChannelHandler) TestSingleModel(c *gin.Context) {
+	id, err := parseID(c)
+	if err != nil {
+		c.JSON(http.StatusBadRequest, errorResponse("invalid_id", err.Error()))
+		return
+	}
+
+	var req struct {
+		Model    string `json:"model" binding:"required"`
+		Endpoint string `json:"endpoint"`
+		Stream   bool   `json:"stream"`
+	}
+	if err := c.ShouldBindJSON(&req); err != nil {
+		c.JSON(http.StatusBadRequest, errorResponse("invalid_request", err.Error()))
+		return
+	}
+
+	apiKey, err := h.getActiveAPIKey(c, id)
+	if err != nil {
+		c.JSON(http.StatusBadRequest, errorResponse("no_active_account", err.Error()))
+		return
+	}
+
+	endpoint := req.Endpoint
+	if endpoint == "" {
+		endpoint = "auto"
+	}
+
+	result, err := h.svc.TestSingleModel(c.Request.Context(), id, req.Model, apiKey, endpoint, req.Stream)
+	if err != nil {
+		c.JSON(http.StatusBadRequest, errorResponse("test_failed", err.Error()))
+		return
+	}
+
+	c.JSON(http.StatusOK, gin.H{"data": result})
+}
+
+// GetTestEndpoints 获取渠道可用的测试端点
+func (h *ChannelHandler) GetTestEndpoints(c *gin.Context) {
+	id, err := parseID(c)
+	if err != nil {
+		c.JSON(http.StatusBadRequest, errorResponse("invalid_id", err.Error()))
+		return
+	}
+
+	ch, err := h.svc.GetById(c.Request.Context(), id)
+	if err != nil {
+		c.JSON(http.StatusBadRequest, errorResponse("channel_not_found", err.Error()))
+		return
+	}
+
+	endpoints := adapterregistry.GetChannelTestEndpoints(ch.Type)
+	c.JSON(http.StatusOK, gin.H{"data": endpoints})
 }
 
 // UpdateTestModel 更新渠道指定测试模型

@@ -27,6 +27,8 @@ var (
 		"anthropic": {Type: "anthropic", Name: "Anthropic", IsPlugin: false},
 		"gemini":    {Type: "gemini", Name: "Google Gemini", IsPlugin: false},
 	}
+	// extraTestEndpoints 插件额外注册的测试端点
+	extraTestEndpoints = map[string][]adapter.TestEndpointInfo{}
 )
 
 func init() {
@@ -62,4 +64,46 @@ func ListChannelTypes() []ChannelTypeInfo {
 		result = append(result, info)
 	}
 	return result
+}
+
+// GetChannelTestEndpoints 获取某渠道类型的所有测试端点（内置 + 插件注册的）
+func GetChannelTestEndpoints(channelType string) []adapter.TestEndpointInfo {
+	result := make([]adapter.TestEndpointInfo, 0)
+
+	// 1. 从适配器获取内置端点
+	a, err := GetAdapter(channelType)
+	if err == nil {
+		if provider, ok := a.(adapter.TestEndpointProvider); ok {
+			result = append(result, provider.TestEndpoints()...)
+		}
+	}
+
+	// openai-response 与 openai 共享端点
+	if channelType == "openai-response" {
+		a2, err2 := GetAdapter("openai")
+		if err2 == nil {
+			if provider, ok := a2.(adapter.TestEndpointProvider); ok {
+				result = append(result, provider.TestEndpoints()...)
+			}
+		}
+	}
+
+	// 如果没有任何端点，提供默认的自动检测
+	if len(result) == 0 {
+		result = append(result, adapter.TestEndpointInfo{
+			ID: "auto", Label: "自动检测（默认）", IsAuto: true,
+		})
+	}
+
+	// 2. 追加插件额外注册的端点
+	if extras, ok := extraTestEndpoints[channelType]; ok {
+		result = append(result, extras...)
+	}
+
+	return result
+}
+
+// RegisterTestEndpoint 插件注册测试端点
+func RegisterTestEndpoint(channelType string, info adapter.TestEndpointInfo) {
+	extraTestEndpoints[channelType] = append(extraTestEndpoints[channelType], info)
 }

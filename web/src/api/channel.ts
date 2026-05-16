@@ -58,6 +58,13 @@ export interface BatchTestResultItem {
   testing?: boolean
 }
 
+export interface TestEndpointInfo {
+  id: string
+  label: string
+  path: string
+  is_auto: boolean
+}
+
 export interface ChannelTypeInfo {
   type: string
   name: string
@@ -120,8 +127,16 @@ export const channelApi = {
   testChannel(id: number) {
     return api.post<{ data: TestResult }>(`/channels/${id}/test`)
   },
-  batchTestModels(id: number, models: string[]) {
-    return api.post<{ data: BatchTestResultItem[] }>(`/channels/${id}/test-models`, { models })
+  batchTestModels(id: number, models: string[], endpoint: string = 'auto', stream: boolean = false) {
+    return api.post<{ data: BatchTestResultItem[] }>(`/channels/${id}/test-models`, { models, endpoint, stream })
+  },
+  // 获取渠道可用的测试端点
+  getTestEndpoints(id: number) {
+    return api.get<{ data: TestEndpointInfo[] }>(`/channels/${id}/test-endpoints`)
+  },
+  // 单模型测试
+  testSingleModel(id: number, data: { model: string; endpoint: string; stream: boolean }) {
+    return api.post<{ data: TestResult }>(`/channels/${id}/test-model`, data)
   },
   updateTestModel(id: number, testModel: string) {
     return api.put(`/channels/${id}/test-model`, { test_model: testModel })

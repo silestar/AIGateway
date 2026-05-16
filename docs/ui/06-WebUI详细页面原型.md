@@ -175,7 +175,7 @@
 - ⏸/▶ 启用/禁用：切换渠道状态
 - ⋯ 更多操作下拉：
   - 编辑渠道：跳转详情页基本信息 Tab
-  - 批量测试模型：弹窗勾选模型 + 逐个测试 + 结果展示
+  - 模型测试：独立 ModelTestDialog 弹窗，端点类型选择 + 流式模式开关 + 模型列表（单测/批量） + 状态圆点（黑/绿/红）
   - 获取模型：打开 ModelSelectModal
   - 上游更新：拉取上游模型列表，标记下线模型（红色标签），一键移除
   - 复制渠道：基本信息+模型映射复制，新渠道默认禁用
@@ -188,7 +188,9 @@
     - `GET /api/channels` (含 search、sort_by、sort_order 参数)
     - `POST /api/channels`
     - `POST /api/channels/:id/test`
-    - `POST /api/channels/:id/test-models`
+    - `POST /api/channels/:id/test-models` (批量测试，支持 endpoint/stream 参数)
+    - `POST /api/channels/:id/test-model` (单模型测试)
+    - `GET /api/channels/:id/test-endpoints` (获取可用测试端点)
     - `PUT /api/channels/:id/test-model`
     - `POST /api/channels/:id/copy`
     - `PATCH /api/channels/:id/status`

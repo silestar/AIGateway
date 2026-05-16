@@ -26,6 +26,21 @@ type ChannelAdapter interface {
 	FetchModels(ctx context.Context, baseURL, apiKey string) ([]ModelInfo, error)
 }
 
+// TestEndpointInfo 测试端点信息
+type TestEndpointInfo struct {
+	ID     string `json:"id"`      // 唯一标识，如 "auto", "openai-chat", "anthropic-messages"
+	Label  string `json:"label"`  // 展示名称，如 "自动检测（默认）"
+	Path   string `json:"path"`   // 端点路径模板，如 "/v1/chat/completions"，含 {model} 占位符
+	IsAuto bool   `json:"is_auto"` // 是否为自动检测
+}
+
+// TestEndpointProvider 测试端点提供者接口（可选扩展）
+// 适配器可实现此接口以注册该渠道类型支持的测试端点
+type TestEndpointProvider interface {
+	// TestEndpoints 返回该渠道类型支持的所有测试端点
+	TestEndpoints() []TestEndpointInfo
+}
+
 // ModelInfo 模型信息
 type ModelInfo struct {
 	ID      string `json:"id"`

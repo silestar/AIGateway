@@ -35,7 +35,7 @@
     <!-- 详情视图 -->
     <n-card v-else :title="selectedChannel.name">
       <template #header-extra>
-        <n-button @click="selectedChannel = null">{{ t('common.back') }}</n-button>
+<n-button @click="goBackToList">{{ t('common.back') }}</n-button>
       </template>
       <n-tabs v-model:value="activeDetailTab" type="line" animated>
         <!-- 基本信息 -->
@@ -76,7 +76,7 @@
             <n-form-item>
               <n-space>
                 <n-button type="primary" @click="handleUpdateChannel">{{ t('common.save') }}</n-button>
-                <n-button @click="selectedChannel = null">{{ t('common.back') }}</n-button>
+                <n-button @click="goBackToList">{{ t('common.back') }}</n-button>
               </n-space>
             </n-form-item>
           </n-form>
@@ -221,8 +221,16 @@
             <n-space>
               <n-button type="primary" @click="showAddAccount = true">{{ t('channels.addAccount') }}</n-button>
               <n-dropdown trigger="click" @select="handleBatchTestAccountSelect" :options="batchTestAccountOptions">
-                <n-button :loading="batchTestAccountLoading" type="info">{{ t('channels.batchTest') || '批量测试' }}</n-button>
+                <n-button :loading="batchTestAccountLoading" type="info">{{ t('channels.batchTest') }}</n-button>
               </n-dropdown>
+              <n-tooltip trigger="hover">
+                <template #trigger>
+                  <n-button :loading="refreshingAccounts" @click="refreshAccounts">
+                    <template #icon><ReloadOutlined /></template>
+                  </n-button>
+                </template>
+                {{ t('channels.refreshAccounts') }}
+              </n-tooltip>
             </n-space>
             <n-data-table :columns="accountColumns" :data="accounts" />
           </n-space>
@@ -239,10 +247,9 @@
             <span style="font-size:12px; color:var(--n-text-color-3)">{{ batchProgressDone }}/{{ batchProgressTotal }}</span>
           </div>
         </template>
-        <n-progress
+<n-progress
           type="line"
           :percentage="batchProgressPercent"
-          :color="'var(--n-color-primary)'"
           :height="6"
           :border-radius="3"
           :show-indicator="false"
@@ -281,39 +288,15 @@
       </n-form>
     </n-modal>
 
-    <!-- 上游更新弹窗 -->
-    <n-modal v-model:show="showBatchTest" preset="card" style="width: 700px">
-      <template #header>
-        <div style="display: flex; align-items: center; justify-content: space-between; width: 100%; padding-right: 32px">
-          <span>{{ t('channels.batchTest') }} - {{ batchTestChannelName }}</span>
-          <n-button type="primary" size="small" :loading="batchTesting" @click="handleBatchTest" :disabled="batchTestModels.length === 0">{{ t('channels.startBatchTest') }}</n-button>
-        </div>
-      </template>
-      <n-space vertical size="small">
-        <template v-if="batchTestEnabledModels.length > 0">
-          <n-space align="center">
-            <n-checkbox :checked="batchTestModels.length === batchTestEnabledModels.length && batchTestEnabledModels.length > 0" :indeterminate="batchTestModels.length > 0 && batchTestModels.length < batchTestEnabledModels.length" @update:checked="toggleAllBatchTest" />
-            <n-text depth="3" style="font-size: 12px">{{ t('common.selectAll') }} ({{ batchTestModels.length }}/{{ batchTestEnabledModels.length }})</n-text>
-          </n-space>
-          <div style="max-height: 200px; overflow-y: auto; border: 1px solid var(--n-border-color, rgba(255,255,255,0.1)); border-radius: 6px; padding: 8px">
-            <n-checkbox-group v-model:value="batchTestModels">
-              <n-space vertical :size="4">
-                <n-checkbox v-for="m in batchTestPagedModels" :key="m.actual_model_name" :value="m.actual_model_name" :label="m.display_model_name === m.actual_model_name ? m.display_model_name : `${m.display_model_name} → ${m.actual_model_name}`" />
-              </n-space>
-            </n-checkbox-group>
-          </div>
-          <n-space v-if="batchTestEnabledModels.length > batchTestPageSize" justify="center" style="margin-top: 4px">
-            <n-button size="tiny" :disabled="batchTestPage <= 1" @click="batchTestPage--">‹</n-button>
-            <n-text depth="3" style="font-size: 12px; line-height: 24px">{{ batchTestPage }} / {{ Math.ceil(batchTestEnabledModels.length / batchTestPageSize) }}</n-text>
-            <n-button size="tiny" :disabled="batchTestPage >= Math.ceil(batchTestEnabledModels.length / batchTestPageSize)" @click="batchTestPage++">›</n-button>
-          </n-space>
-        </template>
-        <n-empty v-else :description="t('channels.noModelsConfigured')" style="padding: 20px 0" />
-        <div v-if="batchTestResults.length > 0" style="margin-top: 8px">
-          <n-data-table :columns="batchTestResultColumns" :data="batchTestResults" size="small" :pagination="false" />
-        </div>
-      </n-space>
-    </n-modal>
+    <!-- 模型测试弹窗 -->
+    <ModelTestDialog
+      v-model:show="showBatchTest"
+      :channel-id="batchTestChannelId"
+      :channel-name="batchTestChannelName"
+      :channel-type="batchTestChannelType"
+      :models="channelModels"
+      @tested="onModelTested"
+    />
 
     <!-- 上游更新弹窗 -->
     <n-modal v-model:show="showUpstreamUpdate" preset="card" style="width: 600px" :title="t('channels.upstreamUpdate')">
@@ -346,9 +329,11 @@
 <script setup lang="ts">
 import { ref, reactive, computed, h, onMounted, watch } from 'vue'
 import { useI18n } from 'vue-i18n'
-import { useMessage, useDialog, NButton, NSpace, NTag, NInput, NAlert, NInputNumber, NTooltip, NDropdown, NCheckbox, NCheckboxGroup, NSpin } from 'naive-ui'
-import { channelApi, type ChannelListItem, type ChannelModel, type BatchTestResultItem, type ModelInfo } from '../api/channel'
+import { NProgress, useMessage, useDialog, NButton, NSpace, NTag, NInput, NAlert, NInputNumber, NTooltip, NDropdown, NCheckbox, NSpin } from 'naive-ui'
+import { channelApi, type ChannelListItem, type ChannelModel, type ModelInfo } from '../api/channel'
 import { accountApi, type Account } from '../api/account'
+import ModelTestDialog from '../components/ModelTestDialog.vue'
+import { ReloadOutlined } from '@vicons/antd'
 
 
 // 渠道类型图标（SVG 文件引用）
@@ -661,9 +646,7 @@ async function openBatchTest(row: ChannelListItem) {
   }
   batchTestChannelId.value = row.id
   batchTestChannelName.value = row.name
-  batchTestModels.value = []
-  batchTestResults.value = []
-  batchTestPage.value = 1
+  batchTestChannelType.value = row.type
   try {
     const res = await channelApi.getModelsByChannel(row.id)
     channelModels.value = res.data.data || []
@@ -673,6 +656,18 @@ async function openBatchTest(row: ChannelListItem) {
     return
   }
   showBatchTest.value = true
+}
+
+// 模型测试完成回调
+function onModelTested() {
+  // 刷新渠道列表以更新 last_tested_at
+  loadChannels()
+}
+
+// 返回渠道列表并刷新数据
+function goBackToList() {
+  selectedChannel.value = null
+  loadChannels()
 }
 
 async function openUpstreamUpdate(row: ChannelListItem) {
@@ -703,6 +698,9 @@ async function openUpstreamUpdate(row: ChannelListItem) {
 const showCreateModal = ref(false)
 const showAddAccount = ref(false)
 const showBatchTest = ref(false)
+const batchTestChannelId = ref<number>(0)
+const batchTestChannelName = ref('')
+const batchTestChannelType = ref('')
 const showUpstreamUpdate = ref(false)
 const testingIds = ref<number[]>([])
 const batchTestAccountLoading = ref(false)
@@ -740,43 +738,6 @@ const editingRemark = ref('')
 const editingPriorityMap = reactive<Record<number, number>>({})
 const editingWeightMap = reactive<Record<number, number>>({})
 const editingWeightRowId = ref<number | null>(null)
-
-// 批量测试
-const batchTesting = ref(false)
-const batchTestModels = ref<string[]>([])
-const batchTestResults = ref<BatchTestResultItem[]>([])
-const batchTestChannelId = ref<number>(0)
-const batchTestChannelName = ref('')
-const batchTestPage = ref(1)
-const batchTestPageSize = 30
-const batchTestEnabledModels = computed(() => channelModels.value.filter(m => m.status === 'enabled'))
-const batchTestPagedModels = computed(() => {
-  const start = (batchTestPage.value - 1) * batchTestPageSize
-  return batchTestEnabledModels.value.slice(start, start + batchTestPageSize)
-})
-
-const batchTestResultColumns = computed(() => [
-  { title: t('channels.testModel'), key: 'model' },
-  {
-    title: t('channels.testLatency'), key: 'latency', width: 100,
-    render: (row: BatchTestResultItem) => h('span', { style: { color: latencyColor(row.latency) } }, `${row.latency}ms`),
-  },
-  {
-    title: t('common.status'), key: 'success', width: 80,
-    render: (row: BatchTestResultItem) => {
-      if (row.testing) return h(NSpin, { size: 18 })
-      return h(NTag, { type: row.success ? 'success' : 'error', size: 'small' }, () => row.success ? '✓' : `✗ ${row.status || ''}`)
-    },
-  },
-  {
-    title: t('channels.testError'), key: 'error',
-    render: (row: BatchTestResultItem) => row.error ? h('span', { style: 'color: #ff6b6b; font-size: 12px; word-break: break-all' }, row.error.substring(0, 100)) : '-',
-  },
-])
-
-function toggleAllBatchTest(checked: boolean) {
-  batchTestModels.value = checked ? batchTestEnabledModels.value.map(m => m.actual_model_name) : []
-}
 
 // 上游更新
 const fetchingUpstream = ref(false)
@@ -1007,7 +968,7 @@ function formatTimeAgo(dateStr: string): string {
 }
 
 function rowProps(_row: ChannelListItem) {
-  return { style: 'cursor: pointer', onClick: () => {} }
+  return { style: 'cursor: pointer', onClick: () => selectChannel(_row, 'accounts') }
 }
 
 // ========== 数据加载 ==========
@@ -1040,6 +1001,21 @@ async function loadAccounts(channelId: number) {
     if (b.priority !== a.priority) return b.priority - a.priority
     return b.id - a.id
   })
+}
+
+const refreshingAccounts = ref(false)
+
+// 刷新当前渠道的账号列表
+async function refreshAccounts() {
+  if (!selectedChannel.value?.id) return
+  refreshingAccounts.value = true
+  try {
+    await loadAccounts(selectedChannel.value.id)
+  } catch {
+    message.error(t('common.operationFailed'))
+  } finally {
+    refreshingAccounts.value = false
+  }
 }
 
 async function selectChannel(ch: ChannelListItem, tab?: string) {
@@ -1126,6 +1102,19 @@ function handleDeleteChannel(row: ChannelListItem) {
 }
 
 async function handleCopyChannel(row: ChannelListItem) {
+  const confirmed = await new Promise<boolean>((resolve) => {
+    dialog.warning({
+      title: t('channels.copyChannel'),
+      content: t('channels.copyChannelConfirm', { name: row.name }),
+      positiveText: t('common.confirm'),
+      negativeText: t('common.cancel'),
+      onPositiveClick: () => resolve(true),
+      onNegativeClick: () => resolve(false),
+      onMaskClick: () => resolve(false),
+      onClose: () => resolve(false),
+    })
+  })
+  if (!confirmed) return
   try {
     const res = await channelApi.copyChannel(row.id)
     const newId = res.data.data?.id
@@ -1198,30 +1187,6 @@ async function handleSaveTestModel() {
     message.success(t('common.success'))
     loadChannels()
   } catch { message.error(t('common.operationFailed')) }
-}
-
-// ========== 批量测试 ==========
-async function handleBatchTest() {
-  const chId = batchTestChannelId.value || selectedChannel.value?.id
-  if (!chId || batchTestModels.value.length === 0) return
-  batchTesting.value = true
-  batchTestResults.value = []
-  try {
-    // 逐个测试，每测完一个显示结果
-    for (const model of batchTestModels.value) {
-      batchTestResults.value = [...batchTestResults.value, { model, success: false, latency: 0, status: 0, error: '', testing: true }]
-      const idx = batchTestResults.value.length - 1
-      try {
-        const res = await channelApi.batchTestModels(chId, [model])
-        const result = (res.data.data || [])[0]
-        if (result) {
-          batchTestResults.value[idx] = { ...result, testing: false }
-        }
-      } catch (err: any) {
-        batchTestResults.value[idx] = { model, success: false, latency: 0, status: 0, error: err?.message || 'Failed', testing: false }
-      }
-    }
-  } finally { batchTesting.value = false }
 }
 
 // ========== 上游更新 ==========

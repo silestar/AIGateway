@@ -630,11 +630,15 @@
 
 ```json
 {
-  "models": ["gpt-4o", "gpt-4o-mini", "claude-3-opus"]
+  "models": ["gpt-4o", "gpt-4o-mini", "claude-3-opus"],
+  "endpoint": "auto",
+  "stream": false
 }
 ```
 
 > 逐个测试指定模型，每个模型使用渠道下优先级最高的 active 账号。
+> - `endpoint`：测试端点类型，默认 `"auto"` 自动检测，可选值由 `GET /:id/test-endpoints` 返回
+> - `stream`：是否使用流式模式测试，默认 `false`
 
 响应（200）：
 
@@ -667,6 +671,44 @@
 ```
 
 > 失败项的 `error` 包含上游返回的错误信息，`status` 为 HTTP 状态码。
+
+---
+
+### 2.11a 单模型测试
+
+**`POST /api/channels/:id/test-model`**
+
+请求体：
+
+```json
+{
+  "model": "gpt-4o",
+  "endpoint": "auto",
+  "stream": false
+}
+```
+
+> 测试单个模型，返回 TestResult 对象（含 success/latency/status/error/prompt_tokens/completion_tokens）。
+
+---
+
+### 2.11b 获取测试端点
+
+**`GET /api/channels/:id/test-endpoints`**
+
+> 根据渠道类型返回可用的测试端点列表。内置类型（openai/anthropic/gemini）返回硬编码端点，插件类型通过 `TestEndpointProvider` 接口扩展注册。
+
+响应（200）：
+
+```json
+{
+  "data": [
+    { "id": "auto", "label": "自动检测（默认）", "path": "", "is_auto": true },
+    { "id": "openai-chat", "label": "Chat Completions", "path": "/v1/chat/completions", "is_auto": false },
+    { "id": "openai-responses", "label": "Responses", "path": "/v1/responses", "is_auto": false }
+  ]
+}
+```
 
 ---
 
