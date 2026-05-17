@@ -18,6 +18,8 @@
 - **问题**：点击操作列的按钮（⚡测试 / ⏸启用禁用 / ⋯更多）有时触发行点击跳转到账号页面，而非执行按钮功能
 - **修复**：操作列 3 个按钮的 `onClick` 加 `e.stopPropagation()` 阻止事件冒泡到行级 `onClick`
 
+## [0.2.3]
+
 ### 流式请求日志 502 误标记修复（context canceled）
 - **问题**：Hermes 等客户端在**正常完成 SSE 流式接收后主动关闭连接**，AGW 的 `ForwardStream` 循环中检查 `ctx.Done()` → 返回 `client disconnected: context canceled`。但 `main.go` 第 507 行对所有流式转发错误**统一写 `statusCode=502`**，导致正常完成的请求被错误标记为 `502 Bad Gateway`
 - **根因**：`context.Canceled` 表示「客户端主动断开」，并非上游错误。AGW 的 `account_manager.failure_exclude_keywords` 虽已排除 `context canceled`（不计入连续失败），但**日志记录的 status_code 不受此配置影响**，所有流式错误都写死 502
