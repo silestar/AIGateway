@@ -1,6 +1,22 @@
 # Changelog
 
-## [0.2.3]
+## [Unreleased]
+
+### 账号优先级统一全排修复
+- **问题**：批量测试账号后，只对恢复成功的 active 账号重排优先级（`rebalancePriorities` 仅查 `status='active'`），测试失败继续 disabled 的账号保留旧优先级，导致 active 和 disabled 账号优先级重叠重复
+- **修复**：
+  - 新增 `RebalanceAllPriorities` 方法，改为重排**该渠道全部账号**，三组排序：原有 active → 恢复账号（disable→active，按原优先级 DESC）→ 仍 disabled，全局唯一
+  - `BatchTest` 批量测试完成后统一调用一次全排，不再依赖每个账号独立 goroutine 重排（消除并发竞态）
+  - 单账号测试 API（`POST /:id/accounts/:accountId/test`）测试后同样触发全排
+  - `recoverAccount` 内部移除异步重排 goroutine
+
+### 测试保留原禁用原因
+- **问题**：手动测试已 disabled 的账号失败时，无条件覆盖 `disabled_reason` 为 `manual_test_failed`，丢失原始禁用原因（如关键词封禁等）
+- **修复**：`TestAccount` 测试前记录账号状态，仅对原 active 账号测试失败时才写 `disabled_reason`，原 disabled 账号保留旧原因
+
+### 渠道列表操作按钮事件冒泡修复
+- **问题**：点击操作列的按钮（⚡测试 / ⏸启用禁用 / ⋯更多）有时触发行点击跳转到账号页面，而非执行按钮功能
+- **修复**：操作列 3 个按钮的 `onClick` 加 `e.stopPropagation()` 阻止事件冒泡到行级 `onClick`
 
 ### 流式请求日志 502 误标记修复（context canceled）
 - **问题**：Hermes 等客户端在**正常完成 SSE 流式接收后主动关闭连接**，AGW 的 `ForwardStream` 循环中检查 `ctx.Done()` → 返回 `client disconnected: context canceled`。但 `main.go` 第 507 行对所有流式转发错误**统一写 `statusCode=502`**，导致正常完成的请求被错误标记为 `502 Bad Gateway`

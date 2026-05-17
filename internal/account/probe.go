@@ -359,8 +359,6 @@ func (m *Manager) recoverAccount(ctx context.Context, acc *Account) {
 		zap.Uint("account_id", acc.ID),
 		zap.Uint("channel_id", acc.ChannelID),
 	)
-	// 恢复后重新平衡该渠道所有 active 账号的优先级
-	go m.rebalancePriorities(context.Background(), acc.ChannelID)
 	_ = now // 避免未使用警告
 }
 

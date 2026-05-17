@@ -574,11 +574,20 @@ func (h *ChannelHandler) TestAccount(c *gin.Context) {
 		return
 	}
 
-	result, err := h.accountMgr.TestAccount(c.Request.Context(), channelID, accountID)
+	ctx := c.Request.Context()
+	wasDisabled := h.accountMgr.WasDisabled(ctx, accountID)
+
+	result, err := h.accountMgr.TestAccount(ctx, channelID, accountID)
 	if err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
 		return
 	}
+
+	// 单账号测试后统一全排：如果原 disabled 账号测试成功恢复 → 重排
+	if wasDisabled && result != nil && result.Success {
+		_ = h.accountMgr.RebalanceAllPriorities(ctx, channelID, []uint{accountID})
+	}
+
 	c.JSON(http.StatusOK, result)
 }
 

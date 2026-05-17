@@ -571,14 +571,14 @@ const columns = computed(() => [
     title: t('common.actions'), key: 'actions', width: 150, fixed: 'right',
     render: (row: ChannelListItem) => h(NSpace, { size: 4, align: 'center' }, () => [
       h(NTooltip, null, {
-        trigger: () => h(NButton, { size: 'small', quaternary: true,      loading: testingChannelId.value !== null && testingChannelId.value === row.id, onClick: () => handleTestChannel(row)}, { icon: () => h('span', '⚡') }),
+        trigger: () => h(NButton, { size: 'small', quaternary: true,      loading: testingChannelId.value !== null && testingChannelId.value === row.id, onClick: (e: MouseEvent) => { e.stopPropagation(); handleTestChannel(row) } }, { icon: () => h('span', '⚡') }),
         default: () => t('channels.testAvailability'),
       }),
       h(NTooltip, null, {
         trigger: () => h(NButton, {
           size: 'small', quaternary: true,
           type: row.status === 'active' ? 'error' : 'success',
-          onClick: () => handleToggleChannel(row),
+          onClick: (e: MouseEvent) => { e.stopPropagation(); handleToggleChannel(row) },
         }, { icon: () => h('span', row.status === 'active' ? '⏸' : '▶') }),
         default: () => row.status === 'active' ? t('common.disable') : t('common.enable'),
       }),
@@ -586,7 +586,7 @@ const columns = computed(() => [
         options: getMoreOptions(row),
         onSelect: (key: string) => handleMoreAction(key, row),
       }, {
-        default: () => h(NButton, { size: 'small', quaternary: true }, { icon: () => h('span', '⋯') }),
+        default: () => h(NButton, { size: 'small', quaternary: true, onClick: (e: MouseEvent) => { e.stopPropagation() } }, { icon: () => h('span', '⋯') }),
       }),
     ]),
   },

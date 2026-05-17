@@ -532,23 +532,35 @@ func (m *Manager) getTotalCount(ctx context.Context, channelID uint) int64 {
 }
 
 // TestAccount 手动测试单个账号，通过则自动恢复
+// 返回 testResult, wasDisabled, error
+// wasDisabled 表示测试前该账号是否处于 disabled 状态，供调用方判断是否需要重排优先级
 func (m *Manager) TestAccount(ctx context.Context, channelID, accountID uint) (*channel.TestResult, error) {
 	plainKey, err := m.GetDecryptedAPIKey(ctx, accountID)
 	if err != nil {
 		return nil, fmt.Errorf("decrypt key: %w", err)
 	}
 
+	// 测试前记录原始状态，用于保留禁用原因
+	var accBefore Account
+	if dbErr := m.db.WithContext(ctx).First(&accBefore, accountID).Error; dbErr != nil {
+		accBefore.Status = "active" // 默认假设 active，安全降级
+	}
+	wasDisabled := accBefore.Status == "disabled"
+
 	testResult, testErr := m.channelSvc.TestAccount(ctx, channelID, accountID, plainKey)
 	if testErr != nil || !testResult.Success {
-		reason := "manual_test_failed"
-		if testErr != nil {
-			reason = "manual_test: " + testErr.Error()
+		// 只有原先不是 disabled 的账号（即 active 被测试失败），才写 disabled_reason
+		// 原先就是 disabled 的账号保留原始禁用原因
+		if !wasDisabled {
+			reason := "manual_test_failed"
+			if testErr != nil {
+				reason = "manual_test: " + testErr.Error()
+			}
+			if len(reason) > 255 {
+				reason = reason[:255]
+			}
+			m.db.WithContext(ctx).Model(&Account{}).Where("id = ?", accountID).Update("disabled_reason", reason)
 		}
-		// 截断不超过255字符
-		if len(reason) > 255 {
-			reason = reason[:255]
-		}
-		m.db.WithContext(ctx).Model(&Account{}).Where("id = ?", accountID).Update("disabled_reason", reason)
 		return testResult, testErr
 	}
 
@@ -561,6 +573,15 @@ func (m *Manager) TestAccount(ctx context.Context, channelID, accountID uint) (*
 	m.recoverAccount(ctx, &acc)
 
 	return testResult, nil
+}
+
+// WasDisabled 返回指定账号是否处于 disabled 状态（测试前快照用）
+func (m *Manager) WasDisabled(ctx context.Context, accountID uint) bool {
+	var acc Account
+	if err := m.db.WithContext(ctx).First(&acc, accountID).Error; err != nil {
+		return false
+	}
+	return acc.Status == "disabled"
 }
 
 // BatchRecover 批量恢复渠道下所有 disabled 账号
@@ -605,6 +626,7 @@ func (m *Manager) BatchRecover(ctx context.Context, channelID uint) ([]map[strin
 func (m *Manager) BatchTest(ctx context.Context, channelID uint, mode string) error {
 	all, _ := m.ListByChannel(ctx, channelID)
 	var targets []Account
+	wasDisabled := make(map[uint]bool)
 	for _, acc := range all {
 		switch mode {
 		case "disabled":
@@ -618,6 +640,8 @@ func (m *Manager) BatchTest(ctx context.Context, channelID uint, mode string) er
 		case "all":
 			targets = append(targets, acc)
 		}
+		// 记录测试前状态
+		wasDisabled[acc.ID] = acc.Status == "disabled"
 	}
 
 	bp := GetBatchProgress()
@@ -637,31 +661,72 @@ func (m *Manager) BatchTest(ctx context.Context, channelID uint, mode string) er
 		}
 		bp.AddResult(channelID, br)
 	}
+
+	// 批量测试完成后，收集恢复的账号ID并统一重排
+	var recoveredIDs []uint
+	for _, acc := range targets {
+		if wasDisabled[acc.ID] {
+			var current Account
+			if m.db.WithContext(ctx).First(&current, acc.ID).Error == nil {
+				if current.Status == "active" {
+					recoveredIDs = append(recoveredIDs, acc.ID)
+				}
+			}
+		}
+	}
+	if len(recoveredIDs) > 0 {
+		_ = m.RebalanceAllPriorities(ctx, channelID, recoveredIDs)
+	}
+
 	return nil
 }
 
-// rebalancePriorities 重新分配渠道内所有 active 账号的优先级
-// 按原 priority 降序排列，从 active_count 开始重新编号，保持相对顺序
-func (m *Manager) rebalancePriorities(ctx context.Context, channelID uint) error {
-	var activeAccounts []Account
+// RebalanceAllPriorities 重新分配渠道内所有账号的优先级（统一全排）
+// 排序规则：原有 active → 本次恢复账号（原 disabled → active）→ 仍 disabled
+// 各组内按原 priority DESC 保持相对顺序，确保同一渠道所有账号优先级唯一
+func (m *Manager) RebalanceAllPriorities(ctx context.Context, channelID uint, recoveredIDs []uint) error {
+	recoveredSet := make(map[uint]bool, len(recoveredIDs))
+	for _, id := range recoveredIDs {
+		recoveredSet[id] = true
+	}
+
+	// 查询该渠道所有账号
+	var allAccounts []Account
 	if err := m.db.WithContext(ctx).
-		Where("channel_id = ? AND status = ?", channelID, "active").
+		Where("channel_id = ?", channelID).
 		Order("priority DESC").
-		Find(&activeAccounts).Error; err != nil {
+		Find(&allAccounts).Error; err != nil {
 		return err
 	}
 
-	count := len(activeAccounts)
-	for i, acc := range activeAccounts {
-		newPriority := count - i
+	// 分三组：①原 active  ②恢复账号(disable→active)  ③仍 disabled
+	var group1, group2, group3 []Account
+	for _, acc := range allAccounts {
+		if recoveredSet[acc.ID] {
+			group2 = append(group2, acc)
+		} else if acc.Status == "active" {
+			group1 = append(group1, acc)
+		} else {
+			group3 = append(group3, acc)
+		}
+	}
+
+	// 合并并按优先级 DESC 重新编号
+	ordered := append(append(group1, group2...), group3...)
+	total := len(ordered)
+	for i, acc := range ordered {
+		newPriority := total - i
 		if acc.Priority != newPriority {
 			m.db.WithContext(ctx).Model(&Account{}).Where("id = ?", acc.ID).
 				Update("priority", newPriority)
 		}
 	}
 
-	m.logger.Info("rebalance priorities",
+	m.logger.Info("rebalance all priorities",
 		zap.Uint("channel_id", channelID),
-		zap.Int("active_count", count))
+		zap.Int("total", total),
+		zap.Int("group1_original_active", len(group1)),
+		zap.Int("group2_recovered", len(group2)),
+		zap.Int("group3_disabled", len(group3)))
 	return nil
 }

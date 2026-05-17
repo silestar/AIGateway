@@ -59,4 +59,6 @@ type AccountManager interface {
 	TestAccount(ctx context.Context, channelID, accountID uint) (*channel.TestResult, error)
 	BatchRecover(ctx context.Context, channelID uint) ([]map[string]interface{}, error)
 	BatchTest(ctx context.Context, channelID uint, mode string) error
+	RebalanceAllPriorities(ctx context.Context, channelID uint, recoveredIDs []uint) error
+	WasDisabled(ctx context.Context, accountID uint) bool
 }
