@@ -1076,7 +1076,7 @@
 
 | 参数 | 类型 | 必填 | 说明 |
 |------|------|:--:|------|
-| `days` | int | 否 | 趋势图天数，默认 7，可选 7 或 30 |
+| `days` | int | 否 | 趋势图天数，默认 7，可选 1（当天）或 7 |
 
 响应：
 
@@ -1087,14 +1087,19 @@
     "total_requests_today": 15230,
     "success_rate": 97.2,
     "avg_latency_ms": 750.5,
+    "latency_display": "750ms",
     "total_tokens": 22500000,
     "active_keys": 45,
     "active_channels": 12,
+    "trend_mode": "hourly",
     "last_7_days": [
       { "date": "2026-05-03", "total_requests": 12000, "success_requests": 11600, "fail_requests": 400 }
     ],
     "hourly_trend": [
       { "hour": "2026-05-09 08:00", "success": 520, "fail": 12 }
+    ],
+    "daily_trend": [
+      { "date": "2026-05-03", "total_requests": 12000, "success_requests": 11600, "fail_requests": 400 }
     ],
     "top_models": [
       { "model_name": "gpt-4o", "total_requests": 8500 }
@@ -1108,6 +1113,9 @@
   }
 }
 ```
+
+- `trend_mode`：`"hourly"`（当天，小时粒度）或 `"daily"`（7天，每日粒度）
+- `latency_display`：延迟友好字符串，自动换算 `ms` / `s` / `m`
 
 **颜色规则**（前端实现）：
 
@@ -1155,6 +1163,42 @@
   }
 }
 ```
+
+---
+
+### 5.6 Token 使用统计
+
+**`GET /api/stats/token-stats`**
+
+> 按模型聚合的 Token 使用量统计，支持当天/7天/30天切换。
+
+查询参数：
+
+| 参数 | 类型 | 必填 | 说明 |
+|------|------|:--:|------|
+| `days` | int | 否 | 统计天数，默认 1（当天），可选 7 或 30 |
+
+响应：
+
+```json
+{
+  "data": {
+    "total_tokens": 22500000,
+    "total_requests": 15230,
+    "avg_tpm": 15625.0,
+    "avg_tpr": 10.58,
+    "top_3_models": [
+      { "model_name": "gpt-4o", "total_tokens": 12000000, "total_requests": 8500 },
+      { "model_name": "claude-3-opus", "total_tokens": 6500000, "total_requests": 4200 },
+      { "model_name": "gemini-2.0-flash", "total_tokens": 4000000, "total_requests": 2530 }
+    ]
+  }
+}
+```
+
+- `avg_tpm`：平均每分钟 Token 用量（`total_tokens / (days * 24 * 60)`）
+- `avg_tpr`：平均每分钟请求数（`total_requests / (days * 24 * 60)`）
+- `top_3_models`：Token 用量前三模型，按 `total_tokens` 降序排列
 
 ---
 

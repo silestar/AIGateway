@@ -2,6 +2,14 @@
 
 ## [Unreleased]
 
+### 仪表盘优化
+- **平均延迟友好格式化**：后端新增 `latency_display` 字段（自动换算 s/m），前端 stat-card 直接显示友好格式
+- **请求趋势切换**：按钮组改为 [当天, 7天]；当天按小时粒度展示（hourly_trend），7天按天粒度展示（daily_trend）
+- **Token 使用统计**：新增 `GET /stats/token-stats` API，返回总Token数、平均TPM、平均TPR、Token用量前3模型；前端新增 Token 统计卡片组，支持当天/7天/30天三档切换
+- **后端**：`formatLatency()` 辅助函数、`TokenStats` / `TokenModelEntry` 类型、`GetTokenStats()` 方法、`trend_mode` 字段
+- **前端**：`Dashboard.vue` 重写（增加 Token 统计区域 + 趋势适配）、stats API 新增 `tokenStats()`、i18n 中英文各新增 5 个 key
+- **修复**：`common.noData` 改为 `dashboard.noData`（修复多语言未适配问题）
+
 ### 账号优先级统一全排修复
 - **问题**：批量测试账号后，只对恢复成功的 active 账号重排优先级（`rebalancePriorities` 仅查 `status='active'`），测试失败继续 disabled 的账号保留旧优先级，导致 active 和 disabled 账号优先级重叠重复
 - **修复**：

@@ -589,6 +589,67 @@ func (m *Manager) GetHourlyTrend(ctx context.Context, hours int) ([]HourlyTrendE
 	return result, nil
 }
 
+// GetTokenStats 获取 Token 统计（总token、TPM、TPR、前3模型）
+func (m *Manager) GetTokenStats(ctx context.Context, days int) (*TokenStats, error) {
+	if days <= 0 {
+		days = 1
+	}
+
+	totalMinutes := float64(days) * 24 * 60
+
+	// 从 keys_daily_stats 按模型聚合
+	type tokenRow struct {
+		ModelName     string
+		TotalTokens   int64
+		TotalRequests int64
+	}
+	var rows []tokenRow
+
+	cutoff := time.Now().AddDate(0, 0, -(days)).Format("2006-01-02")
+	err := m.db.WithContext(ctx).Model(&KeysDailyStats{}).
+		Select("model_name, SUM(total_tokens) as total_tokens, SUM(total_requests) as total_requests").
+		Where("model_name != '' AND date >= ?", cutoff).
+		Group("model_name").
+		Order("total_tokens DESC").
+		Scan(&rows).Error
+	if err != nil {
+		return nil, err
+	}
+
+	// 汇总
+	var totalTokens int64
+	var totalRequests int64
+	for _, r := range rows {
+		totalTokens += r.TotalTokens
+		totalRequests += r.TotalRequests
+	}
+
+	// 前3
+	top3 := make([]TokenModelEntry, 0, 3)
+	for i := 0; i < len(rows) && i < 3; i++ {
+		top3 = append(top3, TokenModelEntry{
+			ModelName:     rows[i].ModelName,
+			TotalTokens:   rows[i].TotalTokens,
+			TotalRequests: rows[i].TotalRequests,
+		})
+	}
+
+	avgTPM := float64(0)
+	avgTPR := float64(0)
+	if totalMinutes > 0 {
+		avgTPM = float64(totalTokens) / totalMinutes
+		avgTPR = float64(totalRequests) / totalMinutes
+	}
+
+	return &TokenStats{
+		TotalTokens:   totalTokens,
+		TotalRequests: totalRequests,
+		AvgTPM:        avgTPM,
+		AvgTPR:        avgTPR,
+		Top3Models:    top3,
+	}, nil
+}
+
 // TopModelEntry 模型排行条目
 type TopModelEntry struct {
 	ModelName     string `json:"model_name"`

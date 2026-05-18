@@ -116,5 +116,22 @@ type StatsManager interface {
 	RecordRequest(ctx context.Context, log *RequestLog) error
 	GetRealtime(ctx context.Context) (*RealtimeStats, error)
 	GetOverview(ctx context.Context, days int) (*OverviewStats, error)
+	GetTokenStats(ctx context.Context, days int) (*TokenStats, error)
 	StartAggregator()
+}
+
+// TokenStats Token 统计结果
+type TokenStats struct {
+	TotalTokens    int64                `json:"total_tokens"`
+	TotalRequests  int64                `json:"total_requests"`
+	AvgTPM         float64              `json:"avg_tpm"`  // 平均每分钟 token
+	AvgTPR         float64              `json:"avg_tpr"`  // 平均每分钟请求
+	Top3Models     []TokenModelEntry    `json:"top_3_models"`
+}
+
+// TokenModelEntry 模型 token 用量条目
+type TokenModelEntry struct {
+	ModelName     string `json:"model_name"`
+	TotalTokens   int64  `json:"total_tokens"`
+	TotalRequests int64  `json:"total_requests"`
 }

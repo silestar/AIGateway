@@ -4,6 +4,9 @@ export const statsApi = {
   dashboard(days?: number) {
     return api.get('/stats/dashboard', { params: days ? { days } : undefined })
   },
+  tokenStats(days?: number) {
+    return api.get('/stats/token-stats', { params: days ? { days } : undefined })
+  },
   realtime() {
     return api.get('/stats/realtime')
   },

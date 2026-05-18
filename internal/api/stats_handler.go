@@ -22,6 +22,7 @@ func NewStatsHandler(statsMgr *stats.Manager) *StatsHandler {
 func (h *StatsHandler) RegisterRoutes(rg *gin.RouterGroup) {
 	s := rg.Group("/stats")
 	s.GET("/dashboard", h.Dashboard)
+	s.GET("/token-stats", h.TokenStats)
 	s.GET("/realtime", h.Realtime)
 	s.GET("/requests", h.Requests)
 	s.GET("/models", h.Models)
@@ -36,7 +37,6 @@ func (h *StatsHandler) RegisterRoutes(rg *gin.RouterGroup) {
 // Dashboard 仪表盘概览
 func (h *StatsHandler) Dashboard(c *gin.Context) {
 	days := intQuery(c, "days", 7)
-	hours := days * 24 // 趋势图按天折算小时数
 
 	// 1. 今日概览
 	overview, err := h.statsMgr.GetOverview(c.Request.Context(), days)
@@ -51,8 +51,15 @@ func (h *StatsHandler) Dashboard(c *gin.Context) {
 		successRate = float64(today.SuccessRequests) / float64(today.TotalRequests) * 100
 	}
 
-	// 2. 小时趋势
-	hourlyTrend, _ := h.statsMgr.GetHourlyTrend(c.Request.Context(), hours)
+	// 2. 小时趋势（当天用小时粒度，7天用每日粒度）
+	trendMode := "hourly" // 默认小时粒度
+	var hourlyTrend []stats.HourlyTrendEntry
+	if days == 1 {
+		hourlyTrend, _ = h.statsMgr.GetHourlyTrend(c.Request.Context(), 24)
+	} else {
+		trendMode = "daily"
+		// 7天以上用每日趋势（复用 Overview 的 Last7Days）
+	}
 
 	// 3. Top 模型
 	topModels, _ := h.statsMgr.GetTopModels(c.Request.Context(), 5)
@@ -63,22 +70,52 @@ func (h *StatsHandler) Dashboard(c *gin.Context) {
 	// 5. 最近异常
 	recentErrors, _ := h.statsMgr.GetRecentErrors(c.Request.Context(), 5)
 
+	// 6. 延迟友好格式化
+	latencyDisplay := formatLatency(today.AvgLatencyMs)
+
 	c.JSON(http.StatusOK, gin.H{
 		"data": gin.H{
 			"date":                today.Date,
 			"total_requests_today": today.TotalRequests,
-			"success_rate":         successRate,
+			"success_rate":        successRate,
 			"avg_latency_ms":      today.AvgLatencyMs,
+			"latency_display":     latencyDisplay,
 			"total_tokens":        today.TotalTokens,
 			"active_keys":         today.ActiveKeys,
 			"active_channels":     today.ActiveChannels,
 			"last_7_days":         overview.Last7Days,
+			"trend_mode":          trendMode,
 			"hourly_trend":        hourlyTrend,
+			"daily_trend":         overview.Last7Days,
 			"top_models":          topModels,
 			"top_channels":        topChannels,
 			"recent_errors":       recentErrors,
 		},
 	})
+}
+
+// formatLatency 将毫秒延迟格式化为人类可读字符串
+func formatLatency(ms float64) string {
+	if ms < 1000 {
+		return fmt.Sprintf("%.0fms", ms)
+	}
+	if ms < 60000 {
+		return fmt.Sprintf("%.2fs", ms/1000)
+	}
+	return fmt.Sprintf("%.2fm", ms/60000)
+}
+
+// TokenStats Token 统计 API
+func (h *StatsHandler) TokenStats(c *gin.Context) {
+	days := intQuery(c, "days", 1)
+
+	stats, err := h.statsMgr.GetTokenStats(c.Request.Context(), days)
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, errorResponse("internal_error", err.Error()))
+		return
+	}
+
+	c.JSON(http.StatusOK, gin.H{"data": stats})
 }
 
 // Realtime 实时统计

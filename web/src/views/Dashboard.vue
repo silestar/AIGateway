@@ -23,7 +23,7 @@
           <div class="stat-icon">⚡</div>
           <div class="stat-label">{{ t('dashboard.avgLatency') }}</div>
           <div class="stat-value" :style="{ color: latencyColor }">
-            {{ overview.avg_latency_ms != null ? Math.round(overview.avg_latency_ms) + 'ms' : '—' }}
+            {{ overview.latency_display || (overview.avg_latency_ms != null ? Math.round(overview.avg_latency_ms) + 'ms' : '—') }}
           </div>
         </div>
       </n-gi>
@@ -43,6 +43,58 @@
       </n-gi>
     </n-grid>
 
+    <!-- Token 统计数据行 -->
+    <n-card :bordered="false" size="small" class="glass-card" style="margin-top: 20px">
+      <template #header>
+        <span>{{ t('dashboard.tokenStats') }}</span>
+      </template>
+      <template #header-extra>
+        <n-button-group size="small">
+          <n-button :type="tokenDays === 1 ? 'primary' : 'default'" @click="switchTokenDays(1)">{{ t('dashboard.today') }}</n-button>
+          <n-button :type="tokenDays === 7 ? 'primary' : 'default'" @click="switchTokenDays(7)">7{{ t('dashboard.days') }}</n-button>
+          <n-button :type="tokenDays === 30 ? 'primary' : 'default'" @click="switchTokenDays(30)">30{{ t('dashboard.days') }}</n-button>
+        </n-button-group>
+      </template>
+      <n-grid :cols="5" :x-gap="16" :y-gap="16" v-if="tokenStats">
+        <n-gi>
+          <div class="stat-card">
+            <div class="stat-icon">🔤</div>
+            <div class="stat-label">{{ t('dashboard.totalTokens') }}</div>
+            <div class="stat-value">{{ formatTokenNumber(tokenStats.total_tokens) }}</div>
+          </div>
+        </n-gi>
+        <n-gi>
+          <div class="stat-card">
+            <div class="stat-icon">⏱️</div>
+            <div class="stat-label">{{ t('dashboard.avgTPM') }}</div>
+            <div class="stat-value">{{ formatDecimal(tokenStats.avg_tpm) }}</div>
+          </div>
+        </n-gi>
+        <n-gi>
+          <div class="stat-card">
+            <div class="stat-icon">📨</div>
+            <div class="stat-label">{{ t('dashboard.avgTPR') }}</div>
+            <div class="stat-value">{{ formatDecimal(tokenStats.avg_tpr) }}</div>
+          </div>
+        </n-gi>
+        <n-gi v-for="(m, idx) in tokenStats.top_3_models" :key="idx" :span="2">
+          <div class="stat-card">
+            <div class="stat-icon">{{ ['🥇','🥈','🥉'][Number(idx)] || '🏅' }}</div>
+            <div class="stat-label" style="overflow: hidden; text-overflow: ellipsis; white-space: nowrap;">{{ m.model_name }}</div>
+            <div class="stat-value" style="font-size: 18px;">{{ formatTokenNumber(m.total_tokens) }}</div>
+          </div>
+        </n-gi>
+        <n-gi v-if="(!tokenStats.top_3_models || tokenStats.top_3_models.length === 0)" :span="2">
+          <div class="stat-card">
+            <div class="stat-icon">📭</div>
+            <div class="stat-label">{{ t('dashboard.noData') }}</div>
+            <div class="stat-value">—</div>
+          </div>
+        </n-gi>
+      </n-grid>
+      <n-empty v-else :description="t('dashboard.noData')" style="padding: 20px 0" />
+    </n-card>
+
     <!-- 请求趋势图 -->
     <n-card :bordered="false" size="small" class="glass-card chart-card" style="margin-top: 20px">
       <template #header>
@@ -50,11 +102,11 @@
       </template>
       <template #header-extra>
         <n-button-group size="small">
+          <n-button :type="trendDays === 1 ? 'primary' : 'default'" @click="switchTrend(1)">{{ t('dashboard.today') }}</n-button>
           <n-button :type="trendDays === 7 ? 'primary' : 'default'" @click="switchTrend(7)">7{{ t('dashboard.days') }}</n-button>
-          <n-button :type="trendDays === 30 ? 'primary' : 'default'" @click="switchTrend(30)">30{{ t('dashboard.days') }}</n-button>
         </n-button-group>
       </template>
-      <v-chart v-if="hourlyTrend.length > 0" class="chart" :option="trendOption" autoresize />
+      <v-chart v-if="trendChartData.length > 0" class="chart" :option="trendOption" autoresize />
       <n-empty v-else :description="t('dashboard.noData')" style="padding: 40px 0" />
     </n-card>
 
@@ -123,6 +175,8 @@ const topChannels = ref<any[]>([])
 const recentErrors = ref<any[]>([])
 const loading = ref(false)
 const trendDays = ref(7)
+const tokenDays = ref(1)
+const tokenStats = ref<any>(null)
 
 let refreshTimer: ReturnType<typeof setInterval> | null = null
 
@@ -139,6 +193,30 @@ const latencyColor = computed(() => {
   if (ms < 2000) return '#52c41a'
   if (ms < 5000) return '#faad14'
   return '#ff4d4f'
+})
+
+// 格式化
+function formatTokenNumber(n: number): string {
+  if (n == null) return '—'
+  if (n >= 1000000) return (n / 1000000).toFixed(1) + 'M'
+  if (n >= 1000) return (n / 1000).toFixed(1) + 'K'
+  return Math.round(n).toString()
+}
+
+function formatDecimal(n: number): string {
+  if (n == null) return '—'
+  if (n >= 1000) return (n / 1000).toFixed(2) + 'K'
+  return n.toFixed(2)
+}
+
+// 趋势图数据（适配小时/每日）
+const trendChartData = computed(() => {
+  if (trendDays.value === 1 && hourlyTrend.value.length > 0) {
+    return hourlyTrend.value
+  }
+  // 7天模式用 daily_trend
+  const dt = overview.value.daily_trend || []
+  return dt
 })
 
 // 加载数据
@@ -159,27 +237,58 @@ async function loadData() {
   }
 }
 
+async function loadTokenStats() {
+  try {
+    const res = await statsApi.tokenStats(tokenDays.value)
+    if (res.data?.data) {
+      tokenStats.value = res.data.data
+    }
+  } catch { /* ignore */ }
+}
+
 function switchTrend(days: number) {
   trendDays.value = days
   loadData()
 }
 
+function switchTokenDays(days: number) {
+  tokenDays.value = days
+  loadTokenStats()
+}
+
 // 趋势折线图
 const trendOption = computed(() => {
-  const hours = hourlyTrend.value.map((e: any) => {
-    const parts = e.hour?.split(' ') || ['', '']
-    return parts[1] || e.hour
+  const data = trendChartData.value
+
+  // 当天模式（小时）或每日模式
+  const isHourly = trendDays.value === 1 && hourlyTrend.value.length > 0
+
+  const labels = data.map((e: any) => {
+    if (isHourly) {
+      const parts = e.hour?.split(' ') || ['', '']
+      return parts[1] || e.hour
+    }
+    return e.date || e.hour || ''
   })
+
+  const successData = isHourly
+    ? data.map((e: any) => e.success || 0)
+    : data.map((e: any) => e.total_requests || 0)
+
+  const failData = isHourly
+    ? data.map((e: any) => e.fail || 0)
+    : data.map((e: any) => e.fail_requests || 0)
+
   return {
     backgroundColor: 'transparent',
     tooltip: { trigger: 'axis' },
     legend: { data: [t('dashboard.success'), t('dashboard.failed')], textStyle: { color: '#bbb' } },
     grid: { left: 50, right: 20, top: 40, bottom: 30 },
-    xAxis: { type: 'category', data: hours, axisLine: { lineStyle: { color: '#444' } }, axisLabel: { color: '#bbb' } },
+    xAxis: { type: 'category', data: labels, axisLine: { lineStyle: { color: '#444' } }, axisLabel: { color: '#bbb' } },
     yAxis: { type: 'value', axisLine: { lineStyle: { color: '#444' } }, splitLine: { lineStyle: { color: '#2a2a3e' } }, axisLabel: { color: '#bbb' } },
     series: [
-      { name: t('dashboard.success'), type: 'line', data: hourlyTrend.value.map((e: any) => e.success), smooth: true, itemStyle: { color: '#73d13d' }, lineStyle: { width: 2 }, areaStyle: { color: { type: 'linear', x: 0, y: 0, x2: 0, y2: 1, colorStops: [{ offset: 0, color: 'rgba(115,209,61,0.3)' }, { offset: 1, color: 'rgba(115,209,61,0.02)' }] } } },
-      { name: t('dashboard.failed'), type: 'line', data: hourlyTrend.value.map((e: any) => e.fail), smooth: true, itemStyle: { color: '#ff7875' }, lineStyle: { width: 2 }, areaStyle: { color: { type: 'linear', x: 0, y: 0, x2: 0, y2: 1, colorStops: [{ offset: 0, color: 'rgba(255,120,117,0.3)' }, { offset: 1, color: 'rgba(255,120,117,0.02)' }] } } },
+      { name: t('dashboard.success'), type: 'line', data: successData, smooth: true, itemStyle: { color: '#73d13d' }, lineStyle: { width: 2 }, areaStyle: { color: { type: 'linear', x: 0, y: 0, x2: 0, y2: 1, colorStops: [{ offset: 0, color: 'rgba(115,209,61,0.3)' }, { offset: 1, color: 'rgba(115,209,61,0.02)' }] } } },
+      { name: t('dashboard.failed'), type: 'line', data: failData, smooth: true, itemStyle: { color: '#ff7875' }, lineStyle: { width: 2 }, areaStyle: { color: { type: 'linear', x: 0, y: 0, x2: 0, y2: 1, colorStops: [{ offset: 0, color: 'rgba(255,120,117,0.3)' }, { offset: 1, color: 'rgba(255,120,117,0.02)' }] } } },
     ],
   }
 })
@@ -254,7 +363,11 @@ function errorRowProps(row: any) {
 // 生命周期
 onMounted(() => {
   loadData()
-  refreshTimer = setInterval(loadData, 30000)
+  loadTokenStats()
+  refreshTimer = setInterval(() => {
+    loadData()
+    loadTokenStats()
+  }, 30000)
 })
 
 onUnmounted(() => {
