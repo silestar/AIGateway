@@ -45,7 +45,7 @@ COPY docs/VERSION /app/docs/VERSION
 COPY --from=frontend /app/web/dist /app/web/dist
 
 # 创建数据目录
-RUN mkdir -p /app/data /app/plugins /app/logs
+RUN mkdir -p /app/data /app/data/tmp /app/plugins /app/logs && chmod 1777 /app/data/tmp
 
 # 环境变量
 ENV AGW_DB_PATH=/app/data/agw.db \

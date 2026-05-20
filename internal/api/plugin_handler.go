@@ -98,8 +98,18 @@ func (h *PluginHandler) Upload(c *gin.Context) {
 		return
 	}
 
+	// 使用配置的临时目录（非 root 容器不能用 /tmp）
+	tmpDir := h.cfg.Plugin.TmpDir
+	if tmpDir == "" {
+		tmpDir = os.TempDir()
+	}
+	if err := os.MkdirAll(tmpDir, 0755); err != nil {
+		c.JSON(http.StatusInternalServerError, errorResponse("temp_failed", err.Error()))
+		return
+	}
+
 	// 保存到随机临时文件
-	tmpFile, err := os.CreateTemp("", "plugin_upload_*.zip")
+	tmpFile, err := os.CreateTemp(tmpDir, "plugin_upload_*.zip")
 	if err != nil {
 		c.JSON(http.StatusInternalServerError, errorResponse("temp_failed", err.Error()))
 		return
@@ -394,8 +404,16 @@ func (h *PluginHandler) RegistryInstall(c *gin.Context) {
 		return
 	}
 
-	// 2. 保存到临时文件
-	tmpFile, err := os.CreateTemp("", "registry_plugin_*.zip")
+	// 2. 保存到临时文件（使用配置的临时目录）
+	tmpDir := h.cfg.Plugin.TmpDir
+	if tmpDir == "" {
+		tmpDir = os.TempDir()
+	}
+	if err := os.MkdirAll(tmpDir, 0755); err != nil {
+		c.JSON(http.StatusInternalServerError, errorResponse("temp_failed", err.Error()))
+		return
+	}
+	tmpFile, err := os.CreateTemp(tmpDir, "registry_plugin_*.zip")
 	if err != nil {
 		c.JSON(http.StatusInternalServerError, errorResponse("temp_failed", err.Error()))
 		return

@@ -92,6 +92,7 @@ func autoMigrate(db *gorm.DB) error {
 		&stats.ChannelDailyStats{},
 		&plugin.Plugin{},
 		&plugin.PluginPermission{},
+		&plugin.ChannelPluginSetting{},
 	)
 }
 

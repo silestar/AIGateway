@@ -330,6 +330,7 @@
     "addChannelConfig": "添加渠道配置",
     "channelIdRequired": "请输入渠道 ID",
     "channelConfigExists": "该渠道已存在配置",
+    "enablePlugin": "启用插件",
     "deleteChannelConfigConfirm": "确定删除该渠道级配置？",
     "registryTitle": "插件注册中心",
     "registryEmpty": "注册中心暂无可用插件",

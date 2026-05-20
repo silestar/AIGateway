@@ -332,6 +332,7 @@
     "addChannelConfig": "Add Channel Config",
     "channelIdRequired": "Please enter channel ID",
     "channelConfigExists": "Config already exists for this channel",
+    "enablePlugin": "Enable Plugin",
     "deleteChannelConfigConfirm": "Delete this channel-level config?",
     "registryTitle": "Plugin Registry",
     "registryEmpty": "No plugins available in the registry",

@@ -152,6 +152,8 @@ func (e *Engine) Forward(ctx context.Context, ch *channel.Channel, acc *account.
 	if err != nil {
 		return nil, fmt.Errorf("create upstream request: %w", err)
 	}
+	// 注入渠道 ID 到 context，供 DialTLSContext 等传输层逻辑使用
+	upstreamReq = upstreamReq.WithContext(context.WithValue(upstreamReq.Context(), ctxKeyChannelID, ch.ID))
 	// 预先缓存请求 body，后续插件 pre_request 会读空 originalReq.Body，需独立备份给 upstreamReq
 	if originalReq.Body != nil {
 		cachedReqBody, _ := io.ReadAll(originalReq.Body)
@@ -408,6 +410,8 @@ func (e *Engine) ForwardStream(ctx context.Context, ch *channel.Channel, acc *ac
 	if err != nil {
 		return nil, fmt.Errorf("create upstream request: %w", err)
 	}
+	// 注入渠道 ID 到 context，供 DialTLSContext 等传输层逻辑使用
+	upstreamReq = upstreamReq.WithContext(context.WithValue(upstreamReq.Context(), ctxKeyChannelID, ch.ID))
 
 	for k, vv := range originalReq.Header {
 		// 不转发 Accept-Encoding：让 Go Transport 自动管理 gzip（自动发送 + 自动解压），

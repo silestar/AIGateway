@@ -2,6 +2,31 @@
 
 ## [Unreleased]
 
+### 插件上传临时目录可配置
+- **问题**：生产容器以非 root 运行，`os.CreateTemp("", ...)` 使用系统 `/tmp` 目录，Gin 的 `SaveUploadedFile` 触发 `chmod /tmp: operation not permitted`
+- **修复**：
+  - 新增 `plugin.tmp_dir` 配置项，默认 `/app/data/tmp`（`internal/config/config.go`）
+  - `plugin_handler.go` 的 Upload 和 RegistryInstall 改为 `os.CreateTemp(tmpDir, ...)`，创建前 `MkdirAll`
+  - Dockerfile 创建 `/app/data/tmp` 目录并设 1777 权限
+  - 热加载、配置补全、写回全部覆盖新字段
+
+### ChannelPluginSetting 表缺失修复
+- **问题**：`channel_plugin_settings` 表在 model 和 AutoMigrate 中定义，但主入口 `sqlite.go` 的 `autoMigrate()` 漏注册，导致渠道配置保存报 `no such table`
+- **修复**：`internal/storage/sqlite/sqlite.go` 新增 `&plugin.ChannelPluginSetting{}`
+
+### 插件渠道配置前端可视化
+- **改造**：渠道配置卡片从纯 JSON textarea 改为 Switch 开关（启用插件）+ 折叠面板（高级 JSON 编辑）
+- **后端**：保存时自动 normalize `enabled` 字段（`Plugins.vue`）
+- **i18n**：中英文新增 `enablePlugin` 键
+
+### connection_decorator 插件未生效修复
+- **问题**：`ctxKeyChannelID` 只定义和读取，全项目没有代码把 `channelID` 注入 context，导致 `DialTLSContext` 中 `channelID` 永远为 0，`GetConnectionDecoratorAddr(0)` 直接返回空，代理从未触发
+- **修复**：`Forward()` 和 `ForwardStream()` 在创建 `upstreamReq` 后注入 `channelID`（`internal/proxy/engine.go`）
+
+### 插件静态编译
+- **问题**：agp-proxy 插件以 glibc 动态编译，Alpine（musl）容器缺少 `/lib/ld-linux-aarch64.so.1`，报 `not found`
+- **修复**：编译参数加 `CGO_ENABLED=0`，生成纯静态二进制
+
 ### 仪表盘优化
 - **平均延迟友好格式化**：后端新增 `latency_display` 字段（自动换算 s/m），前端 stat-card 直接显示友好格式
 - **请求趋势切换**：按钮组改为 [当天, 7天]；当天按小时粒度展示（hourly_trend），7天按天粒度展示（daily_trend）

@@ -94,11 +94,12 @@ type ProxyConfig struct {
 }
 
 type PluginConfig struct {
-	PluginRegistryURL   string `mapstructure:"plugin_registry_url"`    // 插件注册中心 API 地址，为空时不启用
-	UseRegistryAuth     bool   `mapstructure:"use_registry_auth"`      // 注册中心是否需要认证
-	PluginDir           string `mapstructure:"plugin_dir"`              // 本地插件存储目录
-	SidecarTimeout      int    `mapstructure:"sidecar_timeout"`         // Sidecar 钩子调用超时（秒）
-	AutoGrantPermissions bool  `mapstructure:"auto_grant_permissions"` // 自动授予所有插件权限（开发/自用场景）
+	PluginRegistryURL    string `mapstructure:"plugin_registry_url"`     // 插件注册中心 API 地址，为空时不启用
+	UseRegistryAuth      bool   `mapstructure:"use_registry_auth"`       // 注册中心是否需要认证
+	PluginDir            string `mapstructure:"plugin_dir"`              // 本地插件存储目录
+	TmpDir               string `mapstructure:"tmp_dir"`                 // 插件上传临时目录（非 root 容器不能用 /tmp）
+	SidecarTimeout       int    `mapstructure:"sidecar_timeout"`         // Sidecar 钩子调用超时（秒）
+	AutoGrantPermissions bool   `mapstructure:"auto_grant_permissions"`  // 自动授予所有插件权限（开发/自用场景）
 }
 
 // Load 加载配置：config.yaml → .env → 环境变量，后者覆盖前者
@@ -203,6 +204,7 @@ func (c *Config) GetHotReloadableConfig() map[string]interface{} {
 			"plugin_registry_url":    c.Plugin.PluginRegistryURL,
 			"use_registry_auth":      c.Plugin.UseRegistryAuth,
 			"plugin_dir":             c.Plugin.PluginDir,
+			"tmp_dir":                c.Plugin.TmpDir,
 			"sidecar_timeout":        c.Plugin.SidecarTimeout,
 			"auto_grant_permissions": c.Plugin.AutoGrantPermissions,
 		},
@@ -342,6 +344,9 @@ func (c *Config) UpdateHotReloadableConfig(updates map[string]interface{}) error
 			if v, ok := pl["plugin_dir"].(string); ok {
 				c.Plugin.PluginDir = v
 			}
+			if v, ok := pl["tmp_dir"].(string); ok {
+				c.Plugin.TmpDir = v
+			}
 			if v, ok := toInt(pl["sidecar_timeout"]); ok {
 				c.Plugin.SidecarTimeout = v
 			}
@@ -405,6 +410,7 @@ func (c *Config) writeConfigFile() error {
 	v.Set("plugin.plugin_registry_url", c.Plugin.PluginRegistryURL)
 	v.Set("plugin.use_registry_auth", c.Plugin.UseRegistryAuth)
 	v.Set("plugin.plugin_dir", c.Plugin.PluginDir)
+	v.Set("plugin.tmp_dir", c.Plugin.TmpDir)
 	v.Set("plugin.sidecar_timeout", c.Plugin.SidecarTimeout)
 	v.Set("plugin.auto_grant_permissions", c.Plugin.AutoGrantPermissions)
 
@@ -533,6 +539,7 @@ func setDefaults(v *viper.Viper) {
 	v.SetDefault("plugin.plugin_registry_url", "")
 	v.SetDefault("plugin.use_registry_auth", false)
 	v.SetDefault("plugin.plugin_dir", "./plugins")
+	v.SetDefault("plugin.tmp_dir", "/app/data/tmp")
 	v.SetDefault("plugin.sidecar_timeout", 5)
 	v.SetDefault("plugin.auto_grant_permissions", false)
 }
@@ -580,6 +587,7 @@ var ensureConfigKeys = []struct {
 	{"plugin.plugin_registry_url", "插件注册中心 URL"},
 	{"plugin.use_registry_auth", "注册中心是否需要认证"},
 	{"plugin.plugin_dir", "本地插件存储目录"},
+	{"plugin.tmp_dir", "插件上传临时目录（非 root 容器请设置为可写目录）"},
 	{"plugin.sidecar_timeout", "Sidecar 钩子调用超时（秒）"},
 	{"plugin.auto_grant_permissions", "自动授予所有插件权限（开发/自用场景）"},
 }

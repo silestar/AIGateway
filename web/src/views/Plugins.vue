@@ -184,7 +184,17 @@
             <template #header>
               {{ t('plugins.channelId') }}: {{ cc.channel_id }}
             </template>
-            <n-input v-model:value="cc.config" type="textarea" :rows="3" font="monospace" placeholder="JSON" />
+            <n-space vertical>
+              <n-space align="center">
+                <span style="font-size:13px">{{ t('plugins.enablePlugin') }}：</span>
+                <n-switch :value="channelEnabled(cc)" @update:value="(val: boolean) => setChannelEnabled(cc, val)" />
+              </n-space>
+              <n-collapse>
+                <n-collapse-item :title="t('plugins.advancedMode')" style="font-size:12px">
+                  <n-input v-model:value="cc.config" type="textarea" :rows="4" font="monospace" placeholder="JSON" />
+                </n-collapse-item>
+              </n-collapse>
+            </n-space>
             <template #action>
               <n-space justify="end">
                 <n-button size="small" type="primary" @click="saveChannelConfig(cc)">{{ t('common.save') }}</n-button>
@@ -599,7 +609,12 @@ async function fetchChannelConfigs(pluginId: number) {
 
 async function saveChannelConfig(cc: ChannelPluginConfig) {
   try {
-    JSON.parse(cc.config) // validate
+    let cfg: any
+    try { cfg = JSON.parse(cc.config) } catch { cfg = {} }
+    // normalize: 同步 enabled 字段
+    cfg.enabled = channelConfigEnabled.value[cc.channel_id] ?? false
+    cc.config = JSON.stringify(cfg)
+    JSON.parse(cc.config) // final validation
     await pluginApi.setChannelConfig(cc.plugin_id, cc.channel_id, cc.config)
     message.success(t('common.saveSuccess'))
     await fetchChannelConfigs(cc.plugin_id)
@@ -609,6 +624,32 @@ async function saveChannelConfig(cc: ChannelPluginConfig) {
     } else {
       message.error(e?.response?.data?.error?.message || 'Error')
     }
+  }
+}
+
+// 渠道开关状态（channel_id → boolean）
+const channelConfigEnabled = ref<Record<number, boolean>>({})
+
+function channelEnabled(cc: ChannelPluginConfig): boolean {
+  if (cc.channel_id in channelConfigEnabled.value) {
+    return channelConfigEnabled.value[cc.channel_id]
+  }
+  try {
+    const cfg = JSON.parse(cc.config)
+    return cfg.enabled === true
+  } catch {
+    return false
+  }
+}
+
+function setChannelEnabled(cc: ChannelPluginConfig, val: boolean) {
+  channelConfigEnabled.value[cc.channel_id] = val
+  try {
+    const cfg = JSON.parse(cc.config)
+    cfg.enabled = val
+    cc.config = JSON.stringify(cfg)
+  } catch {
+    cc.config = JSON.stringify({ enabled: val })
   }
 }
 
