@@ -80,7 +80,9 @@ func main() {
 	keysSvc.SetCache(cache)
 	keysSvc.SetCrypto(cryptoService)
 	channelSvc := channel.NewService(db)
-	pluginMgr := plugin.NewManager(db, logger, cfg.Plugin.PluginDir, cfg.Plugin.SidecarTimeout, cfg.Plugin.AutoGrantPermissions)
+	pluginMgr := plugin.NewManager(db, logger, cfg.Plugin.PluginDir, cfg.Plugin.SidecarTimeout, cfg.Plugin.AutoGrantPermissions, cfg.Log.Dir)
+	// 确保关键路径权限安全（UID 隔离的前置条件）
+	pluginMgr.EnsureSecurePermissions()
 	accountMgr := account.NewManager(db, cache, cryptoService, channelSvc, cfg.AccountManager, logger)
 	groupRouter := group.NewRouter(db, keysSvc, accountMgr, logger, cache)
 	proxyEngine := proxy.NewEngine(cfg.Proxy, accountMgr, pluginMgr, logger)
@@ -224,7 +226,7 @@ func main() {
 	agwapi.NewPluginHandler(pluginMgr, cfg).RegisterRoutes(protected)
 	agwapi.NewModelHandler(catalogSvc).RegisterRoutes(protected)
 	agwapi.NewSystemHandler(cfg).RegisterRoutes(protected)
-	agwapi.NewSystemLogHandler(cfg).RegisterRoutes(protected)
+	agwapi.NewSystemLogHandler(cfg, pluginMgr).RegisterRoutes(protected)
 
 	// 10. 静态文件服务（前端 SPA）
 	router.Static("/assets", "./web/dist/assets")

@@ -3,6 +3,14 @@
     <!-- 顶部筛选区 -->
     <div class="filter-bar glass-card">
       <n-space :size="12" align="center" wrap>
+        <!-- 来源选择 -->
+        <n-select
+          v-model:value="selectedSource"
+          :options="sourceOptions"
+          :placeholder="t('systemLogs.selectSource')"
+          style="width: 180px"
+          @update:value="onSourceChange"
+        />
         <!-- 日期选择 -->
         <n-select
           v-model:value="selectedDate"
@@ -250,12 +258,14 @@ import {
   useMessage,
   type DataTableColumns,
 } from 'naive-ui'
-import { systemLogApi, type SystemLogEntry } from '../api/system'
+import { systemLogApi, type SystemLogEntry, type PluginLogSource } from '../api/system'
 
 const { t } = useI18n()
 const message = useMessage()
 
 // === 筛选状态 ===
+const selectedSource = ref('system')
+const pluginSources = ref<PluginLogSource[]>([])
 const selectedDate = ref('')
 const selectedLevels = ref<string[]>([])
 const keyword = ref('')
@@ -280,10 +290,20 @@ const showDetail = ref(false)
 const selectedLog = ref<SystemLogEntry | null>(null)
 const detailJson = computed(() => selectedLog.value ? JSON.stringify(selectedLog.value, null, 2) : '')
 
+// === 来源选项 ===
+const sourceOptions = computed(() => {
+  const opts = [{ label: t('systemLogs.sourceSystem'), value: 'system' }]
+  for (const p of pluginSources.value) {
+    opts.push({ label: p.name, value: p.name })
+  }
+  return opts
+})
+
 // === 列选择 ===
 const allColumns = computed(() => [
   { key: 'time', label: t('systemLogs.colTime') },
   { key: 'level', label: t('systemLogs.colLevel') },
+  { key: 'source', label: t('systemLogs.colSource') },
   { key: 'caller', label: t('systemLogs.colModule') },
   { key: 'msg', label: t('systemLogs.colMessage') },
   { key: 'trace_id', label: 'Trace ID' },
@@ -497,6 +517,23 @@ const tableColumns = computed<DataTableColumns<SystemLogEntry>>(() => {
       },
     })
   }
+  if (visibleColumns.value.includes('source')) {
+    cols.push({
+      title: t('systemLogs.colSource'),
+      key: 'source',
+      width: 120,
+      render: (row) => {
+        const src = row.source || 'system'
+        return h('span', {
+          style: {
+            color: '#00d2ff',
+            fontWeight: '500',
+            fontSize: '12px',
+          },
+        }, src)
+      },
+    })
+  }
   if (visibleColumns.value.includes('caller')) {
     cols.push({
       title: t('systemLogs.colModule'),
@@ -571,6 +608,9 @@ async function fetchLogs(since?: string) {
       page: currentPage.value,
       page_size: pageSize.value,
     }
+    if (selectedSource.value && selectedSource.value !== 'system') {
+      params.source = selectedSource.value
+    }
     if (selectedLevels.value.length > 0) params.level = selectedLevels.value.join(',')
     if (keyword.value) params.keyword = keyword.value
     if (traceId.value) params.trace_id = traceId.value
@@ -605,7 +645,8 @@ async function fetchLogs(since?: string) {
 // === 加载日期列表 ===
 async function fetchDates() {
   try {
-    const res = await systemLogApi.dates()
+    const sourceParam = selectedSource.value !== 'system' ? selectedSource.value : undefined
+    const res = await systemLogApi.dates(sourceParam)
     const data = (res.data as { data: string[] }).data || []
     dateOptions.value = data.map(d => ({ label: d, value: d }))
     // 默认选中今天
@@ -636,6 +677,18 @@ function onDateChange() {
     stopLiveMode()
   }
   fetchLogs()
+}
+
+function onSourceChange() {
+  selectedDate.value = ''
+  currentPage.value = 1
+  if (liveMode.value) {
+    liveMode.value = false
+    stopLiveMode()
+  }
+  logEntries.value = []
+  total.value = 0
+  fetchDates()
 }
 
 function resetFilters() {
@@ -697,12 +750,14 @@ async function exportLogs() {
   }
   exporting.value = true
   try {
-    const res = await systemLogApi.download(selectedDate.value)
+    const sourceParam = selectedSource.value !== 'system' ? selectedSource.value : undefined
+    const res = await systemLogApi.download(selectedDate.value, sourceParam)
     const blob = new Blob([res.data as any], { type: 'application/octet-stream' })
     const url = URL.createObjectURL(blob)
     const a = document.createElement('a')
     a.href = url
-    a.download = `${selectedDate.value}.log`
+    const suffix = sourceParam ? `-${sourceParam}` : ''
+    a.download = `${selectedDate.value}${suffix}.log`
     a.click()
     URL.revokeObjectURL(url)
   } catch (e: any) {
@@ -712,8 +767,20 @@ async function exportLogs() {
   }
 }
 
+// === 加载插件日志源列表 ===
+async function fetchPluginSources() {
+  try {
+    const res = await systemLogApi.listPlugins()
+    const data = (res.data as { data: PluginLogSource[] }).data || []
+    pluginSources.value = data
+  } catch {
+    // ignore - 系统日志页面不应因插件加载失败而崩溃
+  }
+}
+
 // === 生命周期 ===
 onMounted(() => {
+  fetchPluginSources()
   fetchDates()
 })
 

@@ -1,6 +1,21 @@
 # Changelog
 
-## [Unreleased]
+## [0.2.4] - 2026-05-21
+
+### 插件日志统一管理与安全隔离
+- **核心改造**：插件 stdout/stderr 重定向到 `logs/plugins/<name>/YYYY-MM-DD.log`，由 AGW 主进程(root)打开日志文件，插件子进程通过 fd 继承写入
+- **UID 隔离**：Docker 创建 `agw-plugin` 用户(UID/GID 1001)，`SysProcAttr.Credential` 让插件进程以受限用户运行
+  - 插件无法读写 `/app/data/`（数据库）、`/app/config.yaml`（密钥）、`/app/config/.env`（API Key）
+  - 插件只能写自己的安装目录（chown 给了插件用户）和通过 stdout 写日志
+- **安全加固**：`EnsureSecurePermissions()` 启动时设置 `/app/data/` 0700 权限
+- **卸载保留日志**：`DELETE /api/plugins/:id?keep_logs=true` 支持卸载后保留日志目录
+- **日志状态 API**：`GET /api/plugins/:id/logs-status` 返回日志目录大小、文件数等元数据
+- **插件日志查看**：系统日志页面新增「日志来源」下拉框，支持切换查看系统日志或指定插件日志
+- **新增 API**：`GET /api/system/logs/plugins` 返回已安装插件的日志源列表
+- **日志格式**：插件日志采用 `YYYY/MM/DD HH:MM:SS [LEVEL] message` 格式，后端 `parsePluginLogLine` 正则解析，无法解析的行 fallback 为 INFO 级别
+- **前端改造**：SystemLogs.vue 来源筛选 + source 列；Plugins.vue 卸载弹窗新增「保留日志」checkbox
+- **健康检查**：插件健康检查 HTTP server 的 `ErrorLog` 设为 `io.Discard`，防止输出混入日志
+- **文件句柄管理**：Manager 新增 `logFileHandles` + `logFileMu`，Stop() 时正确关闭日志文件句柄
 
 ### DialTLSContext 插件路径未做 TLS 握手修复
 - **问题**：connection_decorator 插件（如 agp-proxy）建立 CONNECT 隧道后返回 raw TCP conn，`engine.go` 直接返回给 `http.Transport`，Go 在裸连接上发明文 HTTP POST 到 HTTPS 端口 → 上游 Nginx 返回 `400 The plain HTTP request was sent to HTTPS port`

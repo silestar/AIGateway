@@ -21,6 +21,7 @@ export interface SystemLogQuery {
   page?: number
   page_size?: number
   since?: string // RFC3339 时间戳
+  source?: string // "" / "system" / 插件名
 }
 
 export interface SystemLogEntry {
@@ -29,17 +30,27 @@ export interface SystemLogEntry {
   msg?: string
   caller?: string
   trace_id?: string
+  source?: string // 插件日志来源
   [key: string]: unknown
+}
+
+export interface PluginLogSource {
+  name: string
+  has_logs: boolean
+  log_dir: string
 }
 
 export const systemLogApi = {
   list(params: SystemLogQuery) {
     return api.get('/system/logs', { params })
   },
-  dates() {
-    return api.get('/system/logs/dates')
+  dates(source?: string) {
+    return api.get('/system/logs/dates', { params: source ? { source } : {} })
   },
-  download(date: string) {
-    return api.get('/system/logs/download', { params: { date }, responseType: 'blob' })
+  download(date: string, source?: string) {
+    return api.get('/system/logs/download', { params: { date, ...(source ? { source } : {}) }, responseType: 'blob' })
+  },
+  listPlugins() {
+    return api.get('/system/logs/plugins')
   },
 }

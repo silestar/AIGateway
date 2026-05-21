@@ -37,6 +37,15 @@ export interface RegistryEntry {
   min_agw_version?: string
 }
 
+export interface LogsStatusResult {
+  log_dir: string
+  total_size: number
+  file_count: number
+  latest_file: string
+  latest_mtime: string
+  keep_on_uninstall: boolean
+}
+
 export const pluginApi = {
   list() {
     return api.get('/plugins')
@@ -58,8 +67,12 @@ export const pluginApi = {
   updateConfig(id: number, config: string) {
     return api.put(`/plugins/${id}/config`, { config })
   },
-  delete(id: number) {
-    return api.delete(`/plugins/${id}`)
+  delete(id: number, keepLogs?: boolean) {
+    const params = keepLogs ? { keep_logs: true } : {}
+    return api.delete(`/plugins/${id}`, { params })
+  },
+  logsStatus(id: number) {
+    return api.get(`/plugins/${id}/logs-status`)
   },
   // 渠道级插件配置
   listChannelConfigs(pluginId: number) {

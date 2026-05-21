@@ -61,8 +61,10 @@ func (h *PluginHandler) RegisterRoutes(rg *gin.RouterGroup) {
 	p.POST("/install", h.Install)      // 根据 upload_id 执行安装
 	p.GET("/:id", h.GetById)
 	p.PUT("/:id/status", h.UpdateStatus)
-	p.DELETE("/:id", h.Delete)
+	p.DELETE("/:id", h.Delete)         // 支持 keep_logs query 参数
 	p.PUT("/:id/config", h.UpdateConfig)
+	// 日志状态
+	p.GET("/:id/logs-status", h.LogsStatus)
 	// 渠道级插件配置
 	p.GET("/:id/channel-configs", h.ListChannelConfigs)
 	p.PUT("/:id/channel-configs/:channelId", h.SetChannelConfig)
@@ -241,7 +243,7 @@ func (h *PluginHandler) UpdateConfig(c *gin.Context) {
 	c.JSON(http.StatusOK, gin.H{"data": gin.H{"id": id}})
 }
 
-// Delete 卸载插件
+// Delete 卸载插件（支持 keep_logs query 参数）
 func (h *PluginHandler) Delete(c *gin.Context) {
 	id, err := parseID(c)
 	if err != nil {
@@ -249,12 +251,32 @@ func (h *PluginHandler) Delete(c *gin.Context) {
 		return
 	}
 
-	if err := h.pluginMgr.Uninstall(c.Request.Context(), id); err != nil {
+	// 读取 keep_logs query 参数
+	keepLogs := c.Query("keep_logs") == "true"
+
+	if err := h.pluginMgr.Uninstall(c.Request.Context(), id, keepLogs); err != nil {
 		c.JSON(http.StatusInternalServerError, errorResponse("uninstall_failed", err.Error()))
 		return
 	}
 
 	c.JSON(http.StatusOK, gin.H{"data": gin.H{"id": id}})
+}
+
+// LogsStatus 获取插件日志状态
+func (h *PluginHandler) LogsStatus(c *gin.Context) {
+	id, err := parseID(c)
+	if err != nil {
+		c.JSON(http.StatusBadRequest, errorResponse("invalid_id", "invalid plugin id"))
+		return
+	}
+
+	result, err := h.pluginMgr.LogsStatus(c.Request.Context(), id)
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, errorResponse("logs_status_failed", err.Error()))
+		return
+	}
+
+	c.JSON(http.StatusOK, gin.H{"data": result})
 }
 
 // ListChannelConfigs 获取某插件的所有渠道级配置

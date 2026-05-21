@@ -10,9 +10,12 @@ import (
 	"net/http"
 	"os"
 	"os/exec"
+	"os/user"
 	"path/filepath"
 	"runtime"
+	"strconv"
 	"sync"
+	"syscall"
 	"time"
 
 	adapterregistry "github.com/silestar/AIGateway/pkg/adapter/registry"
@@ -25,14 +28,19 @@ type Manager struct {
 	db              *gorm.DB
 	logger          *zap.Logger
 	pluginsDir      string
+	logDir          string   // 日志根目录（从 config.Log.Dir 读取）
 	client          *http.Client
 	autoGrantPerms  bool                    // 自动授权所有权限
 	permCache       map[string][]string     // plugin_name → 已授予权限列表
 	permCacheMu     sync.RWMutex
+	pluginUID       uint32   // agw-plugin 用户的 UID（启动时从系统解析）
+	pluginGID       uint32   // agw-plugin 用户的 GID
+	logFileHandles  map[uint]*os.File       // pluginID → 日志文件句柄（Stop 时关闭）
+	logFileMu       sync.Mutex              // 保护 logFileHandles
 }
 
 // NewManager 创建插件管理器
-func NewManager(db *gorm.DB, logger *zap.Logger, pluginsDir string, sidecarTimeout int, autoGrant bool) *Manager {
+func NewManager(db *gorm.DB, logger *zap.Logger, pluginsDir string, sidecarTimeout int, autoGrant bool, logDir string) *Manager {
 	if pluginsDir == "" {
 		pluginsDir = "plugins"
 	}
@@ -40,18 +48,47 @@ func NewManager(db *gorm.DB, logger *zap.Logger, pluginsDir string, sidecarTimeo
 	if absDir, err := filepath.Abs(pluginsDir); err == nil {
 		pluginsDir = absDir
 	}
+	if logDir == "" {
+		logDir = "logs"
+	}
+	if absLog, err := filepath.Abs(logDir); err == nil {
+		logDir = absLog
+	}
 	timeout := 5 * time.Second
 	if sidecarTimeout > 0 {
 		timeout = time.Duration(sidecarTimeout) * time.Second
 	}
-	return &Manager{
+
+	m := &Manager{
 		db:             db,
 		logger:         logger,
 		pluginsDir:     pluginsDir,
+		logDir:         logDir,
 		client:         &http.Client{Timeout: timeout},
 		autoGrantPerms: autoGrant,
 		permCache:      make(map[string][]string),
+		logFileHandles: make(map[uint]*os.File),
+		pluginUID:      0, // 默认退化模式：以当前用户运行（Lookup 成功后更新为 agw-plugin UID）
+		pluginGID:      0,
 	}
+
+	// 尝试从系统解析 agw-plugin 用户的 UID/GID
+	if u, err := user.Lookup("agw-plugin"); err == nil {
+		if uid, err := strconv.ParseUint(u.Uid, 10, 32); err == nil {
+			m.pluginUID = uint32(uid)
+		}
+		if gid, err := strconv.ParseUint(u.Gid, 10, 32); err == nil {
+			m.pluginGID = uint32(gid)
+		}
+	} else {
+		logger.Warn("agw-plugin user not found, plugin UID isolation disabled",
+			zap.Error(err))
+	}
+
+	// 确保插件日志根目录存在
+	os.MkdirAll(filepath.Join(m.logDir, "plugins"), 0755)
+
+	return m
 }
 
 // AutoMigrate 自动迁移
@@ -274,18 +311,54 @@ func (m *Manager) Start(ctx context.Context, pluginID uint) error {
 		)
 	}
 
-	// 启动子进程（使用 Background context，避免请求结束后 context cancel 杀死子进程）
+	// 1. 确保插件安装目录权限正确
+	m.preparePluginDir(plugin.Name)
+
+	// 2. 确保日志目录存在
+	logDir := filepath.Join(m.logDir, "plugins", plugin.Name)
+	os.MkdirAll(logDir, 0755)
+
+	// 3. 打开当天日志文件（append 模式）
+	logFile := filepath.Join(logDir, time.Now().Format("2006-01-02")+".log")
+	f, err := os.OpenFile(logFile, os.O_CREATE|os.O_WRONLY|os.O_APPEND, 0644)
+	if err != nil {
+		return fmt.Errorf("open plugin log file: %w", err)
+	}
+
+	// 4. 创建子进程命令（使用 Background context，避免请求结束后 context cancel 杀死子进程）
 	cmd := exec.CommandContext(context.Background(), plugin.Binary)
+	cmd.Dir = filepath.Dir(plugin.Binary)
+
+	// 5. stdout/stderr 重定向到日志文件
+	cmd.Stdout = f
+	cmd.Stderr = f
+
+	// 6. 环境变量
 	cmd.Env = append(os.Environ(),
 		"PLUGIN_AUTH_TOKEN="+plugin.AuthToken,
 		fmt.Sprintf("PLUGIN_PORT=%d", plugin.Port),
 		"PLUGIN_CONFIG="+plugin.Config,
+		"PLUGIN_LOG_FILE="+logFile,          // 日志路径（只读告知）
+		"PLUGIN_LOG_LEVEL=info",              // 日志级别
+		"PLUGIN_HOME="+filepath.Dir(plugin.Binary), // 安装目录边界
 	)
-	cmd.Dir = filepath.Dir(plugin.Binary)
+
+	// 7. UID 隔离：切换到 agw-plugin 用户（仅 Linux + UID 有效）
+	if m.pluginUID != 0 {
+		cmd.SysProcAttr = m.pluginSysProcAttr()
+		// 确保插件安装目录权限正确（每次 Start 时重新 chown）
+		os.Chown(filepath.Dir(plugin.Binary), int(m.pluginUID), int(m.pluginGID))
+	}
 
 	if err := cmd.Start(); err != nil {
+		f.Close()
 		return fmt.Errorf("start plugin process: %w", err)
 	}
+
+	// 8. 保存日志文件句柄
+	m.logFileMu.Lock()
+	m.logFileHandles[pluginID] = f
+	m.logFileMu.Unlock()
 
 	pid := cmd.Process.Pid
 
@@ -391,6 +464,14 @@ func (m *Manager) Stop(ctx context.Context, pluginID uint) error {
 	// 等待 3 秒
 	time.Sleep(3 * time.Second)
 
+	// 关闭日志文件句柄
+	m.logFileMu.Lock()
+	if f, ok := m.logFileHandles[pluginID]; ok {
+		f.Close()
+		delete(m.logFileHandles, pluginID)
+	}
+	m.logFileMu.Unlock()
+
 	// 如果进程还在，强制 kill
 	if plugin.Pid > 0 {
 		if proc, err := os.FindProcess(plugin.Pid); err == nil {
@@ -407,8 +488,53 @@ func (m *Manager) Stop(ctx context.Context, pluginID uint) error {
 	return nil
 }
 
-// Uninstall 卸载插件
-func (m *Manager) Uninstall(ctx context.Context, pluginID uint) error {
+// pluginSysProcAttr 返回插件子进程的 SysProcAttr，设置 UID/GID 隔离
+func (m *Manager) pluginSysProcAttr() *syscall.SysProcAttr {
+	return &syscall.SysProcAttr{
+		Credential: &syscall.Credential{
+			Uid: m.pluginUID,
+			Gid: m.pluginGID,
+		},
+	}
+}
+
+// preparePluginDir 确保插件安装目录存在且权限正确
+func (m *Manager) preparePluginDir(pluginName string) error {
+	installDir := filepath.Join(m.pluginsDir, pluginName)
+	if err := os.MkdirAll(installDir, 0755); err != nil {
+		return err
+	}
+	// 插件目录归 agw-plugin 用户所有，AGW（root）仍可管理
+	if m.pluginUID != 0 {
+		return os.Chown(installDir, int(m.pluginUID), int(m.pluginGID))
+	}
+	return nil
+}
+
+// EnsureSecurePermissions 确保 AGW 关键路径权限正确（仅 Linux，需 root）
+func (m *Manager) EnsureSecurePermissions() error {
+	// 这些路径必须由 root 拥有，插件用户不可读写
+	secured := []struct {
+		path string
+		mode os.FileMode
+	}{
+		{filepath.Join(m.pluginsDir, "..", "data"), 0700},
+		{filepath.Join(m.pluginsDir, "..", "config.yaml"), 0400},
+		{filepath.Join(m.pluginsDir, "..", "config", ".env"), 0400},
+	}
+	for _, s := range secured {
+		if err := os.Chmod(s.path, s.mode); err != nil {
+			// 文件可能不存在（如 .env 非必须），只 warn 不 fatal
+			m.logger.Warn("secure permission failed", zap.String("path", s.path), zap.Error(err))
+		}
+		// Chown 为 root:root（与当前进程 UID 相同，在 root 进程中即 0:0）
+		os.Chown(s.path, 0, 0)
+	}
+	return nil
+}
+
+// Uninstall 卸载插件（keepLogs=true 时保留日志目录）
+func (m *Manager) Uninstall(ctx context.Context, pluginID uint, keepLogs bool) error {
 	// 先停止
 	m.Stop(ctx, pluginID)
 
@@ -417,8 +543,15 @@ func (m *Manager) Uninstall(ctx context.Context, pluginID uint) error {
 		return fmt.Errorf("find plugin: %w", err)
 	}
 
-	// 删除目录
+	// 删除安装目录
 	os.RemoveAll(filepath.Dir(plugin.Binary))
+
+	// 日志处理
+	pluginLogDir := filepath.Join(m.logDir, "plugins", plugin.Name)
+	if !keepLogs {
+		os.RemoveAll(pluginLogDir)
+	}
+	// keepLogs=true → 保留日志目录
 
 	// 标记权限记录为 uninstalled（保留用于审计）
 	m.db.WithContext(ctx).
@@ -434,8 +567,27 @@ func (m *Manager) Uninstall(ctx context.Context, pluginID uint) error {
 	// 删除记录
 	m.db.WithContext(ctx).Delete(&plugin)
 
-	m.logger.Info("plugin uninstalled", zap.String("name", plugin.Name))
+	m.logger.Info("plugin uninstalled", zap.String("name", plugin.Name), zap.Bool("keep_logs", keepLogs))
 	return nil
+}
+
+// LogsStatus 返回插件日志状态
+func (m *Manager) LogsStatus(ctx context.Context, pluginID uint) (*LogsStatusResult, error) {
+	var plugin Plugin
+	if err := m.db.WithContext(ctx).First(&plugin, pluginID).Error; err != nil {
+		return nil, fmt.Errorf("find plugin: %w", err)
+	}
+
+	pluginLogDir := filepath.Join(m.logDir, "plugins", plugin.Name)
+	hasLogs := false
+	if entries, err := os.ReadDir(pluginLogDir); err == nil && len(entries) > 0 {
+		hasLogs = true
+	}
+
+	return &LogsStatusResult{
+		HasLogs: hasLogs,
+		LogDir:  pluginLogDir,
+	}, nil
 }
 
 // TriggerHook 触发钩子

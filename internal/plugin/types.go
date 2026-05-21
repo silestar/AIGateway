@@ -182,16 +182,24 @@ type PermissionDecl struct {
 	Required    bool   `json:"required"`
 }
 
+// LogsStatusResult 插件日志状态返回
+type LogsStatusResult struct {
+	HasLogs bool   `json:"has_logs"`
+	LogDir  string `json:"log_dir"`
+}
+
 // PluginManager 插件管理器接口
 type PluginManager interface {
 	// 安装插件（解压 ZIP，读取 manifest，入库）
 	Install(ctx context.Context, zipPath string) (*Plugin, error)
-	// 启动插件（fork 子进程，注入环境变量）
+	// 启动插件（fork 子进程，注入环境变量，stdout 重定向到日志文件）
 	Start(ctx context.Context, pluginID uint) error
 	// 停止插件（优雅关闭进程）
 	Stop(ctx context.Context, pluginID uint) error
-	// 卸载插件（停止 + 删除目录 + 删除记录）
-	Uninstall(ctx context.Context, pluginID uint) error
+	// 卸载插件（停止 + 删除目录 + 删除记录，keepLogs=true 时保留日志）
+	Uninstall(ctx context.Context, pluginID uint, keepLogs bool) error
+	// 获取插件日志状态
+	LogsStatus(ctx context.Context, pluginID uint) (*LogsStatusResult, error)
 	// 触发钩子（遍历订阅该钩子的运行中插件，HTTP 调用）
 	TriggerHook(ctx context.Context, hook HookName, req *HookRequest) (*HookResponse, error)
 	// 列出所有插件
@@ -220,6 +228,8 @@ type PluginManager interface {
 	CheckRequiredPermissions(pluginName string) (missing []string, err error)
 	// 同步插件权限声明（安装/升级时调用）
 	SyncPermissions(ctx context.Context, pluginName, pluginVersion string, declarations []PermissionDecl) error
+	// 确保关键路径权限正确
+	EnsureSecurePermissions() error
 }
 
 // ContinueHook 快速构造 continue 响应

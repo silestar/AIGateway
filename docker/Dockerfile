@@ -33,6 +33,10 @@ FROM alpine:3.19
 
 RUN apk add --no-cache ca-certificates tzdata
 
+# 创建专用插件运行用户（无 sudo、无 shell、无 home、不可登录）
+RUN addgroup -g 1001 agw-plugin && \
+    adduser -D -H -s /sbin/nologin -G agw-plugin -u 1001 agw-plugin
+
 WORKDIR /app
 
 # 从构建阶段复制二进制
@@ -44,8 +48,10 @@ COPY docs/VERSION /app/docs/VERSION
 # 从前端构建阶段复制静态文件
 COPY --from=frontend /app/web/dist /app/web/dist
 
-# 创建数据目录
-RUN mkdir -p /app/data /app/data/tmp /app/plugins /app/logs && chmod 1777 /app/data/tmp
+# 创建数据目录 + 权限加固
+RUN mkdir -p /app/data /app/data/tmp /app/plugins /app/logs /app/logs/plugins && \
+    chmod 700 /app/data && \
+    chmod 1777 /app/data/tmp
 
 # 环境变量
 ENV AGW_DB_PATH=/app/data/agw.db \

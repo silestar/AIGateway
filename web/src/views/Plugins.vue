@@ -292,14 +292,14 @@
 </template>
 
 <script setup lang="ts">
-import { ref, reactive, onMounted } from 'vue'
+import { ref, reactive, onMounted, h } from 'vue'
 import { useI18n } from 'vue-i18n'
 import { useMessage, useDialog } from 'naive-ui'
 import {
   NCard, NGrid, NGridItem, NTag, NButton, NSpace, NUpload,
   NDescriptions, NDescriptionsItem, NEmpty, NModal, NInput, NIcon,
   NForm, NFormItem, NSelect, NInputNumber, NSwitch, NTabs, NTabPane,
-  NList, NListItem, NThing, NSpin,
+  NList, NListItem, NThing, NSpin, NCheckbox,
 } from 'naive-ui'
 import { CloudUploadOutline as UploadIcon, AppsOutline as StoreIcon } from '@vicons/ionicons5'
 import { pluginApi, type PluginItem, type ChannelPluginConfig, type RegistryEntry } from '../api/plugin'
@@ -507,14 +507,24 @@ async function handleStop(plugin: PluginItem) {
 }
 
 function handleUninstall(plugin: PluginItem) {
+  const keepLogsRef = ref(false)
   dialog.error({
     title: t('plugins.uninstall'),
-    content: t('plugins.uninstallConfirm'),
+    content: () => h('div', {}, [
+      h('p', { style: 'margin-bottom: 12px' }, t('plugins.uninstallConfirm')),
+      h(NCheckbox, {
+        checked: keepLogsRef.value,
+        'onUpdate:checked': (val: boolean) => { keepLogsRef.value = val },
+      }, {
+        default: () => t('plugins.keepLogsOnUninstall'),
+      }),
+      h('p', { style: 'font-size: 12px; color: var(--n-text-color-3); margin-top: 4px' }, t('plugins.keepLogsHint')),
+    ]),
     positiveText: t('plugins.uninstall'),
     negativeText: t('common.cancel'),
     onPositiveClick: async () => {
       try {
-        await pluginApi.delete(plugin.id)
+        await pluginApi.delete(plugin.id, keepLogsRef.value)
         message.success(t('plugins.uninstallSuccess'))
         await fetchPlugins()
       } catch (e: any) {

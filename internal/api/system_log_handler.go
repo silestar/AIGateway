@@ -8,6 +8,7 @@ import (
 	"net/http"
 	"os"
 	"path/filepath"
+	"regexp"
 	"sort"
 	"strconv"
 	"strings"
@@ -15,16 +16,18 @@ import (
 
 	"github.com/gin-gonic/gin"
 	"github.com/silestar/AIGateway/internal/config"
+	"github.com/silestar/AIGateway/internal/plugin"
 )
 
-// SystemLogHandler 系统日志 API（读取 zap JSON 日志文件）
+// SystemLogHandler 系统日志 API（读取 zap JSON 日志文件 + 插件纯文本日志）
 type SystemLogHandler struct {
-	cfg *config.Config
+	cfg       *config.Config
+	pluginMgr plugin.PluginManager
 }
 
 // NewSystemLogHandler 创建系统日志 Handler
-func NewSystemLogHandler(cfg *config.Config) *SystemLogHandler {
-	return &SystemLogHandler{cfg: cfg}
+func NewSystemLogHandler(cfg *config.Config, pluginMgr plugin.PluginManager) *SystemLogHandler {
+	return &SystemLogHandler{cfg: cfg, pluginMgr: pluginMgr}
 }
 
 // RegisterRoutes 注册系统日志路由
@@ -33,6 +36,7 @@ func (h *SystemLogHandler) RegisterRoutes(rg *gin.RouterGroup) {
 	s.GET("", h.List)
 	s.GET("/dates", h.Dates)
 	s.GET("/download", h.Download)
+	s.GET("/plugins", h.ListPlugins) // 插件日志源列表
 }
 
 // logDir 返回日志根目录
@@ -43,26 +47,63 @@ func (h *SystemLogHandler) logDir() string {
 	return "logs"
 }
 
-// List 读取 zap JSON 日志文件，解析并返回
-// GET /api/system/logs?date=2026-05-07&level=info,warn&keyword=xxx&trace_id=xxx&page=1&page_size=100&since=...
+// ListPlugins 返回已安装插件的日志源列表
+// GET /api/system/logs/plugins
+func (h *SystemLogHandler) ListPlugins(c *gin.Context) {
+	plugins, err := h.pluginMgr.List(c.Request.Context())
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, errorResponse("list_plugins_failed", err.Error()))
+		return
+	}
+
+	var result []map[string]interface{}
+	result = []map[string]interface{}{} // 确保空数组而非 null
+
+	for _, p := range plugins {
+		pluginLogDir := filepath.Join(h.logDir(), "plugins", p.Name)
+		hasLogs := false
+		if entries, err := os.ReadDir(pluginLogDir); err == nil && len(entries) > 0 {
+			hasLogs = true
+		}
+		result = append(result, map[string]interface{}{
+			"name":      p.Name,
+			"has_logs":  hasLogs,
+			"log_dir":   filepath.Join("logs/plugins", p.Name),
+		})
+	}
+
+	c.JSON(http.StatusOK, gin.H{"data": result})
+}
+
+// List 读取日志文件，解析并返回
+// GET /api/system/logs?date=2026-05-07&level=info,warn&keyword=xxx&trace_id=xxx&page=1&page_size=100&since=...&source=system|agp-proxy
 func (h *SystemLogHandler) List(c *gin.Context) {
-	// 解析必填参数 date
 	dateStr := c.Query("date")
 	if dateStr == "" {
 		c.JSON(http.StatusBadRequest, errorResponse("missing_date", "date 参数必填，格式 YYYY-MM-DD"))
 		return
 	}
-	// 校验日期格式
 	parsedDate, err := time.Parse("2006-01-02", dateStr)
 	if err != nil {
 		c.JSON(http.StatusBadRequest, errorResponse("invalid_date", "date 格式错误，需 YYYY-MM-DD"))
 		return
 	}
 
-	// 构建日志文件路径：logs/年份/月份/日.log
-	logFilePath := filepath.Join(h.logDir(), parsedDate.Format("2006"), parsedDate.Format("01"), parsedDate.Format("02")+".log")
+	// source 参数："" / "system" / 插件名
+	source := c.Query("source")
 
-	// 打开日志文件
+	var logFilePath string
+	var isPluginLog bool
+	if source != "" && source != "system" {
+		// 插件日志：logs/plugins/<source>/YYYY-MM-DD.log
+		logFilePath = filepath.Join(h.logDir(), "plugins", source, parsedDate.Format("2006-01-02")+".log")
+		isPluginLog = true
+	} else {
+		// 系统日志：logs/年/月/日.log
+		logFilePath = filepath.Join(h.logDir(), parsedDate.Format("2006"), parsedDate.Format("01"), parsedDate.Format("02")+".log")
+		isPluginLog = false
+	}
+
 	file, err := os.Open(logFilePath)
 	if err != nil {
 		if os.IsNotExist(err) {
@@ -80,14 +121,13 @@ func (h *SystemLogHandler) List(c *gin.Context) {
 	defer file.Close()
 
 	// 解析查询参数
-	levelFilter := c.Query("level")           // 逗号分隔，如 info,warn
-	keyword := c.Query("keyword")             // msg 字段模糊匹配
-	traceID := c.Query("trace_id")            // trace_id 精确匹配
+	levelFilter := c.Query("level")
+	keyword := c.Query("keyword")
+	traceID := c.Query("trace_id")
 	page := intQuery(c, "page", 1)
 	pageSize := intQuery(c, "page_size", 100)
-	sinceStr := c.Query("since")              // RFC3339 时间戳
+	sinceStr := c.Query("since")
 
-	// 限制 page_size 最大 500
 	if pageSize > 500 {
 		pageSize = 500
 	}
@@ -121,19 +161,27 @@ func (h *SystemLogHandler) List(c *gin.Context) {
 	// 逐行读取并筛选
 	var allLogs []map[string]interface{}
 	scanner := bufio.NewScanner(file)
-	// 增大缓冲区以支持超长行（如含 stacktrace）
 	scanner.Buffer(make([]byte, 0, 64*1024), 1024*1024)
 
 	for scanner.Scan() {
-		line := scanner.Bytes()
+		line := scanner.Text()
 		if len(line) == 0 {
 			continue
 		}
 
-		// 解析 JSON 行
 		var entry map[string]interface{}
-		if err := json.Unmarshal(line, &entry); err != nil {
-			// 非 JSON 行跳过
+
+		if isPluginLog {
+			// 插件日志：纯文本格式 YYYY/MM/DD HH:MM:SS [LEVEL] message
+			entry = parsePluginLogLine(line, source)
+		} else {
+			// 系统日志：zap JSON 格式
+			if err := json.Unmarshal([]byte(line), &entry); err != nil {
+				continue
+			}
+		}
+
+		if entry == nil {
 			continue
 		}
 
@@ -161,11 +209,10 @@ func (h *SystemLogHandler) List(c *gin.Context) {
 			}
 		}
 
-		// 按 since 时间戳筛选（只返回该时间戳之后的新日志）
+		// 按 since 时间戳筛选
 		if sinceTime != nil {
 			tsVal, _ := entry["ts"].(string)
 			if tsVal != "" {
-				// zap 输出的 ts 格式为 ISO8601（如 2026-05-07T19:39:09.086+0800）
 				logTime, err := time.Parse("2006-01-02T15:04:05.000-0700", tsVal)
 				if err == nil && !logTime.After(*sinceTime) {
 					continue
@@ -215,44 +262,63 @@ func (h *SystemLogHandler) List(c *gin.Context) {
 }
 
 // Dates 扫描日志目录，返回所有有 .log 文件的日期列表
-// GET /api/system/logs/dates
+// GET /api/system/logs/dates?source=system|agp-proxy
 func (h *SystemLogHandler) Dates(c *gin.Context) {
-	logDir := h.logDir()
-	var dates []string
-	dates = []string{} // 确保返回空数组而非 null
+	source := c.Query("source")
+	var scanDir string
+	if source != "" && source != "system" {
+		// 插件日志目录
+		scanDir = filepath.Join(h.logDir(), "plugins", source)
+	} else {
+		scanDir = h.logDir()
+	}
 
-	// 遍历 logs/年/月/ 目录下的 .log 文件
-	err := filepath.WalkDir(logDir, func(path string, d fs.DirEntry, err error) error {
+	var dates []string
+	dates = []string{}
+
+	err := filepath.WalkDir(scanDir, func(path string, d fs.DirEntry, err error) error {
 		if err != nil {
-			return nil // 忽略无法访问的目录
+			return nil
 		}
 		if d.IsDir() {
 			return nil
 		}
-		// 只处理 .log 文件
 		if !strings.HasSuffix(d.Name(), ".log") {
 			return nil
 		}
 
-		// 从路径中提取日期：logs/2026/05/07.log → 2026-05-07
-		rel, err := filepath.Rel(logDir, path)
+		// 从文件名提取日期
+		// 插件日志文件名：YYYY-MM-DD.log
+		// 系统日志路径：年/月/日.log
+		rel, err := filepath.Rel(scanDir, path)
 		if err != nil {
 			return nil
 		}
-		// rel 格式如 2026/05/07.log
-		parts := strings.Split(filepath.ToSlash(rel), "/")
-		if len(parts) >= 3 {
-			year := parts[0]
-			month := parts[1]
-			dayFile := parts[2]
-			// 先去掉 .log 后缀
-			dayFile = strings.TrimSuffix(dayFile, ".log")
-			// 再去掉可能的额外后缀（如 07-150405）
-			day := strings.SplitN(dayFile, "-", 2)[0]
-			// 校验格式
-			dateStr := fmt.Sprintf("%s-%s-%s", year, month, day)
+
+		if source != "" && source != "system" {
+			// 插件日志：文件名本身就是日期
+			dateStr := strings.TrimSuffix(d.Name(), ".log")
 			if _, err := time.Parse("2006-01-02", dateStr); err == nil {
 				dates = append(dates, dateStr)
+			}
+		} else {
+			// 系统日志：rel 格式如 2026/05/07.log 或 plugins/xxx/2026-05-21.log
+			relSlash := filepath.ToSlash(rel)
+			// 排除 plugins/ 子目录
+			if strings.HasPrefix(relSlash, "plugins/") {
+				return nil
+			}
+			parts := strings.Split(relSlash, "/")
+			if len(parts) >= 3 {
+				year := parts[0]
+				month := parts[1]
+				dayFile := parts[2]
+				dayFile = strings.TrimSuffix(dayFile, ".log")
+				day := strings.SplitN(dayFile, "-", 2)[0]
+				dateStr := fmt.Sprintf("%s-%s-%s", year, month, day)
+				if _, err := time.Parse("2006-01-02", dateStr); err == nil {
+					dates = append(dates, dateStr)
+				}
 			}
 		}
 		return nil
@@ -272,18 +338,15 @@ func (h *SystemLogHandler) Dates(c *gin.Context) {
 		}
 	}
 
-	// 降序排列（最新在前）
 	sort.Slice(uniqueDates, func(i, j int) bool {
 		return uniqueDates[i] > uniqueDates[j]
 	})
 
-	c.JSON(http.StatusOK, gin.H{
-		"data": uniqueDates,
-	})
+	c.JSON(http.StatusOK, gin.H{"data": uniqueDates})
 }
 
 // Download 返回指定日期的原始 .log 文件流
-// GET /api/system/logs/download?date=2026-05-07
+// GET /api/system/logs/download?date=2026-05-07&source=system|agp-proxy
 func (h *SystemLogHandler) Download(c *gin.Context) {
 	dateStr := c.Query("date")
 	if dateStr == "" {
@@ -291,25 +354,65 @@ func (h *SystemLogHandler) Download(c *gin.Context) {
 		return
 	}
 
-	// 校验日期格式
 	parsedDate, err := time.Parse("2006-01-02", dateStr)
 	if err != nil {
 		c.JSON(http.StatusBadRequest, errorResponse("invalid_date", "date 格式错误，需 YYYY-MM-DD"))
 		return
 	}
 
-	// 构建日志文件路径
-	logFilePath := filepath.Join(h.logDir(), parsedDate.Format("2006"), parsedDate.Format("01"), parsedDate.Format("02")+".log")
+	source := c.Query("source")
 
-	// 检查文件是否存在
+	var logFilePath string
+	if source != "" && source != "system" {
+		logFilePath = filepath.Join(h.logDir(), "plugins", source, parsedDate.Format("2006-01-02")+".log")
+	} else {
+		logFilePath = filepath.Join(h.logDir(), parsedDate.Format("2006"), parsedDate.Format("01"), parsedDate.Format("02")+".log")
+	}
+
 	if _, err := os.Stat(logFilePath); os.IsNotExist(err) {
 		c.JSON(http.StatusNotFound, errorResponse("not_found", "日志文件不存在"))
 		return
 	}
 
-	// 设置下载响应头
 	fileName := parsedDate.Format("02") + ".log"
 	c.Header("Content-Disposition", "attachment; filename="+strconv.Quote(fileName))
 	c.Header("Content-Type", "application/octet-stream")
 	c.File(logFilePath)
+}
+
+// 插件日志行正则：YYYY/MM/DD HH:MM:SS [LEVEL] message
+var pluginLogRe = regexp.MustCompile(`^(\d{4}/\d{2}/\d{2}\s+\d{2}:\d{2}:\d{2})\s+\[(\w+)\]\s+(.*)$`)
+
+// parsePluginLogLine 解析插件纯文本日志行，转换为与系统日志统一的 map 格式
+func parsePluginLogLine(line string, pluginName string) map[string]interface{} {
+	matches := pluginLogRe.FindStringSubmatch(line)
+	if matches == nil {
+		// 无法解析的行：fallback 为 INFO 级别，整行作为消息
+		return map[string]interface{}{
+			"ts":     "",
+			"level":  "info",
+			"msg":    line,
+			"source": pluginName,
+		}
+	}
+
+	// 将 YYYY/MM/DD HH:MM:SS 转换为 zap 兼容的 ts 格式（ISO8601）
+	rawTime := matches[1]
+	parsedTime, err := time.Parse("2006/01/02 15:04:05", rawTime)
+	var tsStr string
+	if err == nil {
+		tsStr = parsedTime.Format("2006-01-02T15:04:05.000+0800")
+	} else {
+		tsStr = rawTime
+	}
+
+	level := strings.ToLower(matches[2])
+	msg := matches[3]
+
+	return map[string]interface{}{
+		"ts":     tsStr,
+		"level":  level,
+		"msg":    msg,
+		"source": pluginName,
+	}
 }
