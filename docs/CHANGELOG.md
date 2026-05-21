@@ -2,6 +2,15 @@
 
 ## [Unreleased]
 
+### DialTLSContext 插件路径未做 TLS 握手修复
+- **问题**：connection_decorator 插件（如 agp-proxy）建立 CONNECT 隧道后返回 raw TCP conn，`engine.go` 直接返回给 `http.Transport`，Go 在裸连接上发明文 HTTP POST 到 HTTPS 端口 → 上游 Nginx 返回 `400 The plain HTTP request was sent to HTTPS port`
+- **修复**：提取 `doTLSHandshake` helper，插件路径和标准路径共用——插件拿到 raw conn 后调用 `doTLSHandshake(conn)` 完成 TLS 握手再返回
+- **设计原则**：TLS 握手是 AGW 核心职责（证书校验、SNI），不应下沉到插件。插件的职责仅是建立 CONNECT 隧道（决定走哪个代理出口）
+
+### account_id 未注入 ctx 致插件 permHeaders 缺失修复
+- **问题**：`Forward()` / `ForwardStream()` 只注入了 `channelID` 到 context，未注入 `accountID`。导致 `dialViaDecorator` 构造的 permHeaders 缺少 `X-AGW-Account-ID`，插件收不到 account_id 而 fallback 直连
+- **修复**：两处注入点同时注入 `ctxKeyAccountID`（`internal/proxy/engine.go`）
+
 ### 插件上传临时目录可配置
 - **问题**：生产容器以非 root 运行，`os.CreateTemp("", ...)` 使用系统 `/tmp` 目录，Gin 的 `SaveUploadedFile` 触发 `chmod /tmp: operation not permitted`
 - **修复**：

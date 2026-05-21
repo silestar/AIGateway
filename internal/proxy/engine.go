@@ -52,6 +52,33 @@ func NewEngine(cfg config.ProxyConfig, accountMgr account.AccountManager, plugin
 			// 1. 从 context 获取 channel 信息（由上游调用者设置）
 			channelID, _ := ctx.Value(ctxKeyChannelID).(uint)
 
+			// buildTLSConfig 构建目标地址的 TLS 配置
+			buildTLSConfig := func() *tls.Config {
+				tlsCfg := &tls.Config{
+					MinVersion: tls.VersionTLS12,
+				}
+				host, _, err := net.SplitHostPort(addr)
+				if err != nil {
+					host = addr
+				}
+				if ip := net.ParseIP(host); ip != nil {
+					tlsCfg.InsecureSkipVerify = true
+				} else {
+					tlsCfg.ServerName = host
+				}
+				return tlsCfg
+			}
+
+			// doTLSHandshake 对 raw TCP conn 执行 TLS 握手，返回 *tls.Conn
+			doTLSHandshake := func(rawConn net.Conn) (net.Conn, error) {
+				tlsConn := tls.Client(rawConn, buildTLSConfig())
+				if err := tlsConn.HandshakeContext(ctx); err != nil {
+					rawConn.Close()
+					return nil, fmt.Errorf("tls handshake: %w", err)
+				}
+				return tlsConn, nil
+			}
+
 			// 2. 检查该渠道是否有 running 的 connection_decorator 插件
 			if pluginMgr != nil {
 				if pluginAddr := pluginMgr.GetConnectionDecoratorAddr(channelID); pluginAddr != "" {
@@ -64,12 +91,13 @@ func NewEngine(cfg config.ProxyConfig, accountMgr account.AccountManager, plugin
 					if channelID > 0 {
 						permHeaders["X-AGW-Channel-ID"] = fmt.Sprintf("%d", channelID)
 					}
-					// 尝试通过插件代理连接
+					// 通过插件代理建立 CONNECT 隧道，拿到 raw TCP conn
 					conn, err := dialViaDecorator(ctx, pluginAddr, addr, permHeaders)
 					if err == nil {
-						return conn, nil
+						// 插件返回的是原始 TCP 连接（未 TLS），需要完成 TLS 握手
+						return doTLSHandshake(conn)
 					}
-					// 插件不可用 → 回退标准 TLS
+					// 插件不可用 → 回退标准路径
 					logger.Warn("connection decorator unavailable, fallback to standard TLS",
 						zap.String("addr", addr), zap.String("plugin_addr", pluginAddr), zap.Error(err))
 				}
@@ -82,27 +110,8 @@ func NewEngine(cfg config.ProxyConfig, accountMgr account.AccountManager, plugin
 				return nil, err
 			}
 
-// 4. 标准 TLS 握手
-		tlsCfg := &tls.Config{
-			MinVersion: tls.VersionTLS12,
-		}
-		// 从 addr (host:port) 提取 hostname 作为 ServerName
-		host, _, err := net.SplitHostPort(addr)
-		if err != nil {
-			host = addr
-		}
-		// 如果是 IP 地址则跳过证书域名校验，否则设 ServerName
-		if ip := net.ParseIP(host); ip != nil {
-			tlsCfg.InsecureSkipVerify = true
-		} else {
-			tlsCfg.ServerName = host
-		}
-			tlsConn := tls.Client(rawConn, tlsCfg)
-			if err := tlsConn.HandshakeContext(ctx); err != nil {
-				rawConn.Close()
-				return nil, fmt.Errorf("tls handshake: %w", err)
-			}
-			return tlsConn, nil
+			// 4. 标准 TLS 握手
+			return doTLSHandshake(rawConn)
 		},
 		MaxIdleConns:        cfg.MaxIdleConns,
 		MaxIdleConnsPerHost: cfg.MaxIdleConns,
@@ -152,8 +161,11 @@ func (e *Engine) Forward(ctx context.Context, ch *channel.Channel, acc *account.
 	if err != nil {
 		return nil, fmt.Errorf("create upstream request: %w", err)
 	}
-	// 注入渠道 ID 到 context，供 DialTLSContext 等传输层逻辑使用
+	// 注入渠道 ID 和账号 ID 到 context，供 DialTLSContext 等传输层逻辑使用
 	upstreamReq = upstreamReq.WithContext(context.WithValue(upstreamReq.Context(), ctxKeyChannelID, ch.ID))
+	if acc.ID > 0 {
+		upstreamReq = upstreamReq.WithContext(context.WithValue(upstreamReq.Context(), ctxKeyAccountID, acc.ID))
+	}
 	// 预先缓存请求 body，后续插件 pre_request 会读空 originalReq.Body，需独立备份给 upstreamReq
 	if originalReq.Body != nil {
 		cachedReqBody, _ := io.ReadAll(originalReq.Body)
@@ -410,8 +422,11 @@ func (e *Engine) ForwardStream(ctx context.Context, ch *channel.Channel, acc *ac
 	if err != nil {
 		return nil, fmt.Errorf("create upstream request: %w", err)
 	}
-	// 注入渠道 ID 到 context，供 DialTLSContext 等传输层逻辑使用
+	// 注入渠道 ID 和账号 ID 到 context，供 DialTLSContext 等传输层逻辑使用
 	upstreamReq = upstreamReq.WithContext(context.WithValue(upstreamReq.Context(), ctxKeyChannelID, ch.ID))
+	if acc.ID > 0 {
+		upstreamReq = upstreamReq.WithContext(context.WithValue(upstreamReq.Context(), ctxKeyAccountID, acc.ID))
+	}
 
 	for k, vv := range originalReq.Header {
 		// 不转发 Accept-Encoding：让 Go Transport 自动管理 gzip（自动发送 + 自动解压），
