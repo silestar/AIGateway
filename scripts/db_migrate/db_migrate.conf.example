@@ -1,0 +1,14 @@
+# AGW 数据库迁移配置
+# 复制此文件为 db_migrate.conf 并修改参数
+
+[source]
+type = sqlite
+path = /home/projects_docker/ai_gateway/dev/data/agw.db
+
+[target]
+type = postgresql
+host = 127.0.0.1
+port = 5432
+user = agw
+password = 
+database = agw
