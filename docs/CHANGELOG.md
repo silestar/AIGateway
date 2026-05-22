@@ -1,13 +1,13 @@
 # Changelog
 
-## [Unreleased]
+## [0.3.0] - 2026-05-22
 
 ### 数据库迁移工具
 - 新增 `scripts/db_migrate/` 数据库迁移工具，支持 SQLite / MySQL / PostgreSQL 互转
 - 全自动流程：读表结构 → 方言转译 → 建表 → 复制数据 → 修改配置
 - 源数据库只读，任何失败都不修改 AGW 配置
-
-## [0.3.0] - 2026-05-22
+- 新增 `scripts/db_migrate/verify_migration.py` 迁移数据校验工具
+- 迁移脚本自动修复 SQLite→PG 的类型问题（JSON 列脏数据清洗、布尔列 0/1 转 boolean）
 
 ### 插件架构重大重构：声明式钩子 + 统调度引擎
 
