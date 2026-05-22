@@ -86,21 +86,30 @@ type Plugin struct {
 	Pid         int        `gorm:"default:0" json:"pid"`
 	CreatedAt   time.Time  `gorm:"autoCreateTime" json:"created_at"`
 	UpdatedAt   time.Time  `gorm:"autoUpdateTime" json:"updated_at"`
+
+	// === 新增字段（阶段一）===
+	DisplayName   string `gorm:"size:100" json:"display_name"`              // 中文展示名（manifest.display_name）
+	Priority      int    `gorm:"not null;default:100" json:"priority"`       // 钩子执行优先级，越小越先执行
+	HasDB         bool   `gorm:"default:false" json:"has_db"`               // 是否需要建表
+	TablesCreated string `gorm:"type:text" json:"tables_created"`            // JSON array，安装时创建的表名列表
+	Timeout       int    `gorm:"default:0" json:"timeout"`                   // 插件声明超时（ms），0=用钩子默认
 }
 
 func (Plugin) TableName() string { return "plugins" }
 
-// ChannelPluginSetting 渠道级插件配置（同一插件在不同渠道可有不同配置）
-type ChannelPluginSetting struct {
-	ID        uint      `gorm:"primaryKey;autoIncrement" json:"id"`
-	ChannelID uint      `gorm:"not null;index:idx_channel_plugin" json:"channel_id"`
-	PluginID  uint      `gorm:"not null;index:idx_channel_plugin" json:"plugin_id"`
-	Config    string    `gorm:"type:text" json:"config"` // 渠道级配置 JSON（覆盖插件全局 config）
-	CreatedAt time.Time `gorm:"autoCreateTime" json:"created_at"`
-	UpdatedAt time.Time `gorm:"autoUpdateTime" json:"updated_at"`
+// Hook 系统预埋钩子 — 开发人员写入，管理员只能启用/禁用
+type Hook struct {
+	ID           uint      `gorm:"primaryKey;autoIncrement" json:"id"`
+	Name         string    `gorm:"size:100;uniqueIndex;not null" json:"name"`          // 钩子唯一标识
+	HookType     string    `gorm:"size:20;not null;default:'request'" json:"hook_type"` // request / lifecycle
+	Description  string    `gorm:"type:text" json:"description"`
+	ParamsSchema string    `gorm:"type:text" json:"params_schema"` // JSON，参数契约
+	Timeout      int       `gorm:"not null;default:10000" json:"timeout"` // 默认超时（ms）
+	Enabled      bool      `gorm:"not null;default:true" json:"enabled"`   // 管理员唯一可操作项
+	UpdatedAt    time.Time `gorm:"autoUpdateTime" json:"updated_at"`
 }
 
-func (ChannelPluginSetting) TableName() string { return "channel_plugin_settings" }
+func (Hook) TableName() string { return "hooks" }
 
 // HookRequest 钩子请求（主系统 → 插件）
 type HookRequest struct {
@@ -113,6 +122,9 @@ type HookRequest struct {
 	AccountID         uint                   `json:"account_id,omitempty"`
 	CandidateAccounts []CandidateAccount     `json:"candidate_accounts,omitempty"`
 	Config            map[string]interface{} `json:"config,omitempty"`
+
+	// === 新增字段（阶段一）===
+	TargetAddr string `json:"target_addr,omitempty"` // 上游目标地址（connection_decorator 专用）
 }
 
 type HookRequestBody struct {
@@ -140,6 +152,7 @@ type HookResponse struct {
 	ModifiedRequest  *HookRequestBody       `json:"modified_request,omitempty"`
 	ModifiedResponse *HookResponseBody      `json:"modified_response,omitempty"`
 	ExcludeIDs       []uint                 `json:"exclude_ids,omitempty"` // account_select 用
+	ProxyAddr        string                 `json:"proxy_addr,omitempty"`  // connection_decorator 返回的代理地址
 }
 
 // PluginPermission 插件权限授权记录
@@ -173,6 +186,11 @@ type Manifest struct {
 	Hooks        []string          `json:"hooks"`
 	ConfigSchema json.RawMessage   `json:"config_schema"`
 	Permissions  []PermissionDecl  `json:"permissions,omitempty"`
+
+	// === 新增字段（阶段一）===
+	DisplayName string          `json:"display_name,omitempty"` // 插件中文名
+	Tables      []ManifestTable `json:"tables,omitempty"`       // 声明式建表
+	Timeout     int             `json:"timeout,omitempty"`      // 插件超时（ms）
 }
 
 // PermissionDecl 插件权限声明
@@ -180,6 +198,31 @@ type PermissionDecl struct {
 	Name        string `json:"name"`
 	Description string `json:"description"`
 	Required    bool   `json:"required"`
+}
+
+// ManifestTable 插件声明的建表需求
+type ManifestTable struct {
+	Name    string           `json:"name"`
+	Columns []ManifestColumn `json:"columns"`
+	Indexes []ManifestIndex  `json:"indexes"`
+}
+
+// ManifestColumn 列定义
+type ManifestColumn struct {
+	Name          string `json:"name"`
+	Type          string `json:"type"`          // INTEGER / TEXT / REAL / BLOB / DATETIME
+	PrimaryKey    bool   `json:"primary_key,omitempty"`
+	AutoIncrement bool   `json:"auto_increment,omitempty"`
+	NotNull       bool   `json:"not_null,omitempty"`
+	Default       string `json:"default,omitempty"`
+	Unique        bool   `json:"unique,omitempty"`
+}
+
+// ManifestIndex 索引定义
+type ManifestIndex struct {
+	Name    string   `json:"name"`
+	Columns []string `json:"columns"`
+	Unique  bool     `json:"unique,omitempty"`
 }
 
 // LogsStatusResult 插件日志状态返回
@@ -204,8 +247,6 @@ type PluginManager interface {
 	TriggerHook(ctx context.Context, hook HookName, req *HookRequest) (*HookResponse, error)
 	// 列出所有插件
 	List(ctx context.Context) ([]Plugin, error)
-	// 获取渠道启用的 connection_decorator 插件地址
-	GetConnectionDecoratorAddr(channelID uint) string
 	// 获取单个插件
 	GetByID(ctx context.Context, id uint) (*Plugin, error)
 	// 更新插件配置
@@ -230,6 +271,16 @@ type PluginManager interface {
 	SyncPermissions(ctx context.Context, pluginName, pluginVersion string, declarations []PermissionDecl) error
 	// 确保关键路径权限正确
 	EnsureSecurePermissions() error
+
+	// === 阶段四新增 ===
+	// 钩子管理（后台）
+	ListHooks(ctx context.Context) ([]Hook, error)
+	UpdateHookEnabled(ctx context.Context, hookID uint, enabled bool) error
+	GetHookPlugins(ctx context.Context, hookName string) ([]Plugin, error)
+	UpdatePluginPriority(ctx context.Context, pluginID uint, priority int) error
+	GetPluginTables(ctx context.Context, pluginID uint) ([]string, error)
+	// 卸载时表清理
+	UninstallWithTables(ctx context.Context, pluginID uint, keepLogs bool, dropTables bool) error
 }
 
 // ContinueHook 快速构造 continue 响应

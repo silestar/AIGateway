@@ -14,6 +14,7 @@ import (
 	"path/filepath"
 	"runtime"
 	"strconv"
+	"strings"
 	"sync"
 	"syscall"
 	"time"
@@ -37,6 +38,108 @@ type Manager struct {
 	pluginGID       uint32   // agw-plugin 用户的 GID
 	logFileHandles  map[uint]*os.File       // pluginID → 日志文件句柄（Stop 时关闭）
 	logFileMu       sync.Mutex              // 保护 logFileHandles
+	registry         *hookRegistry           // 钩子内存注册表
+}
+
+// ========== 钩子内存注册表 ==========
+
+// hookRegistry 钩子内存注册表（启动时从 DB 加载，运行时增删改）
+type hookRegistry struct {
+	mu      sync.RWMutex
+	entries map[HookName][]*hookEntry // 钩子名 → 已注册插件列表（按 priority 排序）
+}
+
+type hookEntry struct {
+	PluginName string
+	Port       int
+	AuthToken  string // 从插件记录读取，用于内部 HTTP 调用鉴权
+	Priority   int
+	Status     string // running / stopped
+}
+
+// loadFromDB 从数据库加载所有 status=running 的插件到注册表
+func (r *hookRegistry) loadFromDB(db *gorm.DB) error {
+	var plugins []Plugin
+	if err := db.Where("status = ?", StatusRunning).Find(&plugins).Error; err != nil {
+		return err
+	}
+
+	r.mu.Lock()
+	defer r.mu.Unlock()
+
+	r.entries = make(map[HookName][]*hookEntry)
+
+	for _, p := range plugins {
+		var hooks []string
+		json.Unmarshal([]byte(p.Hooks), &hooks)
+		for _, h := range hooks {
+			entry := &hookEntry{
+				PluginName: p.Name,
+				Port:       p.Port,
+				AuthToken:  p.AuthToken,
+				Priority:   p.Priority,
+				Status:     StatusRunning,
+			}
+			r.entries[HookName(h)] = append(r.entries[HookName(h)], entry)
+		}
+	}
+	return nil
+}
+
+// insert 插件启动时插入注册表
+func (r *hookRegistry) insert(p *Plugin) {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+
+	var hooks []string
+	json.Unmarshal([]byte(p.Hooks), &hooks)
+	for _, h := range hooks {
+		entry := &hookEntry{
+			PluginName: p.Name,
+			Port:       p.Port,
+			AuthToken:  p.AuthToken,
+			Priority:   p.Priority,
+			Status:     StatusRunning,
+		}
+		r.entries[HookName(h)] = append(r.entries[HookName(h)], entry)
+	}
+}
+
+// remove 插件停止时从注册表移除
+func (r *hookRegistry) remove(pluginName string) {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+
+	for hook, entries := range r.entries {
+		filtered := make([]*hookEntry, 0, len(entries))
+		for _, e := range entries {
+			if e.PluginName != pluginName {
+				filtered = append(filtered, e)
+			}
+		}
+		r.entries[hook] = filtered
+	}
+}
+
+// getEntries 获取某钩子的已注册插件列表（已按 priority 排序）
+func (r *hookRegistry) getEntries(hook HookName) []*hookEntry {
+	r.mu.RLock()
+	defer r.mu.RUnlock()
+	return r.entries[hook] // 加载时已排序
+}
+
+// updatePriority 更新优先级后重新排序
+func (r *hookRegistry) updatePriority(pluginName string, priority int) {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+
+	for _, entries := range r.entries {
+		for _, e := range entries {
+			if e.PluginName == pluginName {
+				e.Priority = priority
+			}
+		}
+	}
 }
 
 // NewManager 创建插件管理器
@@ -88,12 +191,23 @@ func NewManager(db *gorm.DB, logger *zap.Logger, pluginsDir string, sidecarTimeo
 	// 确保插件日志根目录存在
 	os.MkdirAll(filepath.Join(m.logDir, "plugins"), 0755)
 
+	// 种子 hooks 数据（幂等）
+	if err := m.seedHooks(); err != nil {
+		logger.Warn("seed hooks failed", zap.Error(err))
+	}
+
+	// 初始化内存注册表
+	m.registry = &hookRegistry{}
+	if err := m.registry.loadFromDB(db); err != nil {
+		logger.Warn("load hook registry from db failed", zap.Error(err))
+	}
+
 	return m
 }
 
 // AutoMigrate 自动迁移
 func (m *Manager) AutoMigrate() error {
-	return m.db.AutoMigrate(&Plugin{}, &ChannelPluginSetting{}, &PluginPermission{})
+	return m.db.AutoMigrate(&Plugin{}, &Hook{}, &PluginPermission{})
 }
 
 // Upload 解析 ZIP 中的 manifest.json，返回预览信息（不安装）
@@ -267,6 +381,36 @@ func (m *Manager) Install(ctx context.Context, zipPath string) (*Plugin, error) 
 
 	if err := m.db.WithContext(ctx).Create(plugin).Error; err != nil {
 		return nil, fmt.Errorf("save plugin: %w", err)
+	}
+
+	// 5.5. 声明式建表（manifest.tables）
+	var tablesCreated []string
+	if len(manifest.Tables) > 0 {
+		for _, t := range manifest.Tables {
+			tableName := "plugin_" + manifest.Name + "_" + t.Name
+			sql := buildCreateTableSQL(tableName, t)
+			if err := m.db.WithContext(ctx).Exec(sql).Error; err != nil {
+				return nil, fmt.Errorf("create table %s: %w", tableName, err)
+			}
+			tablesCreated = append(tablesCreated, tableName)
+		}
+	}
+	plugin.HasDB = len(tablesCreated) > 0
+	if len(tablesCreated) > 0 {
+		tablesJSON, _ := json.Marshal(tablesCreated)
+		plugin.TablesCreated = string(tablesJSON)
+	}
+
+	// 5.6. 补全新增字段
+	plugin.DisplayName = manifest.DisplayName
+	plugin.Priority = 100 // 默认优先级
+	if manifest.Timeout > 0 {
+		plugin.Timeout = manifest.Timeout
+	}
+
+	// 写回 DB
+	if err := m.db.WithContext(ctx).Save(plugin).Error; err != nil {
+		return nil, fmt.Errorf("update plugin fields: %w", err)
 	}
 
 	// 6. 同步权限声明
@@ -533,8 +677,13 @@ func (m *Manager) EnsureSecurePermissions() error {
 	return nil
 }
 
-// Uninstall 卸载插件（keepLogs=true 时保留日志目录）
+// Uninstall 卸载插件（兼容旧接口，不删表）
 func (m *Manager) Uninstall(ctx context.Context, pluginID uint, keepLogs bool) error {
+	return m.UninstallWithTables(ctx, pluginID, keepLogs, false)
+}
+
+// UninstallWithTables 卸载插件（支持表清理）
+func (m *Manager) UninstallWithTables(ctx context.Context, pluginID uint, keepLogs bool, dropTables bool) error {
 	// 先停止
 	m.Stop(ctx, pluginID)
 
@@ -546,14 +695,28 @@ func (m *Manager) Uninstall(ctx context.Context, pluginID uint, keepLogs bool) e
 	// 删除安装目录
 	os.RemoveAll(filepath.Dir(plugin.Binary))
 
+	// 删表（如果请求）
+	if dropTables && plugin.TablesCreated != "" {
+		var tables []string
+		if err := json.Unmarshal([]byte(plugin.TablesCreated), &tables); err == nil {
+			for _, t := range tables {
+				if strings.HasPrefix(t, "plugin_") {
+					m.db.Exec("DROP TABLE IF EXISTS " + t)
+				}
+			}
+		}
+	}
+
 	// 日志处理
 	pluginLogDir := filepath.Join(m.logDir, "plugins", plugin.Name)
 	if !keepLogs {
 		os.RemoveAll(pluginLogDir)
 	}
-	// keepLogs=true → 保留日志目录
 
-	// 标记权限记录为 uninstalled（保留用于审计）
+	// 从注册表移除
+	m.registry.remove(plugin.Name)
+
+	// 标记权限记录
 	m.db.WithContext(ctx).
 		Model(&PluginPermission{}).
 		Where("plugin_name = ?", plugin.Name).
@@ -567,7 +730,10 @@ func (m *Manager) Uninstall(ctx context.Context, pluginID uint, keepLogs bool) e
 	// 删除记录
 	m.db.WithContext(ctx).Delete(&plugin)
 
-	m.logger.Info("plugin uninstalled", zap.String("name", plugin.Name), zap.Bool("keep_logs", keepLogs))
+	m.logger.Info("plugin uninstalled",
+		zap.String("name", plugin.Name),
+		zap.Bool("keep_logs", keepLogs),
+		zap.Bool("drop_tables", dropTables))
 	return nil
 }
 
@@ -590,72 +756,99 @@ func (m *Manager) LogsStatus(ctx context.Context, pluginID uint) (*LogsStatusRes
 	}, nil
 }
 
-// TriggerHook 触发钩子
+// TriggerHook 统一钩子调度引擎（新）
+// 流程：查 hooks 表 enabled → 查内存注册表 → 参数校验 → 按 priority 调用 → 记录日志
 func (m *Manager) TriggerHook(ctx context.Context, hook HookName, req *HookRequest) (*HookResponse, error) {
-	// 查找订阅该钩子的运行中插件
-	var plugins []Plugin
-	m.db.WithContext(ctx).Where("status = ?", StatusRunning).Find(&plugins)
+	// 1. 查 hooks 表：enabled？
+	var hookCfg Hook
+	if err := m.db.Where("name = ? AND enabled = ?", string(hook), true).First(&hookCfg).Error; err != nil {
+		return ContinueHook(), nil
+	}
 
-	for _, p := range plugins {
-		var hooks []string
-		json.Unmarshal([]byte(p.Hooks), &hooks)
+	// 2. 查内存注册表：哪些插件注册了该钩子
+	entries := m.registry.getEntries(hook)
+	if len(entries) == 0 {
+		return ContinueHook(), nil
+	}
 
-		subscribed := false
-		for _, h := range hooks {
-			if h == string(hook) {
-				subscribed = true
-				break
-			}
-		}
-		if !subscribed {
-			continue
-		}
+	// 3. 遍历插件（按 priority，已排序）
+	for _, entry := range entries {
+		timeout := hookCfg.Timeout
 
-		// 根据权限过滤 HookRequest
-		granted := m.GetGrantedPermissions(p.Name)
+		// 权限过滤
+		granted := m.GetGrantedPermissions(entry.PluginName)
 		filteredReq := m.filterHookRequest(req, granted)
 
-		// HTTP 调用插件
-		url := fmt.Sprintf("http://127.0.0.1:%d/hook/%s", p.Port, hook)
+		callCtx, cancel := context.WithTimeout(ctx, time.Duration(timeout)*time.Millisecond)
+		defer cancel()
+
+		url := fmt.Sprintf("http://127.0.0.1:%d/hook/%s", entry.Port, hook)
 		body, _ := json.Marshal(filteredReq)
-		httpReq, err := http.NewRequestWithContext(ctx, http.MethodPost, url, bytes.NewReader(body))
+		httpReq, err := http.NewRequestWithContext(callCtx, http.MethodPost, url, bytes.NewReader(body))
 		if err != nil {
-			m.logger.Warn("create hook request failed", zap.String("plugin", p.Name), zap.Error(err))
+			m.logger.Warn("create hook request failed",
+				zap.String("hook", string(hook)),
+				zap.String("plugin", entry.PluginName),
+				zap.Error(err))
 			continue
 		}
 		httpReq.Header.Set("Content-Type", "application/json")
-		httpReq.Header.Set("Authorization", "Bearer "+p.AuthToken)
+		httpReq.Header.Set("Authorization", "Bearer "+entry.AuthToken)
 
+		startTime := time.Now()
 		resp, err := m.client.Do(httpReq)
+		elapsed := time.Since(startTime)
+
 		if err != nil {
-			m.logger.Warn("call plugin hook failed", zap.String("plugin", p.Name), zap.Error(err))
+			m.logger.Warn("call plugin hook failed",
+				zap.String("hook", string(hook)),
+				zap.String("plugin", entry.PluginName),
+				zap.Int("timeout_ms", timeout),
+				zap.Duration("elapsed", elapsed),
+				zap.Error(err))
 			continue
 		}
 
 		var hookResp HookResponse
 		decodeErr := json.NewDecoder(resp.Body).Decode(&hookResp)
-		resp.Body.Close() // 循环内手动关闭，不用 defer
+		resp.Body.Close()
+
 		if decodeErr != nil {
-			m.logger.Warn("decode hook response failed", zap.String("plugin", p.Name), zap.Error(decodeErr))
+			m.logger.Warn("decode hook response failed",
+				zap.String("hook", string(hook)),
+				zap.String("plugin", entry.PluginName),
+				zap.Error(decodeErr))
 			continue
 		}
 
-		// 如果插件拒绝，直接返回拒绝
+		// 记录调用日志
+		m.logger.Info("plugin hook called",
+			zap.String("hook", string(hook)),
+			zap.String("plugin", entry.PluginName),
+			zap.Duration("elapsed", elapsed),
+			zap.String("result", string(hookResp.Action)))
+
+		// 拒绝 → 立即返回
 		if hookResp.Action == ActionReject {
 			return &hookResp, nil
 		}
 
-		// 对于 account_select，合并 exclude_ids
+		// account_select → 返回 filter
 		if hook == HookAccountSelect && hookResp.Action == ActionFilter {
 			return &hookResp, nil
 		}
 
-		// 对于 pre_request / post_response，如果修改了请求/响应，更新 req
+		// 合并修改（pre_request / post_response）
 		if hookResp.ModifiedRequest != nil {
 			req.Request = hookResp.ModifiedRequest
 		}
 		if hookResp.ModifiedResponse != nil {
 			req.Response = hookResp.ModifiedResponse
+		}
+
+		// connection_decorator：返回代理地址，由调用方处理
+		if hook == HookConnectionDecorator && hookResp.Action == ActionContinue {
+			return &hookResp, nil
 		}
 	}
 
@@ -667,40 +860,6 @@ func (m *Manager) List(ctx context.Context) ([]Plugin, error) {
 	var plugins []Plugin
 	err := m.db.WithContext(ctx).Order("id ASC").Find(&plugins).Error
 	return plugins, err
-}
-
-// GetConnectionDecoratorAddr 查询指定渠道启用的 connection_decorator 插件地址
-// 返回 "127.0.0.1:{port}" 格式，如果没有则返回空字符串
-func (m *Manager) GetConnectionDecoratorAddr(channelID uint) string {
-	if channelID == 0 {
-		return ""
-	}
-
-	// 查找 hooks 包含 connection_decorator 且 status=running 的插件
-	var plugins []Plugin
-	m.db.Where("status = ? AND hooks LIKE ?", StatusRunning, "%connection_decorator%").Find(&plugins)
-	if len(plugins) == 0 {
-		return ""
-	}
-
-	// 遍历找到该渠道已启用的插件
-	for _, p := range plugins {
-		var setting ChannelPluginSetting
-		err := m.db.Where("channel_id = ? AND plugin_id = ?", channelID, p.ID).First(&setting).Error
-		if err != nil {
-			continue // 没有渠道级配置 → 跳过
-		}
-
-		// 解析渠道配置，检查 enabled
-		var cfg struct {
-			Enabled bool `json:"enabled"`
-		}
-		if json.Unmarshal([]byte(setting.Config), &cfg) == nil && cfg.Enabled {
-			return fmt.Sprintf("127.0.0.1:%d", p.Port)
-		}
-	}
-
-	return ""
 }
 
 // GetByID 获取单个插件
@@ -733,66 +892,6 @@ func (m *Manager) HealthCheck(ctx context.Context) {
 			resp.Body.Close()
 		}
 	}
-}
-
-// GetChannelPluginConfig 获取渠道级插件配置，没有则返回空字符串
-func (m *Manager) GetChannelPluginConfig(ctx context.Context, channelID, pluginID uint) (string, error) {
-	var setting ChannelPluginSetting
-	err := m.db.WithContext(ctx).Where("channel_id = ? AND plugin_id = ?", channelID, pluginID).First(&setting).Error
-	if err != nil {
-		if err == gorm.ErrRecordNotFound {
-			return "", nil
-		}
-		return "", err
-	}
-	return setting.Config, nil
-}
-
-// SetChannelPluginConfig 设置渠道级插件配置
-func (m *Manager) SetChannelPluginConfig(ctx context.Context, channelID, pluginID uint, config string) error {
-	var setting ChannelPluginSetting
-	err := m.db.WithContext(ctx).Where("channel_id = ? AND plugin_id = ?", channelID, pluginID).First(&setting).Error
-	if err != nil && err != gorm.ErrRecordNotFound {
-		return err
-	}
-	if err == gorm.ErrRecordNotFound {
-		return m.db.WithContext(ctx).Create(&ChannelPluginSetting{
-			ChannelID: channelID,
-			PluginID:  pluginID,
-			Config:    config,
-		}).Error
-	}
-	return m.db.WithContext(ctx).Model(&setting).Update("config", config).Error
-}
-
-// DeleteChannelPluginConfig 删除渠道级插件配置
-func (m *Manager) DeleteChannelPluginConfig(ctx context.Context, channelID, pluginID uint) error {
-	return m.db.WithContext(ctx).Where("channel_id = ? AND plugin_id = ?", channelID, pluginID).Delete(&ChannelPluginSetting{}).Error
-}
-
-// ListChannelPluginConfigs 列出某插件的所有渠道级配置
-func (m *Manager) ListChannelPluginConfigs(ctx context.Context, pluginID uint) ([]ChannelPluginSetting, error) {
-	var settings []ChannelPluginSetting
-	err := m.db.WithContext(ctx).Where("plugin_id = ?", pluginID).Find(&settings).Error
-	return settings, err
-}
-
-// GetEffectiveConfig 获取插件在某渠道的生效配置（渠道级覆盖全局）
-func (m *Manager) GetEffectiveConfig(ctx context.Context, channelID, pluginID uint) (string, error) {
-	// 先查渠道级配置
-	channelConfig, err := m.GetChannelPluginConfig(ctx, channelID, pluginID)
-	if err != nil {
-		return "", err
-	}
-	if channelConfig != "" {
-		return channelConfig, nil
-	}
-	// 没有渠道级配置，用全局配置
-	var plugin Plugin
-	if err := m.db.WithContext(ctx).First(&plugin, pluginID).Error; err != nil {
-		return "", err
-	}
-	return plugin.Config, nil
 }
 
 // ChannelTypeDiscovery 插件渠道类型发现响应
@@ -1190,4 +1289,149 @@ func (m *Manager) filterHookRequest(req *HookRequest, granted []string) *HookReq
 // IsPermissionHighSensitive 判断权限是否是高敏感
 func IsPermissionHighSensitive(permName string) bool {
 	return HighSensitivePermissions[PermissionName(permName)]
+}
+
+// seedHooks 种子钩子数据（系统启动时自动执行，幂等）
+func (m *Manager) seedHooks() error {
+	hooks := []Hook{
+		{
+			Name:        "connection_decorator",
+			HookType:    "request",
+			Description: "在建立上游 TLS 连接前介入，允许插件代理/修改 TCP 连接",
+			Timeout:     10000,
+			Enabled:     true,
+		},
+		{
+			Name:        "pre_request",
+			HookType:    "request",
+			Description: "请求转发前触发，可修改请求体/拒绝请求",
+			Timeout:     5000,
+			Enabled:     true,
+		},
+		{
+			Name:        "post_response",
+			HookType:    "request",
+			Description: "收到上游响应后触发，可修改响应",
+			Timeout:     5000,
+			Enabled:     true,
+		},
+		{
+			Name:        "account_select",
+			HookType:    "request",
+			Description: "账号选择时触发，可过滤候选账号",
+			Timeout:     5000,
+			Enabled:     true,
+		},
+		{
+			Name:        "on_log",
+			HookType:    "lifecycle",
+			Description: "日志写入时触发",
+			Timeout:     3000,
+			Enabled:     true,
+		},
+	}
+
+	for _, h := range hooks {
+		if err := m.db.Where("name = ?", h.Name).FirstOrCreate(&h).Error; err != nil {
+			return fmt.Errorf("seed hook %s: %w", h.Name, err)
+		}
+	}
+	return nil
+}
+
+// ========== 阶段四新增：钩子管理 API ==========
+
+// ListHooks 列出所有预埋钩子
+func (m *Manager) ListHooks(ctx context.Context) ([]Hook, error) {
+	var hooks []Hook
+	err := m.db.WithContext(ctx).Order("id ASC").Find(&hooks).Error
+	return hooks, err
+}
+
+// UpdateHookEnabled 启用/禁用钩子
+func (m *Manager) UpdateHookEnabled(ctx context.Context, hookID uint, enabled bool) error {
+	return m.db.WithContext(ctx).Model(&Hook{}).Where("id = ?", hookID).Update("enabled", enabled).Error
+}
+
+// GetHookPlugins 获取某钩子下已注册的插件列表
+func (m *Manager) GetHookPlugins(ctx context.Context, hookName string) ([]Plugin, error) {
+	var plugins []Plugin
+	err := m.db.WithContext(ctx).
+		Where("status = ? AND hooks LIKE ?", StatusRunning, "%\""+hookName+"\"%").
+		Order("priority ASC").
+		Find(&plugins).Error
+	return plugins, err
+}
+
+// UpdatePluginPriority 更新插件优先级（DB + 内存注册表）
+func (m *Manager) UpdatePluginPriority(ctx context.Context, pluginID uint, priority int) error {
+	if err := m.db.WithContext(ctx).Model(&Plugin{}).Where("id = ?", pluginID).
+		Update("priority", priority).Error; err != nil {
+		return err
+	}
+	var p Plugin
+	if err := m.db.First(&p, pluginID).Error; err == nil {
+		m.registry.updatePriority(p.Name, priority)
+	}
+	return nil
+}
+
+// GetPluginTables 获取插件创建的表名清单
+func (m *Manager) GetPluginTables(ctx context.Context, pluginID uint) ([]string, error) {
+	var p Plugin
+	if err := m.db.WithContext(ctx).First(&p, pluginID).Error; err != nil {
+		return nil, err
+	}
+	var tables []string
+	json.Unmarshal([]byte(p.TablesCreated), &tables)
+	return tables, nil
+}
+
+// buildCreateTableSQL 根据 ManifestTable 生成 CREATE TABLE SQL（SQLite 方言）
+func buildCreateTableSQL(tableName string, t ManifestTable) string {
+	var b strings.Builder
+	b.WriteString("CREATE TABLE IF NOT EXISTS ")
+	b.WriteString(tableName)
+	b.WriteString(" (")
+
+	for i, col := range t.Columns {
+		if i > 0 {
+			b.WriteString(", ")
+		}
+		b.WriteString(col.Name)
+		b.WriteString(" ")
+		b.WriteString(col.Type)
+
+		if col.PrimaryKey {
+			b.WriteString(" PRIMARY KEY")
+		}
+		if col.AutoIncrement {
+			b.WriteString(" AUTOINCREMENT")
+		}
+		if col.NotNull {
+			b.WriteString(" NOT NULL")
+		}
+		if col.Unique {
+			b.WriteString(" UNIQUE")
+		}
+		if col.Default != "" {
+			b.WriteString(" DEFAULT ")
+			b.WriteString(col.Default)
+		}
+	}
+
+	for _, idx := range t.Indexes {
+		b.WriteString(", ")
+		if idx.Unique {
+			b.WriteString("UNIQUE ")
+		}
+		b.WriteString("INDEX ")
+		b.WriteString(idx.Name)
+		b.WriteString(" (")
+		b.WriteString(strings.Join(idx.Columns, ", "))
+		b.WriteString(")")
+	}
+
+	b.WriteString(")")
+	return b.String()
 }

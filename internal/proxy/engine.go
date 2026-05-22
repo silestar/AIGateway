@@ -79,27 +79,36 @@ func NewEngine(cfg config.ProxyConfig, accountMgr account.AccountManager, plugin
 				return tlsConn, nil
 			}
 
-			// 2. 检查该渠道是否有 running 的 connection_decorator 插件
-			if pluginMgr != nil {
-				if pluginAddr := pluginMgr.GetConnectionDecoratorAddr(channelID); pluginAddr != "" {
-					// 构建权限头部（根据 context 中可用的信息）
-					permHeaders := map[string]string{}
-					accountID, _ := ctx.Value(ctxKeyAccountID).(uint)
-					if accountID > 0 {
-						permHeaders["X-AGW-Account-ID"] = fmt.Sprintf("%d", accountID)
+			// 2. 通过统一 TriggerHook 调用 connection_decorator
+			if pluginMgr != nil && channelID > 0 {
+				accountID, _ := ctx.Value(ctxKeyAccountID).(uint)
+
+				hookResp, err := pluginMgr.TriggerHook(ctx, plugin.HookConnectionDecorator, &plugin.HookRequest{
+					ChannelID:  channelID,
+					AccountID:  accountID,
+					TargetAddr: addr,
+				})
+
+				if err == nil && hookResp != nil {
+					// connection_decorator 的返回约定：proxy_addr 放在 Message 字段
+					// （HookResponse 暂无 ProxyAddr 字段，暂时用 Message 传递）
+					proxyAddr := hookResp.Message
+					if proxyAddr != "" {
+						permHeaders := map[string]string{}
+						if accountID > 0 {
+							permHeaders["X-AGW-Account-ID"] = fmt.Sprintf("%d", accountID)
+						}
+						if channelID > 0 {
+							permHeaders["X-AGW-Channel-ID"] = fmt.Sprintf("%d", channelID)
+						}
+
+						conn, err := dialViaDecorator(ctx, proxyAddr, addr, permHeaders)
+						if err == nil {
+							return doTLSHandshake(conn)
+						}
+						logger.Warn("connection decorator unavailable, fallback to standard TLS",
+							zap.String("addr", addr), zap.String("proxy_addr", proxyAddr), zap.Error(err))
 					}
-					if channelID > 0 {
-						permHeaders["X-AGW-Channel-ID"] = fmt.Sprintf("%d", channelID)
-					}
-					// 通过插件代理建立 CONNECT 隧道，拿到 raw TCP conn
-					conn, err := dialViaDecorator(ctx, pluginAddr, addr, permHeaders)
-					if err == nil {
-						// 插件返回的是原始 TCP 连接（未 TLS），需要完成 TLS 握手
-						return doTLSHandshake(conn)
-					}
-					// 插件不可用 → 回退标准路径
-					logger.Warn("connection decorator unavailable, fallback to standard TLS",
-						zap.String("addr", addr), zap.String("plugin_addr", pluginAddr), zap.Error(err))
 				}
 			}
 

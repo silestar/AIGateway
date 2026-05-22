@@ -65,10 +65,6 @@ func (h *PluginHandler) RegisterRoutes(rg *gin.RouterGroup) {
 	p.PUT("/:id/config", h.UpdateConfig)
 	// 日志状态
 	p.GET("/:id/logs-status", h.LogsStatus)
-	// 渠道级插件配置
-	p.GET("/:id/channel-configs", h.ListChannelConfigs)
-	p.PUT("/:id/channel-configs/:channelId", h.SetChannelConfig)
-	p.DELETE("/:id/channel-configs/:channelId", h.DeleteChannelConfig)
 	// 权限管理
 	p.GET("/:id/permissions", h.GetPermissions)
 	p.PUT("/:id/permissions/:permName/grant", h.GrantPermission)
@@ -279,47 +275,6 @@ func (h *PluginHandler) LogsStatus(c *gin.Context) {
 	c.JSON(http.StatusOK, gin.H{"data": result})
 }
 
-// ListChannelConfigs 获取某插件的所有渠道级配置
-func (h *PluginHandler) ListChannelConfigs(c *gin.Context) {
-	id, err := parseID(c)
-	if err != nil {
-		c.JSON(http.StatusBadRequest, errorResponse("invalid_id", "invalid plugin id"))
-		return
-	}
-	settings, err := h.pluginMgr.ListChannelPluginConfigs(c.Request.Context(), id)
-	if err != nil {
-		c.JSON(http.StatusInternalServerError, errorResponse("internal_error", err.Error()))
-		return
-	}
-	c.JSON(http.StatusOK, gin.H{"data": settings})
-}
-
-// SetChannelConfig 设置某插件在某渠道的配置
-func (h *PluginHandler) SetChannelConfig(c *gin.Context) {
-	id, err := parseID(c)
-	if err != nil {
-		c.JSON(http.StatusBadRequest, errorResponse("invalid_id", "invalid plugin id"))
-		return
-	}
-	channelID, err := parseIDFromParam(c, "channelId")
-	if err != nil {
-		c.JSON(http.StatusBadRequest, errorResponse("invalid_channel_id", "invalid channel id"))
-		return
-	}
-	var body struct {
-		Config string `json:"config"`
-	}
-	if err := c.ShouldBindJSON(&body); err != nil {
-		c.JSON(http.StatusBadRequest, errorResponse("invalid_body", err.Error()))
-		return
-	}
-	if err := h.pluginMgr.SetChannelPluginConfig(c.Request.Context(), channelID, id, body.Config); err != nil {
-		c.JSON(http.StatusInternalServerError, errorResponse("save_failed", err.Error()))
-		return
-	}
-	c.JSON(http.StatusOK, gin.H{"data": gin.H{"plugin_id": id, "channel_id": channelID}})
-}
-
 // RegistryList 获取注册中心插件列表（带缓存）
 func (h *PluginHandler) RegistryList(c *gin.Context) {
 	registryURL := h.cfg.Plugin.PluginRegistryURL
@@ -463,25 +418,6 @@ func (h *PluginHandler) RegistryInstall(c *gin.Context) {
 	h.registry.mu.Unlock()
 
 	c.JSON(http.StatusOK, gin.H{"data": p})
-}
-
-// DeleteChannelConfig 删除某插件在某渠道的配置
-func (h *PluginHandler) DeleteChannelConfig(c *gin.Context) {
-	id, err := parseID(c)
-	if err != nil {
-		c.JSON(http.StatusBadRequest, errorResponse("invalid_id", "invalid plugin id"))
-		return
-	}
-	channelID, err := parseIDFromParam(c, "channelId")
-	if err != nil {
-		c.JSON(http.StatusBadRequest, errorResponse("invalid_channel_id", "invalid channel id"))
-		return
-	}
-	if err := h.pluginMgr.DeleteChannelPluginConfig(c.Request.Context(), channelID, id); err != nil {
-		c.JSON(http.StatusInternalServerError, errorResponse("delete_failed", err.Error()))
-		return
-	}
-	c.JSON(http.StatusOK, gin.H{"data": gin.H{"plugin_id": id, "channel_id": channelID}})
 }
 
 // ListChannelTypes 获取所有渠道类型（内置 + 插件注册的）
