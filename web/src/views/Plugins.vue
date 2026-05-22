@@ -115,7 +115,7 @@
       </n-grid-item>
     </n-grid>
 
-    <!-- 配置弹窗：全局配置 + 渠道级配置 Tab -->
+    <!-- 配置弹窗 -->
     <n-modal v-model:show="configModalShow" preset="card" :title="t('plugins.configTitle')" style="width:600px">
       <n-tabs type="line" size="small">
         <!-- 全局配置 Tab -->
@@ -177,35 +177,22 @@
           </n-space>
         </n-tab-pane>
 
-        <!-- 渠道级配置 Tab -->
-        <n-tab-pane :name="'channel'" :tab="t('plugins.channelConfig')">
-          <n-empty v-if="channelConfigs.length === 0" :description="t('plugins.noChannelConfig')" style="padding:24px 0" />
-          <n-card v-for="cc in channelConfigs" :key="cc.id" size="small" style="margin-bottom:8px">
-            <template #header>
-              {{ t('plugins.channelId') }}: {{ cc.channel_id }}
-            </template>
-            <n-space vertical>
-              <n-space align="center">
-                <span style="font-size:13px">{{ t('plugins.enablePlugin') }}：</span>
-                <n-switch :value="channelEnabled(cc)" @update:value="(val: boolean) => setChannelEnabled(cc, val)" />
-              </n-space>
-              <n-collapse>
-                <n-collapse-item :title="t('plugins.advancedMode')" style="font-size:12px">
-                  <n-input v-model:value="cc.config" type="textarea" :rows="4" font="monospace" placeholder="JSON" />
-                </n-collapse-item>
-              </n-collapse>
-            </n-space>
-            <template #action>
-              <n-space justify="end">
-                <n-button size="small" type="primary" @click="saveChannelConfig(cc)">{{ t('common.save') }}</n-button>
-                <n-button size="small" type="error" ghost @click="deleteChannelConfig(cc)">{{ t('common.delete') }}</n-button>
-              </n-space>
-            </template>
-          </n-card>
-          <!-- 添加渠道配置 -->
-          <n-space style="margin-top:12px" align="center">
-            <n-input-number v-model:value="newChannelId" :min="1" size="small" :placeholder="t('plugins.channelId')" style="width:120px" />
-            <n-button size="small" @click="addChannelConfig">{{ t('plugins.addChannelConfig') }}</n-button>
+        <!-- 渠道配置 Tab -->
+        <n-tab-pane :name="'channels'" :tab="'渠道配置'">
+          <n-spin :show="channelLoading">
+            <n-empty v-if="!channelLoading && channelList.length === 0" description="暂无启用的渠道" />
+            <div v-else style="display:flex;flex-direction:column;gap:8px">
+              <div v-for="ch in channelList" :key="ch.id"
+                style="display:flex;align-items:center;justify-content:space-between;padding:8px 12px;border-radius:6px;background:rgba(255,255,255,0.04)">
+                <span>{{ ch.name }} <span style="color:#999;font-size:12px">ID: {{ ch.id }}</span></span>
+                <n-switch v-model:value="channelConfigMap[ch.id]" />
+              </div>
+            </div>
+          </n-spin>
+          <n-space justify="end" style="margin-top:12px">
+            <n-button type="primary" :loading="channelSaving" @click="saveChannelConfig">
+              保存配置
+            </n-button>
           </n-space>
         </n-tab-pane>
       </n-tabs>
@@ -302,7 +289,8 @@ import {
   NList, NListItem, NThing, NSpin, NCheckbox,
 } from 'naive-ui'
 import { CloudUploadOutline as UploadIcon, AppsOutline as StoreIcon } from '@vicons/ionicons5'
-import { pluginApi, type PluginItem, type ChannelPluginConfig, type RegistryEntry } from '../api/plugin'
+import { pluginApi, type PluginItem, type RegistryEntry } from '../api/plugin'
+import { channelApi } from '../api/channel'
 import { systemApi } from '../api/system'
 
 const { t } = useI18n()
@@ -318,8 +306,6 @@ const configText = ref('')
 const configSaving = ref(false)
 const configPluginId = ref<number>(0)
 const advancedMode = ref(false)
-const channelConfigs = ref<ChannelPluginConfig[]>([])
-const newChannelId = ref<number | null>(null)
 
 // 动态表单相关
 interface SchemaField {
@@ -334,6 +320,12 @@ interface SchemaField {
 }
 const configSchemaFields = ref<SchemaField[]>([])
 const configFormValues = reactive<Record<string, any>>({})
+
+// 渠道配置相关
+const channelList = ref<{ id: number; name: string }[]>([])
+const channelLoading = ref(false)
+const channelSaving = ref(false)
+const channelConfigMap = reactive<Record<number, boolean>>({})
 
 const versionTagType = 'default' as const
 
@@ -508,6 +500,18 @@ async function handleStop(plugin: PluginItem) {
 
 function handleUninstall(plugin: PluginItem) {
   const keepLogsRef = ref(false)
+  const dropTablesRef = ref(false)
+  const pluginTables = ref<string[]>([])
+  
+  // 加载表清单
+  if (plugin.has_db) {
+    pluginApi.getTables(plugin.id).then(res => {
+      pluginTables.value = res.data.data || []
+    }).catch(() => {
+      pluginTables.value = []
+    })
+  }
+  
   dialog.error({
     title: t('plugins.uninstall'),
     content: () => h('div', {}, [
@@ -519,12 +523,23 @@ function handleUninstall(plugin: PluginItem) {
         default: () => t('plugins.keepLogsOnUninstall'),
       }),
       h('p', { style: 'font-size: 12px; color: var(--n-text-color-3); margin-top: 4px' }, t('plugins.keepLogsHint')),
+      plugin.has_db ? h('div', { style: 'margin-top: 12px' }, [
+        h(NCheckbox, {
+          checked: dropTablesRef.value,
+          'onUpdate:checked': (val: boolean) => { dropTablesRef.value = val },
+        }, {
+          default: () => h('span', {}, '删除插件创建的数据表'),
+        }),
+        dropTablesRef.value && pluginTables.value.length > 0 ? h('p', {
+          style: 'font-size: 12px; color: var(--n-text-color-3); margin-top: 4px'
+        }, '将删除以下表：' + pluginTables.value.join(', ')) : null,
+      ]) : null,
     ]),
     positiveText: t('plugins.uninstall'),
     negativeText: t('common.cancel'),
     onPositiveClick: async () => {
       try {
-        await pluginApi.delete(plugin.id, keepLogsRef.value)
+        await pluginApi.deleteWithTables(plugin.id, keepLogsRef.value, dropTablesRef.value)
         message.success(t('plugins.uninstallSuccess'))
         await fetchPlugins()
       } catch (e: any) {
@@ -534,7 +549,7 @@ function handleUninstall(plugin: PluginItem) {
   })
 }
 
-function openConfig(plugin: PluginItem) {
+async function openConfig(plugin: PluginItem) {
   configPluginId.value = plugin.id
   advancedMode.value = false
 
@@ -565,8 +580,16 @@ function openConfig(plugin: PluginItem) {
 
   configModalShow.value = true
 
-  // 加载渠道级配置
-  fetchChannelConfigs(plugin.id)
+  // 加载渠道列表并填充开关状态
+  const chConfigs = currentConfig.channel_configs || {}
+  for (const key of Object.keys(channelConfigMap)) {
+    delete channelConfigMap[Number(key)]
+  }
+  await fetchChannelList()
+  for (const ch of channelList.value) {
+    const cfg = chConfigs[String(ch.id)] || {}
+    channelConfigMap[ch.id] = cfg.enabled || false
+  }
 }
 
 function toggleAdvancedMode() {
@@ -608,98 +631,44 @@ async function saveConfig() {
   }
 }
 
-async function fetchChannelConfigs(pluginId: number) {
+// 加载渠道列表
+async function fetchChannelList() {
+  channelLoading.value = true
   try {
-    const { data } = await pluginApi.listChannelConfigs(pluginId)
-    channelConfigs.value = data?.data || []
+    const { data } = await channelApi.listSimple()
+    channelList.value = data.data || []
   } catch {
-    channelConfigs.value = []
+    channelList.value = []
+  } finally {
+    channelLoading.value = false
   }
 }
 
-async function saveChannelConfig(cc: ChannelPluginConfig) {
+// 保存渠道配置
+async function saveChannelConfig() {
+  channelSaving.value = true
   try {
-    let cfg: any
-    try { cfg = JSON.parse(cc.config) } catch { cfg = {} }
-    // normalize: 同步 enabled 字段
-    cfg.enabled = channelConfigEnabled.value[cc.channel_id] ?? false
-    cc.config = JSON.stringify(cfg)
-    JSON.parse(cc.config) // final validation
-    await pluginApi.setChannelConfig(cc.plugin_id, cc.channel_id, cc.config)
-    message.success(t('common.saveSuccess'))
-    await fetchChannelConfigs(cc.plugin_id)
-  } catch (e: any) {
-    if (e instanceof SyntaxError) {
-      message.error('Invalid JSON')
-    } else {
-      message.error(e?.response?.data?.error?.message || 'Error')
+    // 读取当前完整配置
+    let currentConfig: Record<string, any> = {}
+    try {
+      currentConfig = JSON.parse(configText.value || '{}')
+    } catch {}
+
+    // 构建 channel_configs
+    const channelConfigs: Record<string, { enabled: boolean }> = {}
+    for (const ch of channelList.value) {
+      channelConfigs[String(ch.id)] = { enabled: channelConfigMap[ch.id] || false }
     }
-  }
-}
+    currentConfig.channel_configs = channelConfigs
 
-// 渠道开关状态（channel_id → boolean）
-const channelConfigEnabled = ref<Record<number, boolean>>({})
-
-function channelEnabled(cc: ChannelPluginConfig): boolean {
-  if (cc.channel_id in channelConfigEnabled.value) {
-    return channelConfigEnabled.value[cc.channel_id]
+    const finalConfig = JSON.stringify(currentConfig)
+    await pluginApi.updateConfig(configPluginId.value, finalConfig)
+    message.success('渠道配置已保存')
+  } catch (e: any) {
+    message.error(e?.response?.data?.error?.message || '保存失败')
+  } finally {
+    channelSaving.value = false
   }
-  try {
-    const cfg = JSON.parse(cc.config)
-    return cfg.enabled === true
-  } catch {
-    return false
-  }
-}
-
-function setChannelEnabled(cc: ChannelPluginConfig, val: boolean) {
-  channelConfigEnabled.value[cc.channel_id] = val
-  try {
-    const cfg = JSON.parse(cc.config)
-    cfg.enabled = val
-    cc.config = JSON.stringify(cfg)
-  } catch {
-    cc.config = JSON.stringify({ enabled: val })
-  }
-}
-
-async function deleteChannelConfig(cc: ChannelPluginConfig) {
-  dialog.error({
-    title: t('common.delete'),
-    content: t('plugins.deleteChannelConfigConfirm'),
-    positiveText: t('common.delete'),
-    negativeText: t('common.cancel'),
-    onPositiveClick: async () => {
-      try {
-        await pluginApi.deleteChannelConfig(cc.plugin_id, cc.channel_id)
-        message.success(t('common.deleteSuccess'))
-        await fetchChannelConfigs(cc.plugin_id)
-      } catch (e: any) {
-        message.error(e?.response?.data?.error?.message || 'Error')
-      }
-    },
-  })
-}
-
-function addChannelConfig() {
-  if (!newChannelId.value) {
-    message.warning(t('plugins.channelIdRequired'))
-    return
-  }
-  // 检查是否已存在
-  if (channelConfigs.value.some(cc => cc.channel_id === newChannelId.value)) {
-    message.warning(t('plugins.channelConfigExists'))
-    return
-  }
-  channelConfigs.value.push({
-    id: 0,
-    channel_id: newChannelId.value!,
-    plugin_id: configPluginId.value,
-    config: '{}',
-    created_at: '',
-    updated_at: '',
-  })
-  newChannelId.value = null
 }
 
 // 注册中心相关

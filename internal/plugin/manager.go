@@ -514,6 +514,9 @@ func (m *Manager) Start(ctx context.Context, pluginID uint) error {
 
 	m.logger.Info("plugin started", zap.String("name", plugin.Name), zap.Int("pid", pid))
 
+	// 注册到钩子调度器（Start 时加入内存注册表）
+	m.registry.insert(&plugin)
+
 	// 启动后健康确认：同步轮询 /health 端点（最多 3 次，间隔 1 秒）
 	healthOK := false
 	for i := 0; i < 3; i++ {
@@ -1048,6 +1051,16 @@ func (m *Manager) SyncPermissions(ctx context.Context, pluginName, pluginVersion
 				"required":       decl.Required,
 				"plugin_version": pluginVersion,
 			}
+			// 如果状态为 uninstalled（卸载重装场景），重置为 pending
+			if existing.Status == "uninstalled" {
+				updates["status"] = PermPending
+				if m.autoGrantPerms {
+					updates["status"] = PermGranted
+					now := time.Now()
+					updates["granted_by"] = "auto"
+					updates["granted_at"] = &now
+				}
+			}
 			if err := m.db.WithContext(ctx).Model(&existing).Updates(updates).Error; err != nil {
 				return fmt.Errorf("update permission %s for plugin %s: %w", decl.Name, pluginName, err)
 			}
@@ -1353,11 +1366,11 @@ func (m *Manager) UpdateHookEnabled(ctx context.Context, hookID uint, enabled bo
 	return m.db.WithContext(ctx).Model(&Hook{}).Where("id = ?", hookID).Update("enabled", enabled).Error
 }
 
-// GetHookPlugins 获取某钩子下已注册的插件列表
+// GetHookPlugins 获取某钩子下已注册的插件列表（全部状态）
 func (m *Manager) GetHookPlugins(ctx context.Context, hookName string) ([]Plugin, error) {
 	var plugins []Plugin
 	err := m.db.WithContext(ctx).
-		Where("status = ? AND hooks LIKE ?", StatusRunning, "%\""+hookName+"\"%").
+		Where("hooks LIKE ?", "%\""+hookName+"\"%").
 		Order("priority ASC").
 		Find(&plugins).Error
 	return plugins, err

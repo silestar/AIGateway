@@ -1,11 +1,76 @@
 # Changelog
 
-## [Unreleased]
+## [0.3.0] - 2026-05-22
 
 ### 数据库迁移工具
 - 新增 `scripts/db_migrate/` 数据库迁移工具，支持 SQLite / MySQL / PostgreSQL 互转
 - 全自动流程：读表结构 → 方言转译 → 建表 → 复制数据 → 修改配置
 - 源数据库只读，任何失败都不修改 AGW 配置
+- 新增 `scripts/db_migrate/verify_migration.py` 迁移数据校验工具
+- 迁移脚本自动修复 SQLite→PG 的类型问题（JSON 列脏数据清洗、布尔列 0/1 转 boolean）
+
+### 插件架构重大重构：声明式钩子 + 统调度引擎
+
+#### 核心改造：废除 `channel_plugin_settings`
+- **背景**：旧架构中插件与渠道通过 `channel_plugin_settings` 表硬绑定，钩子调度完全依赖渠道上下文
+- **问题**：插件无法在无渠道上下文中工作，每个渠道需要单独配置插件，运维复杂度随渠道数线性增长
+- **改造**：
+  - 彻底移除 `channel_plugin_settings` 表、`ChannelPluginSetting` 结构体、`GetConnectionDecoratorAddr` 方法
+  - 移除所有关联 API：`GET /api/plugins/:id/channel-configs`、`PUT /api/plugins/:id/channel-configs/:channelId`、`DELETE /api/plugins/:id/channel-configs/:channelId`
+  - 移除前端渠道配置面板（`Plugins.vue` 中 `ChannelConfigPanel` 组件）
+  - 插件与钩子的绑定改为**声明式自动注册**：安装时根据 `manifest.json` 的 `hooks` 字段自动关联
+
+#### 统一钩子调度引擎
+- **新增 `hooks` 表**：系统预埋 5 个钩子（`connection_decorator`、`pre_request`、`post_response`、`account_select`、`on_log`），开发人员写入，管理员只能启用/禁用
+- **新增 `hookRegistry`**：`manager.go` 内存中的钩子-插件双向索引，插件启动/停止时动态注册/注销
+- **重写 `TriggerHook`**：改为遍历 `hookRegistry` 中该钩子的所有注册插件，按 `priority` 排序依次调用
+  - `pre_request` / `post_response`：遇到 `reject` 即终止
+  - `account_select`：累计 `exclude_ids`，传递给下游
+  - `on_log`：异步调用，不等待响应
+  - `connection_decorator`：第一个返回 `proxy_addr` 的插件生效即可
+
+#### `manifest.json` 新字段
+- `display_name`：中文展示名（前端卡片标题）
+- `tables`：声明式建表需求（`[{name, columns, indexes}]`），安装时自动建表，卸载时可选删除
+- `timeout`：插件声明超时（ms），0 则用钩子默认超时
+- `params_schema`：钩子参数契约（JSON Schema），用于前端动态表单和运行时校验
+
+#### Plugin 模型新增字段
+- `display_name`、`priority`（钩子执行优先级，值越小越先执行）、`has_db`、`tables_created`（安装时建的表名列表）、`timeout`
+- `Manifest` 字段（存储完整 `manifest.json` 内容供后续审计和复检）
+
+#### 新增钩子管理 API
+- `GET /api/hooks`：列出所有系统钩子，含启用状态、超时、参数契约
+- `PUT /api/hooks/:id/enabled`：管理员启用/禁用钩子
+- `GET /api/hooks/:name/plugins`：查看某钩子下按优先级排序的已注册插件列表
+- `PUT /api/plugins/:id/priority`：调整插件在钩子中的执行优先级
+- `GET /api/plugins/:id/tables`：查看插件安装时创建的数据库表名列表
+- `GET /api/channels/simple`：返回所有启用渠道的 id+name（仅两个字段，无敏感数据），供插件配置 Tab 选择渠道使用
+
+#### 前端改造
+- **新增 `PluginSettings.vue`**（144 行）：独立的钩子管理页面，路由 `/plugins/settings`
+  - 左侧钩子列表（名称、类型、状态开关、已注册插件数）
+  - 右侧已注册插件列表（名称、优先级可调、状态、版本）
+- **重构 `Plugins.vue`**：移除渠道配置面板（`ChannelConfigPanel`），卸载弹窗新增「删除数据库表」checkbox
+- **插件配置弹窗新增「渠道配置」Tab**：调用 `/api/channels/simple` 获取渠道列表，管理员勾选启用代理的渠道并保存，插件根据 channel_id 匹配 `channel_configs` 决定是否走 AGP 代理
+- **路由新增**：`/plugins/settings` → `PluginSettings.vue`
+
+#### 废弃旧 API
+- `GET /api/plugins/:id/channel-configs` → 404（已移除路由注册）
+- 前端 `plugin.ts` API 层移除 `getChannelConfigs`、`saveChannelConfig`、`deleteChannelConfig`
+
+#### 声明式建表引擎
+- `buildCreateTableSQL`：解析 `manifest.json` 的 `tables` 声明，生成兼容 SQLite/MySQL/PostgreSQL 的 `CREATE TABLE` SQL
+- 安装时自动执行建表，表名存入 `tables_created`（JSON array）
+- 卸载时可选 `dropTables=true` 自动 `DROP TABLE`
+
+#### 权限重新安装修复
+- 修复 `SyncPermissions` 卸载重装场景：已有权限记录 `status=uninstalled` 时重置为 `pending`（`autoGrant` 时 `granted`）
+
+#### Breaking Changes
+- 旧版 `channel_plugin_settings` 表中的配置数据**不会自动迁移**
+- `connection_decorator` 插件不再需要渠道级绑定，安装并启用全局钩子即可生效
+- 前端无需再为每个渠道单独配置插件，插件管理集中到 `/plugins/settings`
 
 ## [0.2.4] - 2026-05-21
 

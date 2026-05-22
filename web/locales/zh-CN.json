@@ -53,7 +53,8 @@
     "createdAt": "创建时间",
     "selectAll": "全选",
     "deselectAll": "取消全选",
-    "saveSuccess": "保存成功"
+    "saveSuccess": "保存成功",
+    "noChanges": "没有检测到更改"
   },
   "keys": {
     "title": "密钥管理",

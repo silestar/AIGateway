@@ -29,6 +29,7 @@ func (h *ChannelHandler) RegisterRoutes(rg *gin.RouterGroup) {
 	channels := rg.Group("/channels")
 	channels.GET("", h.List)
 	channels.POST("", h.Create)
+	channels.GET("/simple", h.ListSimple) // 必须在 /:id 之前
 	channels.GET("/custom-model-names", h.GetCustomModelNames) // 必须在 /:id 之前
 	channels.GET("/:id", h.GetById)
 	channels.PUT("/:id", h.Update)
@@ -127,6 +128,34 @@ func (h *ChannelHandler) List(c *gin.Context) {
 		"page":      filter.Page,
 		"page_size": filter.PageSize,
 	})
+}
+
+// ChannelSimple 渠道简要信息（仅 id + name，供插件配置等场景使用）
+type ChannelSimple struct {
+	ID   uint   `json:"id"`
+	Name string `json:"name"`
+}
+
+// ListSimple GET /api/channels/simple — 返回所有启用渠道的 id+name（无敏感数据）
+func (h *ChannelHandler) ListSimple(c *gin.Context) {
+	items, _, err := h.svc.List(c.Request.Context(), channel.ListFilter{
+		Page:     1,
+		PageSize: 1000,
+		Status:   "active",
+	})
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, errorResponse("internal_error", err.Error()))
+		return
+	}
+
+	result := make([]ChannelSimple, 0, len(items))
+	for _, item := range items {
+		result = append(result, ChannelSimple{
+			ID:   item.ID,
+			Name: item.Name,
+		})
+	}
+	c.JSON(http.StatusOK, gin.H{"data": result})
 }
 
 // GetById 获取渠道详情
