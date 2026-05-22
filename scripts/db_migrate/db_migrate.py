@@ -372,6 +372,85 @@ def quote_cols(db_type, cols):
     return ", ".join(f'"{n}"' for n in names)
 
 
+def _fix_json_columns(tgt_conn, tgt_type):
+    """
+    修复从 SQLite 导入到 PG/MySQL 后的 JSON 字段脏数据。
+    
+    问题：SQLite 存储的 json.RawMessage 字段（retry_chain / request_meta / response_meta）
+    导出时可能有各种无效值（NULL / 空串 / 转义字符串等），在 PG/MySQL 中 ALTER COLUMN TYPE json 会失败。
+    
+    修复：无条件把所有值统一设成 '[]'，再改列类型为 json。
+    """
+    json_columns = ["retry_chain", "request_meta", "response_meta"]
+    table = "request_logs"
+    
+    if tgt_type == "postgresql":
+        cur = tgt_conn.cursor()
+        for col in json_columns:
+            cur.execute(f'UPDATE "{table}" SET "{col}" = %s', ("[]",))
+            cur.execute(
+                f'ALTER TABLE "{table}" ALTER COLUMN "{col}" TYPE json USING "{col}"::json'
+            )
+            print(f"    JSON 列修复: {table}.{col} → json ✅")
+        cur.close()
+    elif tgt_type == "mysql":
+        cur = tgt_conn.cursor()
+        for col in json_columns:
+            cur.execute(f"UPDATE `{table}` SET `{col}` = %s", ("[]",))
+            cur.execute(
+                f"ALTER TABLE `{table}` MODIFY COLUMN `{col}` JSON"
+            )
+            print(f"    JSON 列修复: {table}.{col} → json ✅")
+        tgt_conn.commit()
+
+
+def _fix_bool_columns(tgt_conn, tgt_type):
+    """
+    修复从 SQLite 导入到 PG/MySQL 后的布尔字段类型。
+
+    问题：SQLite 的布尔字段存 0/1（numeric 亲和），迁移脚本建表时
+    兜底成 TEXT 类型。PG 的 GORM 查询 WHERE/CASE WHEN 对 boolean 列
+    比较时报 "argument of CASE/WHEN must be type boolean, not type text"。
+
+    修复：将 0/1 数据转为布尔值，列类型改为 BOOLEAN。
+    """
+    # 表名 → 布尔列名列表
+    bool_columns_map = {
+        "channel_models": ["upstream_visible", "display_visible"],
+        "hooks": ["enabled"],
+        "request_logs": ["is_stream"],
+    }
+
+    if tgt_type == "postgresql":
+        cur = tgt_conn.cursor()
+        for table, cols in bool_columns_map.items():
+            for col in cols:
+                # DROP DEFAULT → 转类型 → SET DEFAULT
+                cur.execute(f'ALTER TABLE "{table}" ALTER COLUMN "{col}" DROP DEFAULT')
+                cur.execute(
+                    f'ALTER TABLE "{table}" ALTER COLUMN "{col}" TYPE boolean '
+                    f'USING "{col}"::text::boolean'
+                )
+                cur.execute(f'ALTER TABLE "{table}" ALTER COLUMN "{col}" SET DEFAULT true')
+                print(f"    BOOL 列修复: {table}.{col} → boolean ✅")
+        cur.close()
+    elif tgt_type == "mysql":
+        cur = tgt_conn.cursor()
+        for table, cols in bool_columns_map.items():
+            for col in cols:
+                cur.execute(
+                    f"UPDATE `{table}` SET `{col}` = 1 WHERE `{col}` IN ('1', 'true', 'TRUE')"
+                )
+                cur.execute(
+                    f"UPDATE `{table}` SET `{col}` = 0 WHERE `{col}` NOT IN ('1', '0')"
+                )
+                cur.execute(
+                    f"ALTER TABLE `{table}` MODIFY COLUMN `{col}` TINYINT(1)"
+                )
+                print(f"    BOOL 列修复: {table}.{col} → TINYINT(1) ✅")
+        tgt_conn.commit()
+
+
 def get_row_count(conn, db_type, table):
     if db_type == "sqlite":
         cur = conn.execute(f'SELECT COUNT(*) FROM "{table}"')
@@ -595,7 +674,12 @@ def main():
     if failed:
         print(f"    失败: {len(failed)} 张表 ({', '.join(failed)})")
     print()
-    
+
+    # ── 修复 JSON 字段 ──
+    if tgt_type in ("postgresql", "mysql"):
+        _fix_json_columns(tgt_conn, tgt_type)
+        _fix_bool_columns(tgt_conn, tgt_type)
+
     conn.close()
     tgt_conn.close()
     

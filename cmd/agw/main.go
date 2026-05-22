@@ -29,6 +29,9 @@ import (
 
 	"github.com/silestar/AIGateway/internal/proxy"
 	"github.com/silestar/AIGateway/internal/stats"
+	"github.com/silestar/AIGateway/internal/storage"
+	"github.com/silestar/AIGateway/internal/storage/mysql"
+	"github.com/silestar/AIGateway/internal/storage/postgres"
 	"github.com/silestar/AIGateway/internal/storage/sqlite"
 	agwapi "github.com/silestar/AIGateway/internal/api"
 	"github.com/silestar/AIGateway/pkg/middleware"
@@ -67,7 +70,15 @@ func main() {
 	}
 
 	// 5. 初始化存储
-	store, err := sqlite.New(cfg.DB)
+	var store storage.Storage
+	switch cfg.DB.Type {
+	case "mysql":
+		store, err = mysql.New(cfg.DB)
+	case "postgresql":
+		store, err = postgres.New(cfg.DB)
+	default:
+		store, err = sqlite.New(cfg.DB)
+	}
 	if err != nil {
 		logger.Fatal("init storage", zap.Error(err))
 	}
@@ -189,7 +200,7 @@ func main() {
 	registerRoutes(router, cfg, catalogSvc, logger)
 
 	// 9. 统一迁移（版本检测 + DB 表迁移 + 版本标记）
-	if err := config.RunMigration("./config/config.yaml", db, logger); err != nil {
+	if err := config.RunMigration("./config/config.yaml", db, cfg.DB.Type, logger); err != nil {
 		logger.Error("migration failed", zap.Error(err))
 	}
 

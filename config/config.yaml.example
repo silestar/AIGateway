@@ -8,13 +8,21 @@ server:
   # api_token: ""  # 管理端认证令牌，留空则无需登录（不推荐生产环境留空）
 
 db:
-  type: "sqlite"
-  path: "data/agw.db"
-  # MySQL/PostgreSQL 配置（type 切换后生效）
+  type: "sqlite"       # sqlite / mysql / postgres
+  path: "data/agw.db"   # SQLite 文件路径（仅 sqlite 模式）
+
+  # === MySQL 配置示例（type: "mysql" 时生效）===
   # host: "127.0.0.1"
   # port: 3306
   # user: "agw"
-  # password: ""
+  # password: "your_password"   # 建议放 .env 中
+  # name: "aigateway"
+
+  # === PostgreSQL 配置示例（type: "postgres" 时生效）===
+  # host: "127.0.0.1"
+  # port: 5432
+  # user: "agw"
+  # password: "your_password"   # 建议放 .env 中
   # name: "aigateway"
 
 redis:

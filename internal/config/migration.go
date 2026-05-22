@@ -30,7 +30,7 @@ const CurrentVersion = "0.2.4"
 // 注意：
 //   - 配置补全（EnsureConfigCompleteness）在 config.Load() 中完成（需要 viper 上下文）
 //   - DB 表 AutoMigrate 由各自包的初始化函数完成，不在本文件中集中管理
-func RunMigration(configPath string, db *gorm.DB, logger *zap.Logger) error {
+func RunMigration(configPath string, db *gorm.DB, dbType string, logger *zap.Logger) error {
 	// 1. 清理版本文件中的 FAILED 标记（上次迁移失败残留）
 	_ = cleanupFailedMark(logger)
 
@@ -64,7 +64,15 @@ func RunMigration(configPath string, db *gorm.DB, logger *zap.Logger) error {
 
 	// 4. 备份数据库
 	dbPath := "data/agw.db"
-	backupPath, backupErr := backupDatabase(dbPath, logger)
+	var backupPath string
+	var backupErr error
+	if dbType == "sqlite" {
+		backupPath, backupErr = backupDatabase(dbPath, logger)
+	} else {
+		if logger != nil {
+			logger.Info("non-sqlite database, skipping file backup", zap.String("type", dbType))
+		}
+	}
 	if backupErr != nil {
 		if logger != nil {
 			logger.Warn("database backup failed, continuing without backup", zap.Error(backupErr))
