@@ -1,7 +1,7 @@
 # 管理 API 接口规范
 
-> 版本：1.2  
-> 最后更新：2026-05-08  
+> 版本：1.3  
+> 最后更新：2026-05-22  
 > 本文档集中定义 AIGateway 所有管理 API 端点，作为前后端开发的单一真相来源。
 
 ---
@@ -1451,12 +1451,14 @@
     {
       "id": 1,
       "name": "content-filter",
+      "display_name": "敏感词过滤器",
       "version": "1.0.0",
       "description": "过滤请求中的敏感词",
       "author": "dev@example.com",
       "hooks": ["pre_request"],
       "status": "running",
       "port": 9001,
+      "priority": 100,
       "installed_at": "2026-05-03T10:00:00Z"
     }
   ],
@@ -1520,11 +1522,115 @@
 
 ---
 
-### 7.5 卸载插件
+### 7.5 调整插件优先级（v0.2.5 新增）
+
+**`PUT /api/plugins/:id/priority`**
+
+请求体：
+
+```json
+{
+  "priority": 50
+}
+```
+
+> 调整插件在同钩子中的执行顺序。值越小越先执行，默认 100。
+
+---
+
+### 7.6 查看插件建的表（v0.2.5 新增）
+
+**`GET /api/plugins/:id/tables`**
+
+响应：
+
+```json
+{
+  "data": ["plugin_blocked_logs"]
+}
+```
+
+> 返回插件安装时根据 `manifest.json` 的 `tables` 声明创建的数据库表名列表。
+
+---
+
+### 7.7 卸载插件
 
 **`DELETE /api/plugins/:id`**
 
+查询参数：
+
+| 参数 | 类型 | 默认 | 说明 |
+|------|------|------|------|
+| `keep_logs` | bool | `false` | 是否保留插件日志目录 |
+| `drop_tables` | bool | `false` | 是否删除插件安装时创建的数据库表 |
+
 > 先自动禁用再删除插件目录及数据库记录。
+
+---
+
+### 7.8 钩子管理（v0.2.5 新增）
+
+#### 7.8.1 钩子列表
+
+**`GET /api/hooks`**
+
+响应：
+
+```json
+{
+  "data": [
+    {
+      "id": 1,
+      "name": "connection_decorator",
+      "hook_type": "connection",
+      "description": "连接层装饰器（TLS指纹伪装/代理）",
+      "params_schema": "...",
+      "timeout": 30000,
+      "enabled": true,
+      "plugin_count": 1,
+      "updated_at": "2026-05-22T10:00:00Z"
+    }
+  ]
+}
+```
+
+#### 7.8.2 启用/禁用钩子
+
+**`PUT /api/hooks/:id/enabled`**
+
+请求体：
+
+```json
+{
+  "enabled": false
+}
+```
+
+> 禁用钩子后，该钩子下所有已注册插件的调用都将被跳过。
+
+#### 7.8.3 查看钩子的已注册插件
+
+**`GET /api/hooks/:name/plugins`**
+
+响应：
+
+```json
+{
+  "data": [
+    {
+      "id": 1,
+      "name": "agp-proxy",
+      "display_name": "AGP代理",
+      "version": "1.0.0",
+      "status": "running",
+      "priority": 50
+    }
+  ]
+}
+```
+
+> 返回该钩子下所有已注册的运行中插件，按 priority 升序排列。
 
 ---
 

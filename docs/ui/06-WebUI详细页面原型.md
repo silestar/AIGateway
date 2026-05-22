@@ -33,6 +33,7 @@
     - 请求日志
         
     - 插件市场
+        - 钩子设置
         
     - 系统设置
         
@@ -54,6 +55,7 @@
 |`/logs/requests`|RequestLogs|请求日志查询|
 |`/models`|Models|模型管理|
 |`/plugins`|PluginMarket|插件管理|
+|`/plugins/settings`|PluginSettings|钩子设置|
 |`/settings`|SystemSettings|系统配置、日志下载|
 
 ## 2. 核心页面详细设计
@@ -344,29 +346,58 @@
     - `GET /api/logs/requests/export?...`
         
 
-### 2.7 插件市场 (PluginMarket)
+### 2.7 插件管理 (PluginMarket)
 
 **功能**：管理Sidecar插件。
 
 **组件**：
 
 - 插件卡片列表：显示名称、版本、描述、状态（运行/停止/异常）。
-    
+
 - 上传按钮：上传ZIP包。
-    
-- 卡片操作：启用/禁用按钮（根据状态变化）、配置按钮（弹出根据`config_schema`生成的动态表单）、卸载按钮（需确认）。
-    
+
+- 卡片操作：启用/禁用按钮（根据状态变化）、配置按钮（弹出根据`config_schema`生成的动态表单）、卸载按钮（需确认，可选保留日志和删除数据库表）。
+
 - 日志查看入口：可打开一个简易终端显示插件stderr输出（未来功能）。
-    
+
 - API:
     
     - `GET /api/plugins`
         
     - `POST /api/plugins/upload`
         
-    - `POST /api/plugins/:id/toggle` (启用/禁用)
+    - `POST /api/plugins/:id/toggle` (启用/禁用)
         
-    - `PUT /api/plugins/:id/config` { config }
+    - `PUT /api/plugins/:id/config` { config }
+
+    - `PUT /api/plugins/:id/priority` { priority }
+    
+    - `GET /api/plugins/:id/tables`
+
+    - `DELETE /api/plugins/:id?keep_logs=true&drop_tables=true`
+
+> **v2.0 变更**：不再显示渠道级配置面板（`channel_plugin_settings` 已废除）。插件通过钩子全局生效。
+
+### 2.7.1 钩子设置 (PluginSettings)（v2.0 新增）
+
+**功能**：管理钩子与插件的绑定关系。
+
+**页面布局**：
+- 左侧钩子列表（`n-list`），每项显示：
+  - 钩子名称（中英文对照）
+  - 类型标签（request/response/connection/lifecycle/selection）
+  - 启用/禁用开关（`n-switch`）
+  - 已注册插件数
+- 右侧已注册插件列表（点击钩子后展示）：
+  - 插件名称、display_name、版本
+  - 优先级可调（`n-input-number`，回车保存）
+  - 状态标签
+
+**API**：
+- `GET /api/hooks` — 获取所有钩子
+- `PUT /api/hooks/:id/enabled` — 启用/禁用钩子
+- `GET /api/hooks/:name/plugins` — 获取钩子下的已注册插件
+- `PUT /api/plugins/:id/priority` — 调整插件优先级
         
 
 ### 2.8 模型管理 (Models)
