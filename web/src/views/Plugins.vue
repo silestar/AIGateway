@@ -115,7 +115,7 @@
       </n-grid-item>
     </n-grid>
 
-    <!-- 配置弹窗：全局配置 + 渠道级配置 Tab -->
+    <!-- 配置弹窗 -->
     <n-modal v-model:show="configModalShow" preset="card" :title="t('plugins.configTitle')" style="width:600px">
       <n-tabs type="line" size="small">
         <!-- 全局配置 Tab -->
@@ -174,38 +174,6 @@
           <n-input v-if="advancedMode" v-model:value="configText" type="textarea" :rows="8" placeholder="JSON" font="monospace" style="margin-top:8px" />
           <n-space justify="end" style="margin-top:12px">
             <n-button type="primary" :loading="configSaving" @click="saveConfig">{{ t('plugins.saveConfig') }}</n-button>
-          </n-space>
-        </n-tab-pane>
-
-        <!-- 渠道级配置 Tab -->
-        <n-tab-pane :name="'channel'" :tab="t('plugins.channelConfig')">
-          <n-empty v-if="channelConfigs.length === 0" :description="t('plugins.noChannelConfig')" style="padding:24px 0" />
-          <n-card v-for="cc in channelConfigs" :key="cc.id" size="small" style="margin-bottom:8px">
-            <template #header>
-              {{ t('plugins.channelId') }}: {{ cc.channel_id }}
-            </template>
-            <n-space vertical>
-              <n-space align="center">
-                <span style="font-size:13px">{{ t('plugins.enablePlugin') }}：</span>
-                <n-switch :value="channelEnabled(cc)" @update:value="(val: boolean) => setChannelEnabled(cc, val)" />
-              </n-space>
-              <n-collapse>
-                <n-collapse-item :title="t('plugins.advancedMode')" style="font-size:12px">
-                  <n-input v-model:value="cc.config" type="textarea" :rows="4" font="monospace" placeholder="JSON" />
-                </n-collapse-item>
-              </n-collapse>
-            </n-space>
-            <template #action>
-              <n-space justify="end">
-                <n-button size="small" type="primary" @click="saveChannelConfig(cc)">{{ t('common.save') }}</n-button>
-                <n-button size="small" type="error" ghost @click="deleteChannelConfig(cc)">{{ t('common.delete') }}</n-button>
-              </n-space>
-            </template>
-          </n-card>
-          <!-- 添加渠道配置 -->
-          <n-space style="margin-top:12px" align="center">
-            <n-input-number v-model:value="newChannelId" :min="1" size="small" :placeholder="t('plugins.channelId')" style="width:120px" />
-            <n-button size="small" @click="addChannelConfig">{{ t('plugins.addChannelConfig') }}</n-button>
           </n-space>
         </n-tab-pane>
       </n-tabs>
@@ -302,7 +270,7 @@ import {
   NList, NListItem, NThing, NSpin, NCheckbox,
 } from 'naive-ui'
 import { CloudUploadOutline as UploadIcon, AppsOutline as StoreIcon } from '@vicons/ionicons5'
-import { pluginApi, type PluginItem, type ChannelPluginConfig, type RegistryEntry } from '../api/plugin'
+import { pluginApi, type PluginItem, type RegistryEntry } from '../api/plugin'
 import { systemApi } from '../api/system'
 
 const { t } = useI18n()
@@ -318,8 +286,6 @@ const configText = ref('')
 const configSaving = ref(false)
 const configPluginId = ref<number>(0)
 const advancedMode = ref(false)
-const channelConfigs = ref<ChannelPluginConfig[]>([])
-const newChannelId = ref<number | null>(null)
 
 // 动态表单相关
 interface SchemaField {
@@ -508,6 +474,18 @@ async function handleStop(plugin: PluginItem) {
 
 function handleUninstall(plugin: PluginItem) {
   const keepLogsRef = ref(false)
+  const dropTablesRef = ref(false)
+  const pluginTables = ref<string[]>([])
+  
+  // 加载表清单
+  if (plugin.has_db) {
+    pluginApi.getTables(plugin.id).then(res => {
+      pluginTables.value = res.data.data || []
+    }).catch(() => {
+      pluginTables.value = []
+    })
+  }
+  
   dialog.error({
     title: t('plugins.uninstall'),
     content: () => h('div', {}, [
@@ -519,12 +497,23 @@ function handleUninstall(plugin: PluginItem) {
         default: () => t('plugins.keepLogsOnUninstall'),
       }),
       h('p', { style: 'font-size: 12px; color: var(--n-text-color-3); margin-top: 4px' }, t('plugins.keepLogsHint')),
+      plugin.has_db ? h('div', { style: 'margin-top: 12px' }, [
+        h(NCheckbox, {
+          checked: dropTablesRef.value,
+          'onUpdate:checked': (val: boolean) => { dropTablesRef.value = val },
+        }, {
+          default: () => h('span', {}, '删除插件创建的数据表'),
+        }),
+        dropTablesRef.value && pluginTables.value.length > 0 ? h('p', {
+          style: 'font-size: 12px; color: var(--n-text-color-3); margin-top: 4px'
+        }, '将删除以下表：' + pluginTables.value.join(', ')) : null,
+      ]) : null,
     ]),
     positiveText: t('plugins.uninstall'),
     negativeText: t('common.cancel'),
     onPositiveClick: async () => {
       try {
-        await pluginApi.delete(plugin.id, keepLogsRef.value)
+        await pluginApi.deleteWithTables(plugin.id, keepLogsRef.value, dropTablesRef.value)
         message.success(t('plugins.uninstallSuccess'))
         await fetchPlugins()
       } catch (e: any) {
@@ -564,9 +553,6 @@ function openConfig(plugin: PluginItem) {
   }
 
   configModalShow.value = true
-
-  // 加载渠道级配置
-  fetchChannelConfigs(plugin.id)
 }
 
 function toggleAdvancedMode() {
@@ -606,100 +592,6 @@ async function saveConfig() {
   } finally {
     configSaving.value = false
   }
-}
-
-async function fetchChannelConfigs(pluginId: number) {
-  try {
-    const { data } = await pluginApi.listChannelConfigs(pluginId)
-    channelConfigs.value = data?.data || []
-  } catch {
-    channelConfigs.value = []
-  }
-}
-
-async function saveChannelConfig(cc: ChannelPluginConfig) {
-  try {
-    let cfg: any
-    try { cfg = JSON.parse(cc.config) } catch { cfg = {} }
-    // normalize: 同步 enabled 字段
-    cfg.enabled = channelConfigEnabled.value[cc.channel_id] ?? false
-    cc.config = JSON.stringify(cfg)
-    JSON.parse(cc.config) // final validation
-    await pluginApi.setChannelConfig(cc.plugin_id, cc.channel_id, cc.config)
-    message.success(t('common.saveSuccess'))
-    await fetchChannelConfigs(cc.plugin_id)
-  } catch (e: any) {
-    if (e instanceof SyntaxError) {
-      message.error('Invalid JSON')
-    } else {
-      message.error(e?.response?.data?.error?.message || 'Error')
-    }
-  }
-}
-
-// 渠道开关状态（channel_id → boolean）
-const channelConfigEnabled = ref<Record<number, boolean>>({})
-
-function channelEnabled(cc: ChannelPluginConfig): boolean {
-  if (cc.channel_id in channelConfigEnabled.value) {
-    return channelConfigEnabled.value[cc.channel_id]
-  }
-  try {
-    const cfg = JSON.parse(cc.config)
-    return cfg.enabled === true
-  } catch {
-    return false
-  }
-}
-
-function setChannelEnabled(cc: ChannelPluginConfig, val: boolean) {
-  channelConfigEnabled.value[cc.channel_id] = val
-  try {
-    const cfg = JSON.parse(cc.config)
-    cfg.enabled = val
-    cc.config = JSON.stringify(cfg)
-  } catch {
-    cc.config = JSON.stringify({ enabled: val })
-  }
-}
-
-async function deleteChannelConfig(cc: ChannelPluginConfig) {
-  dialog.error({
-    title: t('common.delete'),
-    content: t('plugins.deleteChannelConfigConfirm'),
-    positiveText: t('common.delete'),
-    negativeText: t('common.cancel'),
-    onPositiveClick: async () => {
-      try {
-        await pluginApi.deleteChannelConfig(cc.plugin_id, cc.channel_id)
-        message.success(t('common.deleteSuccess'))
-        await fetchChannelConfigs(cc.plugin_id)
-      } catch (e: any) {
-        message.error(e?.response?.data?.error?.message || 'Error')
-      }
-    },
-  })
-}
-
-function addChannelConfig() {
-  if (!newChannelId.value) {
-    message.warning(t('plugins.channelIdRequired'))
-    return
-  }
-  // 检查是否已存在
-  if (channelConfigs.value.some(cc => cc.channel_id === newChannelId.value)) {
-    message.warning(t('plugins.channelConfigExists'))
-    return
-  }
-  channelConfigs.value.push({
-    id: 0,
-    channel_id: newChannelId.value!,
-    plugin_id: configPluginId.value,
-    config: '{}',
-    created_at: '',
-    updated_at: '',
-  })
-  newChannelId.value = null
 }
 
 // 注册中心相关

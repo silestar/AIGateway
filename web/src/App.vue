@@ -186,6 +186,7 @@ const pageTitle = computed(() => {
     '/logs': 'menu.logs',
     '/models': 'menu.models',
     '/plugins': 'menu.plugins',
+    '/plugins/settings': 'menu.pluginSettings',
     '/settings': 'menu.systemSettings',
     '/settings/monitor': 'menu.systemMonitor',
     '/settings/logs': 'menu.systemLogs',
@@ -416,6 +417,7 @@ const menuOptions = computed(() => [
       { label: t('menu.systemSettings'), key: '/settings', icon: (): string => '🔧' },
       { label: t('menu.systemMonitor'), key: '/settings/monitor', icon: (): string => '📡' },
       { label: t('menu.systemLogs'), key: '/settings/logs', icon: (): string => '📄' },
+      { label: t('menu.pluginSettings'), key: '/plugins/settings', icon: (): string => '🔗' },
     ],
   },
 ])

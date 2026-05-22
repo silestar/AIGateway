@@ -70,6 +70,11 @@ const router = createRouter({
       component: () => import('../views/Plugins.vue'),
     },
     {
+      path: '/plugins/settings',
+      name: 'pluginSettings',
+      component: () => import('../views/PluginSettings.vue'),
+    },
+    {
       path: '/settings',
       name: 'settings',
       component: () => import('../views/Settings.vue'),

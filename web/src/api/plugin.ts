@@ -3,6 +3,7 @@ import api from './index'
 export interface PluginItem {
   id: number
   name: string
+  display_name: string    // 新增
   version: string
   description: string
   author: string
@@ -10,18 +11,11 @@ export interface PluginItem {
   port: number
   hooks: string
   config_schema: string
-  status: 'uploaded' | 'installed' | 'running' | 'stopped' | 'unhealthy' | 'error'
+  priority: number         // 新增
+  has_db: boolean          // 新增
+  status: string           // 放宽为 string，后端可能返回新状态值
   config: string
   pid: number
-  created_at: string
-  updated_at: string
-}
-
-export interface ChannelPluginConfig {
-  id: number
-  channel_id: number
-  plugin_id: number
-  config: string
   created_at: string
   updated_at: string
 }
@@ -74,16 +68,6 @@ export const pluginApi = {
   logsStatus(id: number) {
     return api.get(`/plugins/${id}/logs-status`)
   },
-  // 渠道级插件配置
-  listChannelConfigs(pluginId: number) {
-    return api.get(`/plugins/${pluginId}/channel-configs`)
-  },
-  setChannelConfig(pluginId: number, channelId: number, config: string) {
-    return api.put(`/plugins/${pluginId}/channel-configs/${channelId}`, { config })
-  },
-  deleteChannelConfig(pluginId: number, channelId: number) {
-    return api.delete(`/plugins/${pluginId}/channel-configs/${channelId}`)
-  },
   // 注册中心
   registryList() {
     return api.get('/plugins/registry/list')
@@ -106,5 +90,41 @@ export const pluginApi = {
   },
   denyAllPermissions(pluginId: number) {
     return api.post(`/plugins/${pluginId}/permissions/deny-all`)
+  },
+  // === 阶段五：钩子统一调度引擎 ===
+  updatePriority(pluginId: number, priority: number) {
+    return api.put(`/plugins/${pluginId}/priority`, { priority })
+  },
+  getTables(pluginId: number) {
+    return api.get(`/plugins/${pluginId}/tables`)
+  },
+  deleteWithTables(id: number, keepLogs?: boolean, dropTables?: boolean) {
+    const params: any = {}
+    if (keepLogs) params.keep_logs = true
+    if (dropTables) params.drop_tables = true
+    return api.delete(`/plugins/${id}`, { params })
+  },
+}
+
+export interface HookItem {
+  id: number
+  name: string
+  hook_type: string
+  description: string
+  params_schema: string
+  timeout: number
+  enabled: boolean
+  updated_at: string
+}
+
+export const hookApi = {
+  list() {
+    return api.get('/hooks')
+  },
+  updateEnabled(id: number, enabled: boolean) {
+    return api.put(`/hooks/${id}/enabled`, { enabled })
+  },
+  getPlugins(hookName: string) {
+    return api.get(`/hooks/${hookName}/plugins`)
   },
 }

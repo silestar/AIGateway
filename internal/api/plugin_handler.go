@@ -76,6 +76,16 @@ func (h *PluginHandler) RegisterRoutes(rg *gin.RouterGroup) {
 	p.POST("/registry/install", h.RegistryInstall)
 	// 渠道类型
 	p.GET("/channel-types", h.ListChannelTypes)
+
+	// === 阶段四新增：钩子管理 ===
+	hooks := rg.Group("/hooks")
+	hooks.GET("", h.ListHooks)
+	hooks.PUT("/:id/enabled", h.UpdateHookEnabled)
+	hooks.GET("/:name/plugins", h.GetHookPlugins)
+	// 插件优先级
+	p.PUT("/:id/priority", h.UpdatePluginPriority)
+	// 插件表管理
+	p.GET("/:id/tables", h.GetPluginTables)
 }
 
 // List 插件列表
@@ -540,4 +550,93 @@ func (h *PluginHandler) DenyAllPermissions(c *gin.Context) {
 		return
 	}
 	c.JSON(http.StatusOK, gin.H{"data": gin.H{"plugin_name": p.Name, "status": "all_denied"}})
+}
+
+// ========== 阶段四新增：钩子管理 ==========
+
+// ListHooks GET /api/hooks
+func (h *PluginHandler) ListHooks(c *gin.Context) {
+	hooks, err := h.pluginMgr.ListHooks(c.Request.Context())
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, errorResponse("internal_error", err.Error()))
+		return
+	}
+	if hooks == nil {
+		hooks = []plugin.Hook{}
+	}
+	c.JSON(http.StatusOK, gin.H{"data": hooks})
+}
+
+// UpdateHookEnabled PUT /api/hooks/:id/enabled
+func (h *PluginHandler) UpdateHookEnabled(c *gin.Context) {
+	id, err := parseIDFromParam(c, "id")
+	if err != nil {
+		c.JSON(http.StatusBadRequest, errorResponse("invalid_id", "invalid hook id"))
+		return
+	}
+	var body struct {
+		Enabled bool `json:"enabled"`
+	}
+	if err := c.ShouldBindJSON(&body); err != nil {
+		c.JSON(http.StatusBadRequest, errorResponse("invalid_request", err.Error()))
+		return
+	}
+	if err := h.pluginMgr.UpdateHookEnabled(c.Request.Context(), id, body.Enabled); err != nil {
+		c.JSON(http.StatusInternalServerError, errorResponse("update_failed", err.Error()))
+		return
+	}
+	c.JSON(http.StatusOK, gin.H{"message": "ok"})
+}
+
+// GetHookPlugins GET /api/hooks/:name/plugins
+func (h *PluginHandler) GetHookPlugins(c *gin.Context) {
+	hookName := c.Param("name")
+	plugins, err := h.pluginMgr.GetHookPlugins(c.Request.Context(), hookName)
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, errorResponse("internal_error", err.Error()))
+		return
+	}
+	if plugins == nil {
+		plugins = []plugin.Plugin{}
+	}
+	c.JSON(http.StatusOK, gin.H{"data": plugins})
+}
+
+// UpdatePluginPriority PUT /api/plugins/:id/priority
+func (h *PluginHandler) UpdatePluginPriority(c *gin.Context) {
+	id, err := parseIDFromParam(c, "id")
+	if err != nil {
+		c.JSON(http.StatusBadRequest, errorResponse("invalid_id", "invalid plugin id"))
+		return
+	}
+	var body struct {
+		Priority int `json:"priority"`
+	}
+	if err := c.ShouldBindJSON(&body); err != nil {
+		c.JSON(http.StatusBadRequest, errorResponse("invalid_request", err.Error()))
+		return
+	}
+	if err := h.pluginMgr.UpdatePluginPriority(c.Request.Context(), id, body.Priority); err != nil {
+		c.JSON(http.StatusInternalServerError, errorResponse("update_failed", err.Error()))
+		return
+	}
+	c.JSON(http.StatusOK, gin.H{"message": "ok"})
+}
+
+// GetPluginTables GET /api/plugins/:id/tables
+func (h *PluginHandler) GetPluginTables(c *gin.Context) {
+	id, err := parseIDFromParam(c, "id")
+	if err != nil {
+		c.JSON(http.StatusBadRequest, errorResponse("invalid_id", "invalid plugin id"))
+		return
+	}
+	tables, err := h.pluginMgr.GetPluginTables(c.Request.Context(), id)
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, errorResponse("internal_error", err.Error()))
+		return
+	}
+	if tables == nil {
+		tables = []string{}
+	}
+	c.JSON(http.StatusOK, gin.H{"data": tables})
 }
