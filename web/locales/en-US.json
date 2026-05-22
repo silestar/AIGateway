@@ -54,7 +54,8 @@
     "createdAt": "Created At",
     "selectAll": "Select All",
     "deselectAll": "Deselect All",
-    "saveSuccess": "Saved successfully"
+    "saveSuccess": "Saved successfully",
+    "noChanges": "No changes detected"
   },
   "keys": {
     "title": "Key Management",

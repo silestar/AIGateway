@@ -45,12 +45,14 @@
 - `GET /api/hooks/:name/plugins`：查看某钩子下按优先级排序的已注册插件列表
 - `PUT /api/plugins/:id/priority`：调整插件在钩子中的执行优先级
 - `GET /api/plugins/:id/tables`：查看插件安装时创建的数据库表名列表
+- `GET /api/channels/simple`：返回所有启用渠道的 id+name（仅两个字段，无敏感数据），供插件配置 Tab 选择渠道使用
 
 #### 前端改造
 - **新增 `PluginSettings.vue`**（144 行）：独立的钩子管理页面，路由 `/plugins/settings`
   - 左侧钩子列表（名称、类型、状态开关、已注册插件数）
   - 右侧已注册插件列表（名称、优先级可调、状态、版本）
 - **重构 `Plugins.vue`**：移除渠道配置面板（`ChannelConfigPanel`），卸载弹窗新增「删除数据库表」checkbox
+- **插件配置弹窗新增「渠道配置」Tab**：调用 `/api/channels/simple` 获取渠道列表，管理员勾选启用代理的渠道并保存，插件根据 channel_id 匹配 `channel_configs` 决定是否走 AGP 代理
 - **路由新增**：`/plugins/settings` → `PluginSettings.vue`
 
 #### 废弃旧 API
@@ -61,6 +63,9 @@
 - `buildCreateTableSQL`：解析 `manifest.json` 的 `tables` 声明，生成兼容 SQLite/MySQL/PostgreSQL 的 `CREATE TABLE` SQL
 - 安装时自动执行建表，表名存入 `tables_created`（JSON array）
 - 卸载时可选 `dropTables=true` 自动 `DROP TABLE`
+
+#### 权限重新安装修复
+- 修复 `SyncPermissions` 卸载重装场景：已有权限记录 `status=uninstalled` 时重置为 `pending`（`autoGrant` 时 `granted`）
 
 #### Breaking Changes
 - 旧版 `channel_plugin_settings` 表中的配置数据**不会自动迁移**

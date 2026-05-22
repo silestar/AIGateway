@@ -13,7 +13,7 @@
         />
 
         <!-- 插件管理弹窗 -->
-        <n-modal v-model:show="showPluginsModal" title="插件管理">
+        <n-modal v-model:show="showPluginsModal" title="插件管理" style="width:80%;max-width:800px">
           <n-card>
             <n-data-table
               :columns="pluginColumns"
@@ -105,6 +105,17 @@ const pluginColumns = [
       })
     }
   },
+  {
+    title: '启用',
+    key: 'status',
+    width: 80,
+    render(row: any) {
+      return h(NSwitch, {
+        value: row.status === 'running',
+        onUpdateValue: (val: boolean) => togglePlugin(row, val)
+      })
+    }
+  },
 ]
 
 const openPluginManager = async (hook: HookItem) => {
@@ -127,6 +138,22 @@ const updatePriority = async (plugin: PluginItem, priority: number | null) => {
     message.success('优先级已更新')
   } catch (e: any) {
     message.error(e.message || '更新失败')
+  }
+}
+
+const togglePlugin = async (plugin: PluginItem, enabled: boolean) => {
+  try {
+    if (enabled) {
+      await pluginApi.updateStatus(plugin.id, 'start')
+      plugin.status = 'running'
+      message.success('插件已启用')
+    } else {
+      await pluginApi.updateStatus(plugin.id, 'stop')
+      plugin.status = 'stopped'
+      message.success('插件已禁用')
+    }
+  } catch (e: any) {
+    message.error(e?.response?.data?.error?.message || e.message || '操作失败')
   }
 }
 

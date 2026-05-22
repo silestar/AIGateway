@@ -152,4 +152,8 @@ export const channelApi = {
   getCustomModelNames() {
     return api.get<{ data: string[] }>('/channels/custom-model-names')
   },
+  // 获取启用渠道的简要列表（仅 id + name，供插件等配置场景使用）
+  listSimple() {
+    return api.get<{ data: { id: number; name: string }[] }>('/channels/simple')
+  },
 }

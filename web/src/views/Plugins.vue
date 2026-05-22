@@ -176,6 +176,25 @@
             <n-button type="primary" :loading="configSaving" @click="saveConfig">{{ t('plugins.saveConfig') }}</n-button>
           </n-space>
         </n-tab-pane>
+
+        <!-- 渠道配置 Tab -->
+        <n-tab-pane :name="'channels'" :tab="'渠道配置'">
+          <n-spin :show="channelLoading">
+            <n-empty v-if="!channelLoading && channelList.length === 0" description="暂无启用的渠道" />
+            <div v-else style="display:flex;flex-direction:column;gap:8px">
+              <div v-for="ch in channelList" :key="ch.id"
+                style="display:flex;align-items:center;justify-content:space-between;padding:8px 12px;border-radius:6px;background:rgba(255,255,255,0.04)">
+                <span>{{ ch.name }} <span style="color:#999;font-size:12px">ID: {{ ch.id }}</span></span>
+                <n-switch v-model:value="channelConfigMap[ch.id]" />
+              </div>
+            </div>
+          </n-spin>
+          <n-space justify="end" style="margin-top:12px">
+            <n-button type="primary" :loading="channelSaving" @click="saveChannelConfig">
+              保存配置
+            </n-button>
+          </n-space>
+        </n-tab-pane>
       </n-tabs>
       <template #action>
         <n-space justify="end">
@@ -271,6 +290,7 @@ import {
 } from 'naive-ui'
 import { CloudUploadOutline as UploadIcon, AppsOutline as StoreIcon } from '@vicons/ionicons5'
 import { pluginApi, type PluginItem, type RegistryEntry } from '../api/plugin'
+import { channelApi } from '../api/channel'
 import { systemApi } from '../api/system'
 
 const { t } = useI18n()
@@ -300,6 +320,12 @@ interface SchemaField {
 }
 const configSchemaFields = ref<SchemaField[]>([])
 const configFormValues = reactive<Record<string, any>>({})
+
+// 渠道配置相关
+const channelList = ref<{ id: number; name: string }[]>([])
+const channelLoading = ref(false)
+const channelSaving = ref(false)
+const channelConfigMap = reactive<Record<number, boolean>>({})
 
 const versionTagType = 'default' as const
 
@@ -523,7 +549,7 @@ function handleUninstall(plugin: PluginItem) {
   })
 }
 
-function openConfig(plugin: PluginItem) {
+async function openConfig(plugin: PluginItem) {
   configPluginId.value = plugin.id
   advancedMode.value = false
 
@@ -553,6 +579,17 @@ function openConfig(plugin: PluginItem) {
   }
 
   configModalShow.value = true
+
+  // 加载渠道列表并填充开关状态
+  const chConfigs = currentConfig.channel_configs || {}
+  for (const key of Object.keys(channelConfigMap)) {
+    delete channelConfigMap[Number(key)]
+  }
+  await fetchChannelList()
+  for (const ch of channelList.value) {
+    const cfg = chConfigs[String(ch.id)] || {}
+    channelConfigMap[ch.id] = cfg.enabled || false
+  }
 }
 
 function toggleAdvancedMode() {
@@ -591,6 +628,46 @@ async function saveConfig() {
     }
   } finally {
     configSaving.value = false
+  }
+}
+
+// 加载渠道列表
+async function fetchChannelList() {
+  channelLoading.value = true
+  try {
+    const { data } = await channelApi.listSimple()
+    channelList.value = data.data || []
+  } catch {
+    channelList.value = []
+  } finally {
+    channelLoading.value = false
+  }
+}
+
+// 保存渠道配置
+async function saveChannelConfig() {
+  channelSaving.value = true
+  try {
+    // 读取当前完整配置
+    let currentConfig: Record<string, any> = {}
+    try {
+      currentConfig = JSON.parse(configText.value || '{}')
+    } catch {}
+
+    // 构建 channel_configs
+    const channelConfigs: Record<string, { enabled: boolean }> = {}
+    for (const ch of channelList.value) {
+      channelConfigs[String(ch.id)] = { enabled: channelConfigMap[ch.id] || false }
+    }
+    currentConfig.channel_configs = channelConfigs
+
+    const finalConfig = JSON.stringify(currentConfig)
+    await pluginApi.updateConfig(configPluginId.value, finalConfig)
+    message.success('渠道配置已保存')
+  } catch (e: any) {
+    message.error(e?.response?.data?.error?.message || '保存失败')
+  } finally {
+    channelSaving.value = false
   }
 }
 

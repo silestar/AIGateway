@@ -312,6 +312,23 @@
 > `last_test_latency` 单位为毫秒，0 表示未测试。`last_tested_at` 为 null 表示未测试。
 > `groups` 为该渠道所属的渠道分组列表。`search` 参数搜索模型时，模糊匹配 `channel_models` 表的 `display_model_name` 或 `upstream_model_name`。
 
+### 2.2 渠道简要列表
+
+**`GET /api/channels/simple`**
+
+返回所有启用渠道的简要信息（仅 id + name，无敏感数据），供插件配置等场景使用。
+
+响应：
+
+```json
+{
+  "data": [
+    {"id": 1, "name": "OpenAI 高速通道"},
+    {"id": 3, "name": "Claude 代理"}
+  ]
+}
+```
+
 ---
 
 ### 2.2 创建渠道

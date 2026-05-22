@@ -418,6 +418,8 @@ def _fix_bool_columns(tgt_conn, tgt_type):
     bool_columns_map = {
         "channel_models": ["upstream_visible", "display_visible"],
         "hooks": ["enabled"],
+        "plugins": ["has_db"],
+        "plugin_permissions": ["required"],
         "request_logs": ["is_stream"],
     }
 
