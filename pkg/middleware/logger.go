@@ -33,6 +33,16 @@ func Logger(logger *zap.Logger) gin.HandlerFunc {
 			fields = append(fields, zap.String("trace_id", traceID.(string)))
 		}
 
+		// 注入代理连接信息（由 DialTLSContext 记录）
+		if upstream, ok := c.Get("upstream_addr"); ok {
+			fields = append(fields, zap.String("upstream_addr", upstream.(string)))
+		}
+		if proxy, ok := c.Get("proxy_addr"); ok {
+			if s, ok := proxy.(string); ok && s != "" {
+				fields = append(fields, zap.String("proxy_addr", s))
+			}
+		}
+
 		if len(c.Errors) > 0 {
 			fields = append(fields, zap.String("errors", c.Errors.ByType(gin.ErrorTypePrivate).String()))
 		}

@@ -1,5 +1,33 @@
 # Changelog
 
+## [0.3.1] - 2026-05-24
+
+### 修复
+
+#### 渠道测试不走插件代理（P1）
+- **问题**：`sendTestRequest()` 和 `testOpenAIConnection()` 用裸 `&http.Client{}`，无 Transport，直连上游完全绕过了 Engine 的 DialTLSContext（含插件的 connection_decorator 钩子），导致渠道可用性测试和模型测试均不走代理，插件日志无记录
+- **渠道 5 操作失败**：直连被上游拒绝/超时，但请求实际发出，刷新后显示最新结果。走代理后应稳定通过
+- **修复**：
+  - `internal/channel/service.go`：新增 `proxyTransport http.RoundTripper` 字段 + `SetProxyTransport()`
+  - `internal/channel/types.go`：接口新增 `SetProxyTransport()`
+  - `internal/proxy/engine.go`：新增 `GetClientTransport()` 暴露 Engine 的 Transport
+  - `cmd/agw/main.go`：创建 channelSvc 后注入 `proxyEngine.GetClientTransport()`
+
+#### 模型测试弹窗列表展示优化
+- **问题**：弹窗中待测试模型列表显示不完整。渠道 5 的 7 个上游模型 + 5 个自定义映射，弹窗仅显示 2+5
+- **修复**：`ModelTestDialog.vue` 排序逻辑重写
+  - **上部**：从 `channel_models` 取 `actual_model_name` 去重展示（所有已选的上游模型）
+  - **下部**：取 `display_model_name != actual_model_name` 的自定义映射名称展示
+  - 上部/下部分隔行展示 + 自定义映射带「映射」tag 标识
+  - 恢复只依赖 `props.models`（`channel_models` 表数据），不调用上游 API 拉取模型
+
+### 新增
+- `internal/proxy/engine.go`：`ProxyConnInfo` 结构体 + `LastProxyInfo()` 方法，DialTLSContext 记录 `upstream_addr` 和 `proxy_addr`
+- `pkg/middleware/logger.go`：请求日志新增 `upstream_addr`、`proxy_addr` 字段（从 Gin context 读取）
+
+### 变更
+- `cmd/agw/main.go`：Forward / ForwardStream 后读取 `proxyEngine.LastProxyInfo()` 注入 Gin context
+
 ## [0.3.0] - 2026-05-22
 
 ### 数据库迁移工具

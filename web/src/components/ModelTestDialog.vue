@@ -55,9 +55,13 @@
             </tr>
           </thead>
           <tbody>
+            <!-- 上游模型分隔行 -->
+            <tr v-if="hasUpstreamSection" style="background: rgba(255,255,255,0.02); border-bottom: 1px solid var(--n-border-color, rgba(255,255,255,0.06))">
+              <td colspan="4" style="padding: 6px 12px; font-size: 12px; color: var(--n-text-color-3)">🗂 {{ t('channels.upstreamModels') }}</td>
+            </tr>
             <tr
-              v-for="m in filteredModels"
-              :key="m.name"
+              v-for="m in upstreamModels"
+              :key="'up-' + m.name"
               style="border-bottom: 1px solid rgba(255,255,255,0.04); transition: background-color 0.15s"
               :style="{ background: selectedModels.has(m.name) ? 'rgba(0, 210, 255, 0.04)' : '' }"
             >
@@ -65,12 +69,51 @@
                 <n-checkbox :checked="selectedModels.has(m.name)" @update:checked="(v: boolean) => toggleModel(m.name, v)" />
               </td>
               <td style="padding: 6px">
-                <n-tooltip trigger="hover" placement="top">
-                  <template #trigger>
-                    <span style="font-family: 'Menlo', 'Consolas', monospace; font-size: 12px; cursor: default">{{ m.name }}</span>
-                  </template>
-                  {{ m.name }}
-                </n-tooltip>
+                <div style="display: flex; align-items: center; gap: 6px">
+<n-tag v-if="m.section === 'mapped'" size="tiny" type="warning" bordered style="flex-shrink: 0">{{ t('channels.mappedTag') }}</n-tag>
+                  <n-tooltip trigger="hover" placement="top">
+                    <template #trigger>
+                      <span style="font-family: 'Menlo', 'Consolas', monospace; font-size: 12px; cursor: default">{{ m.name }}</span>
+                    </template>
+                    {{ m.name }}
+                  </n-tooltip>
+                </div>
+              </td>
+              <td style="padding: 6px">
+                <div style="display: flex; align-items: center; gap: 6px">
+                  <span :style="{ color: statusColor(m.name), fontSize: '10px' }">●</span>
+                  <span :style="{ color: statusColor(m.name), fontSize: '12px' }">{{ statusText(m.name) }}</span>
+                </div>
+              </td>
+              <td style="padding: 6px; text-align: center">
+                <n-button size="tiny" :loading="testingModel === m.name" :disabled="testingModel !== '' && testingModel !== m.name" @click="handleSingleTest(m.name)">
+                  {{ t('channels.testBtn') }}
+                </n-button>
+              </td>
+            </tr>
+            <!-- 自定义映射分隔行 -->
+            <tr v-if="hasMappedSection" style="background: rgba(255,255,255,0.02); border-bottom: 1px solid var(--n-border-color, rgba(255,255,255,0.06))">
+              <td colspan="4" style="padding: 6px 12px; font-size: 12px; color: var(--n-text-color-3)">🎯 {{ t('channels.customMappings') }}</td>
+            </tr>
+            <tr
+              v-for="m in mappedModels"
+              :key="'map-' + m.name"
+              style="border-bottom: 1px solid rgba(255,255,255,0.04); transition: background-color 0.15s"
+              :style="{ background: selectedModels.has(m.name) ? 'rgba(0, 210, 255, 0.04)' : '' }"
+            >
+              <td style="padding: 6px 12px">
+                <n-checkbox :checked="selectedModels.has(m.name)" @update:checked="(v: boolean) => toggleModel(m.name, v)" />
+              </td>
+              <td style="padding: 6px">
+                <div style="display: flex; align-items: center; gap: 6px">
+                  <n-tag size="tiny" type="warning" bordered style="flex-shrink: 0">{{ t('channels.mappedTag') }}</n-tag>
+                  <n-tooltip trigger="hover" placement="top">
+                    <template #trigger>
+                      <span style="font-family: 'Menlo', 'Consolas', monospace; font-size: 12px; cursor: default">{{ m.name }}</span>
+                    </template>
+                    {{ m.name }}
+                  </n-tooltip>
+                </div>
               </td>
               <td style="padding: 6px">
                 <div style="display: flex; align-items: center; gap: 6px">
@@ -159,30 +202,38 @@ const modelStatusMap = ref<Map<string, ModelStatus>>(new Map())
 const testingModel = ref('')
 const batchTesting = ref(false)
 
-// 模型列表（上游优先，自定义排后）
+// 模型列表
+// 上部分：actual_model_name 去重（所有已选的上游模型）
+// 下部分：display_model_name 中 != actual_model_name 的（自定义映射名称）
 interface ModelItem {
   name: string
-  isUpstream: boolean
+  section: 'upstream' | 'mapped' // 上游区 / 自定义映射区
 }
 const sortedModels = computed<ModelItem[]>(() => {
-  const items: ModelItem[] = []
-  const seen = new Set<string>()
+  const upstreamItems: ModelItem[] = []
+  const mappedItems: ModelItem[] = []
+  const seenActual = new Set<string>()
+  const seenDisplay = new Set<string>()
+
   for (const m of props.models) {
     if (m.status !== 'enabled') continue
-    if (!seen.has(m.display_model_name)) {
-      seen.add(m.display_model_name)
-      items.push({
-        name: m.display_model_name,
-        isUpstream: m.display_model_name === m.actual_model_name,
-      })
+    // 上部：actual_model_name 去重
+    if (!seenActual.has(m.actual_model_name)) {
+      seenActual.add(m.actual_model_name)
+      upstreamItems.push({ name: m.actual_model_name, section: 'upstream' })
+    }
+    // 下部：display_model_name 中 != actual_model_name 的（自定义映射）
+    if (m.display_model_name !== m.actual_model_name && !seenDisplay.has(m.display_model_name)) {
+      seenDisplay.add(m.display_model_name)
+      mappedItems.push({ name: m.display_model_name, section: 'mapped' })
     }
   }
-  // 上游排前面，自定义排后面
-  items.sort((a, b) => {
-    if (a.isUpstream !== b.isUpstream) return a.isUpstream ? -1 : 1
-    return a.name.localeCompare(b.name)
-  })
-  return items
+
+  // 各自按名称排序
+  upstreamItems.sort((a, b) => a.name.localeCompare(b.name))
+  mappedItems.sort((a, b) => a.name.localeCompare(b.name))
+
+  return [...upstreamItems, ...mappedItems]
 })
 
 const filteredModels = computed(() => {
@@ -190,6 +241,12 @@ const filteredModels = computed(() => {
   const q = modelFilter.value.toLowerCase()
   return sortedModels.value.filter(m => m.name.toLowerCase().includes(q))
 })
+
+// 拆分上下游分区供模板使用
+const upstreamModels = computed(() => sortedModels.value.filter(m => m.section === 'upstream'))
+const mappedModels = computed(() => sortedModels.value.filter(m => m.section === 'mapped'))
+const hasUpstreamSection = computed(() => upstreamModels.value.length > 0)
+const hasMappedSection = computed(() => mappedModels.value.length > 0)
 
 // 全选逻辑
 const isAllSelected = computed(() => filteredModels.value.length > 0 && filteredModels.value.every(m => selectedModels.value.has(m.name)))
