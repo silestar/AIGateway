@@ -55,6 +55,8 @@ export interface RequestLog {
   trace_id: string
   client_ip: string
   has_detail: number  // 1=有详细内容文件
+  upstream_addr: string  // 上游目标地址
+  proxy_addr: string     // 代理地址（走插件代理时）
 }
 
 export interface LogDetailContent {

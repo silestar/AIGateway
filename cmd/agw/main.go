@@ -485,6 +485,13 @@ func handleChatCompletions(c *gin.Context) {
 			streamResult, err = proxyEngine.ForwardStream(c.Request.Context(), currentStreamResult.Channel, currentStreamResult.Account, c.Request, flusher, c.Writer)
 			latencyMs = int(time.Since(startTime).Milliseconds())
 
+			// 记录代理连接信息（DialTLSContext 已在 ForwardStream 内部执行完毕）
+			proxyInfo := proxyEngine.LastProxyInfo()
+			c.Set("upstream_addr", proxyInfo.UpstreamAddr)
+			if proxyInfo.ProxyAddr != "" {
+				c.Set("proxy_addr", proxyInfo.ProxyAddr)
+			}
+
 			if err != nil {
 				// 只有在未向客户端发送任何数据时才可安全重试
 				if !c.Writer.Written() && attempt < cfg.AccountManager.MaxStreamRetries {
@@ -532,7 +539,7 @@ func handleChatCompletions(c *gin.Context) {
 						zap.Error(err))
 					// 客户端主动断开：不触发故障降级
 					accountMgr.ReportResult(c.Request.Context(), currentStreamResult.Account.ID, true, http.StatusOK, nil)
-					asyncWriter.Record(buildRequestLog(cons.ID, modelName, result.ActualModelName, result, isStream, statusCode, latencyMs, clientIP, nil, clientGoneMsg, traceIDStr, nil))
+					asyncWriter.Record(buildRequestLog(c, cons.ID, modelName, result.ActualModelName, result, isStream, statusCode, latencyMs, clientIP, nil, clientGoneMsg, traceIDStr, nil))
 
 					// 记录详细内容（至少有请求体，响应体不可用）
 					if detailWriter, ok := c.Get("detailWriter"); ok {
@@ -548,7 +555,7 @@ func handleChatCompletions(c *gin.Context) {
 						zap.Error(err))
 					// 客户端主动断开：不触发故障降级
 					accountMgr.ReportResult(c.Request.Context(), currentStreamResult.Account.ID, false, 499, context.Canceled)
-					asyncWriter.Record(buildRequestLog(cons.ID, modelName, result.ActualModelName, result, isStream, statusCode, latencyMs, clientIP, nil, shortenError(err.Error()), traceIDStr, nil))
+					asyncWriter.Record(buildRequestLog(c, cons.ID, modelName, result.ActualModelName, result, isStream, statusCode, latencyMs, clientIP, nil, shortenError(err.Error()), traceIDStr, nil))
 				}
 				c.JSON(http.StatusBadGateway, gin.H{
 					"error": gin.H{"code": "upstream_error", "message": shortenError(err.Error())},
@@ -558,7 +565,7 @@ func handleChatCompletions(c *gin.Context) {
 				statusCode = http.StatusBadGateway
 				logger.Error("stream forward error", zap.Error(err))
 			}
-			asyncWriter.Record(buildRequestLog(cons.ID, modelName, result.ActualModelName, result, isStream, statusCode, latencyMs, clientIP, nil, shortenError(err.Error()), traceIDStr, nil))
+			asyncWriter.Record(buildRequestLog(c, cons.ID, modelName, result.ActualModelName, result, isStream, statusCode, latencyMs, clientIP, nil, shortenError(err.Error()), traceIDStr, nil))
 
 			c.JSON(http.StatusBadGateway, gin.H{
 				"error": gin.H{"code": "upstream_error", "message": shortenError(err.Error())},
@@ -602,7 +609,7 @@ func handleChatCompletions(c *gin.Context) {
 					statusCode = http.StatusGatewayTimeout
 				result.RetryChain.MarkError("client disconnected", latencyMs, statusCode)
 				errMsg := "client disconnected"
-				asyncWriter.Record(buildRequestLog(cons.ID, modelName, result.ActualModelName, result, isStream, statusCode, latencyMs, clientIP, nil, errMsg, traceIDStr, nil))
+				asyncWriter.Record(buildRequestLog(c, cons.ID, modelName, result.ActualModelName, result, isStream, statusCode, latencyMs, clientIP, nil, errMsg, traceIDStr, nil))
 				c.JSON(http.StatusGatewayTimeout, gin.H{"error": gin.H{"code": "client_disconnected", "message": errMsg}})
 				return
 			default:
@@ -613,7 +620,7 @@ func handleChatCompletions(c *gin.Context) {
 				errMsg := "max retry attempts exceeded"
 				statusCode = http.StatusBadGateway
 				result.RetryChain.MarkError(errMsg, latencyMs, statusCode)
-				asyncWriter.Record(buildRequestLog(cons.ID, modelName, result.ActualModelName, result, isStream, statusCode, latencyMs, clientIP, nil, errMsg, traceIDStr, nil))
+				asyncWriter.Record(buildRequestLog(c, cons.ID, modelName, result.ActualModelName, result, isStream, statusCode, latencyMs, clientIP, nil, errMsg, traceIDStr, nil))
 				c.JSON(http.StatusBadGateway, gin.H{"error": gin.H{"code": "max_retries_exceeded", "message": errMsg}})
 				return
 			}
@@ -626,7 +633,7 @@ func handleChatCompletions(c *gin.Context) {
 				if err != nil {
 					errMsg := err.Error()
 					statusCode = http.StatusBadGateway
-					asyncWriter.Record(buildRequestLog(cons.ID, modelName, result.ActualModelName, result, isStream, statusCode, latencyMs, clientIP, nil, errMsg, traceIDStr, nil))
+					asyncWriter.Record(buildRequestLog(c, cons.ID, modelName, result.ActualModelName, result, isStream, statusCode, latencyMs, clientIP, nil, errMsg, traceIDStr, nil))
 					c.JSON(http.StatusBadGateway, gin.H{"error": gin.H{"code": "no_available_account", "message": errMsg}})
 					return
 				}
@@ -634,6 +641,13 @@ func handleChatCompletions(c *gin.Context) {
 
 			proxyResult, err = proxyEngine.Forward(c.Request.Context(), currentResult.Channel, currentResult.Account, c.Request)
 			latencyMs = int(time.Since(startTime).Milliseconds())
+
+			// 记录代理连接信息（DialTLSContext 已在 Forward 内部执行完毕）
+			proxyInfo := proxyEngine.LastProxyInfo()
+			c.Set("upstream_addr", proxyInfo.UpstreamAddr)
+			if proxyInfo.ProxyAddr != "" {
+				c.Set("proxy_addr", proxyInfo.ProxyAddr)
+			}
 
 		if err != nil {
 			// 记录失败 + 进入重试循环
@@ -673,7 +687,7 @@ func handleChatCompletions(c *gin.Context) {
 					if err != nil {
 						errMsg := err.Error()
 						statusCode = http.StatusBadGateway
-						asyncWriter.Record(buildRequestLog(cons.ID, modelName, result.ActualModelName, result, isStream, statusCode, latencyMs, clientIP, nil, errMsg, traceIDStr, nil))
+						asyncWriter.Record(buildRequestLog(c, cons.ID, modelName, result.ActualModelName, result, isStream, statusCode, latencyMs, clientIP, nil, errMsg, traceIDStr, nil))
 						c.JSON(http.StatusBadGateway, gin.H{"error": gin.H{"code": "no_available_account", "message": errMsg}})
 						return
 					}
@@ -724,7 +738,7 @@ func handleChatCompletions(c *gin.Context) {
 	updateRateLimitCounters(cache, result.Channel.ID, result.Account.ID)
 
 	// 记录成功日志（含响应摘要）
-	asyncWriter.Record(buildRequestLog(cons.ID, modelName, result.ActualModelName, result, isStream, statusCode, latencyMs, clientIP, usage, "", traceIDStr, respSummary))
+	asyncWriter.Record(buildRequestLog(c, cons.ID, modelName, result.ActualModelName, result, isStream, statusCode, latencyMs, clientIP, usage, "", traceIDStr, respSummary))
 
 	// 写入详细请求/响应内容文件（异步）
 	if detailWriter, ok := c.Get("detailWriter"); ok {
@@ -753,21 +767,32 @@ func handleChatCompletions(c *gin.Context) {
 }
 
 // buildRequestLog 构造请求日志
-func buildRequestLog(keysID uint, modelName string, mappedModel string, result *group.RouteResult, isStream bool, statusCode, latencyMs int, clientIP string, usage *usage.TokenUsage, errMsg string, traceID string, respMeta *ResponseSummary) *stats.RequestLog {
+func buildRequestLog(c *gin.Context, keysID uint, modelName string, mappedModel string, result *group.RouteResult, isStream bool, statusCode, latencyMs int, clientIP string, usage *usage.TokenUsage, errMsg string, traceID string, respMeta *ResponseSummary) *stats.RequestLog {
+	upstreamAddr, _ := c.Get("upstream_addr")
+	proxyAddr, _ := c.Get("proxy_addr")
+
 	log := &stats.RequestLog{
-		Timestamp:  time.Now(),
-		KeysID:     keysID,
-		ModelName:  modelName,
-		MappedModel: mappedModel,
-		ChannelID:  &result.Channel.ID,
-		AccountID:  &result.Account.ID,
-		RetryChain: result.RetryChain.ToJSON(),
-		IsStream:   isStream,
-		StatusCode: statusCode,
-		LatencyMs:  latencyMs,
-		LogType:    "consumption",
-		TraceID:    traceID,
-		ClientIP:   clientIP,
+		Timestamp:    time.Now(),
+		KeysID:       keysID,
+		ModelName:    modelName,
+		MappedModel:  mappedModel,
+		ChannelID:    &result.Channel.ID,
+		AccountID:    &result.Account.ID,
+		RetryChain:   result.RetryChain.ToJSON(),
+		IsStream:     isStream,
+		StatusCode:   statusCode,
+		LatencyMs:    latencyMs,
+		LogType:      "consumption",
+		TraceID:      traceID,
+		ClientIP:     clientIP,
+	}
+
+	// 代理连接信息
+	if s, ok := upstreamAddr.(string); ok && s != "" {
+		log.UpstreamAddr = s
+	}
+	if s, ok := proxyAddr.(string); ok && s != "" {
+		log.ProxyAddr = s
 	}
 
 	// Token 用量

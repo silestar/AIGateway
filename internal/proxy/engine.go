@@ -39,11 +39,33 @@ type Engine struct {
 	accountMgr         account.AccountManager
 	pluginMgr          plugin.PluginManager
 	client             *http.Client
-	latencyThresholdMs int64 // 响应时间阈值（毫秒），0=不限制，仅非流式生效
+	latencyThresholdMs int64          // 响应时间阈值（毫秒），0=不限制，仅非流式生效
+	lastProxyInfo      *ProxyConnInfo // 代理连接信息指针（由 DialTLSContext 闭包写入）
+}
+
+// ProxyConnInfo 代理连接信息（由 DialTLSContext 记录，供请求日志使用）
+type ProxyConnInfo struct {
+	UpstreamAddr string `json:"upstream_addr,omitempty"`
+	ProxyAddr    string `json:"proxy_addr,omitempty"`
+}
+
+// LastProxyInfo 获取最近一次代理连接信息
+func (e *Engine) LastProxyInfo() ProxyConnInfo {
+	if e.lastProxyInfo != nil {
+		return *e.lastProxyInfo
+	}
+	return ProxyConnInfo{}
 }
 
 // NewEngine 创建代理引擎
 func NewEngine(cfg config.ProxyConfig, accountMgr account.AccountManager, pluginMgr plugin.PluginManager, logger *zap.Logger) *Engine {
+	engine := &Engine{
+		logger:        logger,
+		cfg:           cfg,
+		accountMgr:    accountMgr,
+		pluginMgr:     pluginMgr,
+		lastProxyInfo: &ProxyConnInfo{},
+	}
 	transport := &http.Transport{
 		DialContext: (&net.Dialer{
 			Timeout: time.Duration(cfg.ConnectTimeout) * time.Second,
@@ -93,6 +115,10 @@ func NewEngine(cfg config.ProxyConfig, accountMgr account.AccountManager, plugin
 					// connection_decorator 的返回约定：proxy_addr 放在 Message 字段
 					// （HookResponse 暂无 ProxyAddr 字段，暂时用 Message 传递）
 					proxyAddr := hookResp.Message
+
+					// 记录代理信息，供请求日志使用
+					*engine.lastProxyInfo = ProxyConnInfo{UpstreamAddr: addr, ProxyAddr: proxyAddr}
+
 					if proxyAddr != "" {
 						permHeaders := map[string]string{}
 						if accountID > 0 {
@@ -113,6 +139,8 @@ func NewEngine(cfg config.ProxyConfig, accountMgr account.AccountManager, plugin
 			}
 
 			// 3. 标准路径：建立原始 TCP 连接
+			*engine.lastProxyInfo = ProxyConnInfo{UpstreamAddr: addr}
+
 			dialer := &net.Dialer{}
 			rawConn, err := dialer.DialContext(ctx, network, addr)
 			if err != nil {
@@ -127,16 +155,12 @@ func NewEngine(cfg config.ProxyConfig, accountMgr account.AccountManager, plugin
 		IdleConnTimeout:     time.Duration(cfg.IdleConnTimeout) * time.Second,
 	}
 
-	return &Engine{
-		logger:     logger,
-		cfg:        cfg,
-		accountMgr: accountMgr,
-		pluginMgr:  pluginMgr,
-		client: &http.Client{
+	engine.client = &http.Client{
 			Transport: transport,
 			Timeout:   time.Duration(cfg.ReadTimeout) * time.Second,
-		},
-	}
+		}
+
+		return engine
 }
 
 // SetLatencyThresholdMs 设置响应时间阈值（毫秒），0=不限制

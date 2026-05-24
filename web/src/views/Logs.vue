@@ -299,6 +299,14 @@
                     <template v-else>{{ val }}</template>
                   </div>
                 </template>
+                <template v-if="detailLog.upstream_addr">
+                  <div class="detail-label monospace">upstream_addr</div>
+                  <div class="detail-value monospace clickable" @click="copyText(detailLog.upstream_addr)">{{ detailLog.upstream_addr }}<span class="copy-hint">📋</span></div>
+                </template>
+                <template v-if="detailLog.proxy_addr">
+                  <div class="detail-label monospace">proxy_addr</div>
+                  <div class="detail-value monospace clickable" @click="copyText(detailLog.proxy_addr)">{{ detailLog.proxy_addr }}<span class="copy-hint">📋</span></div>
+                </template>
               </div>
             </div>
             <n-divider style="margin: 12px 0" />
