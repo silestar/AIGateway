@@ -10,6 +10,9 @@ export const systemApi = {
   updateConfig(data: Record<string, unknown>) {
     return api.put('/system/config', data)
   },
+  flushCache() {
+    return api.post('/system/cache/flush')
+  },
 }
 
 // 系统日志 API

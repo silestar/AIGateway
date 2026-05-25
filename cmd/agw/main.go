@@ -239,7 +239,7 @@ func main() {
 	agwapi.NewLogHandler(statsMgr, &cfg.Log).RegisterRoutes(protected)
 	agwapi.NewPluginHandler(pluginMgr, cfg).RegisterRoutes(protected)
 	agwapi.NewModelHandler(catalogSvc).RegisterRoutes(protected)
-	agwapi.NewSystemHandler(cfg).RegisterRoutes(protected)
+	agwapi.NewSystemHandler(cfg, accountMgr).RegisterRoutes(protected)
 	agwapi.NewSystemLogHandler(cfg, pluginMgr).RegisterRoutes(protected)
 
 	// 10. 静态文件服务（前端 SPA）

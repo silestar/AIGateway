@@ -14,6 +14,7 @@ type Cache interface {
 	Incr(key string) (int64, error)
 	Decr(key string) (int64, error)
 	SetNX(key string, value string, ttl time.Duration) (bool, error)
+	FlushAll() // 清空所有缓存
 }
 
 // ========== 内存缓存实现（Redis 降级方案） ==========
@@ -96,6 +97,12 @@ func (c *memoryCache) SetNX(key string, value string, ttl time.Duration) (bool, 
 	}
 	c.items[key] = &cacheItem{value: value, expiry: time.Now().Add(ttl)}
 	return true, nil
+}
+
+func (c *memoryCache) FlushAll() {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	c.items = make(map[string]*cacheItem)
 }
 
 func (c *memoryCache) cleanup() {

@@ -37,6 +37,9 @@ type AccountManager interface {
 	GetDecryptedAPIKey(ctx context.Context, accountID uint) (string, error)
 	ReportResult(ctx context.Context, accountID uint, success bool, statusCode int, err error) error
 
+	// 缓存管理
+	FlushAllCache()
+
 	// CRUD
 	Create(ctx context.Context, channelID uint, apiKey string) (*Account, error)
 	GetById(ctx context.Context, id uint) (*Account, error)

@@ -1,6 +1,8 @@
 {
   "app": {
-    "title": "AIGateway 管理面板"
+    "title": "AIGateway 管理面板",
+    "switchLanguage": "切换语言",
+    "switchTheme": "切换主题"
   },
   "menu": {
     "dashboard": "仪表盘",
@@ -652,5 +654,14 @@
     "license": "开源协议",
     "tech": "技术栈",
     "storage": "数据存储"
+  },
+  "cache": {
+    "flushCache": "清除缓存",
+    "flushConfirmTitle": "确认清除缓存",
+    "flushConfirmContent": "将清空所有系统缓存（账号粘性绑定、状态缓存、速率计数等），下一个请求将重新建立缓存。此操作不会删除任何持久化数据。",
+    "flushConfirmOk": "确认清除",
+    "flushConfirmCancel": "取消",
+    "flushSuccess": "缓存已清除",
+    "flushFailed": "清除缓存失败"
   }
 }

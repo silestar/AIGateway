@@ -508,6 +508,13 @@ func isFailureCountable(statusCode int) bool {
 	return statusCode >= 500 || statusCode == 429
 }
 
+// FlushAllCache 清空所有内存缓存（粘性绑定、账号状态、速率计数等）
+// 用于应急处理：系统运行久了缓存可能变脏，一键清除恢复健康状态
+func (m *Manager) FlushAllCache() {
+	m.logger.Warn("flushing all cache on admin request")
+	m.cache.FlushAll()
+}
+
 // generateAPIKey 生成随机 API Key
 func generateAPIKey() (string, error) {
 	bytes := make([]byte, 32)

@@ -1,6 +1,8 @@
 {
   "app": {
-    "title": "AIGateway Admin"
+    "title": "AIGateway Admin",
+    "switchLanguage": "Switch Language",
+    "switchTheme": "Switch Theme"
   },
   "menu": {
     "dashboard": "Dashboard",
@@ -648,5 +650,14 @@
     "license": "License",
     "tech": "Tech Stack",
     "storage": "Storage"
+  },
+  "cache": {
+    "flushCache": "Clear Cache",
+    "flushConfirmTitle": "Confirm Cache Flush",
+    "flushConfirmContent": "This will clear all system caches (account affinity bindings, status caches, rate counters, etc.). The next request will rebuild caches from the database. No persistent data will be deleted.",
+    "flushConfirmOk": "Flush",
+    "flushConfirmCancel": "Cancel",
+    "flushSuccess": "Cache flushed successfully",
+    "flushFailed": "Failed to flush cache"
   }
 }

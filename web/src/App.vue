@@ -54,48 +54,67 @@
                 <n-divider vertical style="height: 20px; margin: 0 4px;" />
 
                 <!-- 语言切换 -->
-                <n-popover trigger="click" placement="bottom-end" ref="langPopoverRef">
+                <n-tooltip trigger="hover">
                   <template #trigger>
-                    <n-button quaternary size="small" class="toolbar-btn" title="Language">
-                      <template #icon><span class="toolbar-icon">🌐</span></template>
-                      {{ currentLangLabel }}
-                    </n-button>
+                    <n-popover trigger="click" placement="bottom-end" ref="langPopoverRef">
+                      <template #trigger>
+                        <n-button quaternary size="small" class="toolbar-btn">
+                          <template #icon><span class="toolbar-icon">🌐</span></template>
+                        </n-button>
+                      </template>
+                      <div class="popover-menu">
+                        <div
+                          v-for="opt in langOptions"
+                          :key="opt.value"
+                          class="popover-item"
+                          :class="{ active: currentLang === opt.value }"
+                          @click="switchLang(opt.value)"
+                        >
+                          {{ opt.label }}
+                        </div>
+                      </div>
+                    </n-popover>
                   </template>
-                  <div class="popover-menu">
-                    <div
-                      v-for="opt in langOptions"
-                      :key="opt.value"
-                      class="popover-item"
-                      :class="{ active: currentLang === opt.value }"
-                      @click="switchLang(opt.value)"
-                    >
-                      {{ opt.label }}
-                    </div>
-                  </div>
-                </n-popover>
+                  {{ t('app.switchLanguage') }}
+                </n-tooltip>
 
                 <!-- 主题切换 -->
-                <n-popover trigger="click" placement="bottom-end">
+                <n-tooltip trigger="hover">
                   <template #trigger>
-                    <n-button quaternary circle size="medium" class="toolbar-btn" title="Theme">
-                      <template #icon>
-                        <span class="toolbar-icon">{{ themeIcon }}</span>
+                    <n-popover trigger="click" placement="bottom-end">
+                      <template #trigger>
+                        <n-button quaternary circle size="medium" class="toolbar-btn">
+                          <template #icon>
+                            <span class="toolbar-icon">{{ themeIcon }}</span>
+                          </template>
+                        </n-button>
                       </template>
+                      <div class="popover-menu">
+                        <div
+                          v-for="opt in themeOptions"
+                          :key="opt.value"
+                          class="popover-item"
+                          :class="{ active: themeMode === opt.value }"
+                          @click="themeMode = opt.value"
+                        >
+                          <span class="popover-item-icon">{{ opt.icon }}</span>
+                          {{ opt.label }}
+                        </div>
+                      </div>
+                    </n-popover>
+                  </template>
+                  {{ t('app.switchTheme') }}
+                </n-tooltip>
+
+                <!-- 清除缓存 -->
+                <n-tooltip trigger="hover">
+                  <template #trigger>
+                    <n-button quaternary size="small" class="toolbar-btn" :loading="flushLoading" @click="handleFlushCache">
+                      <template #icon><span class="toolbar-icon">🧹</span></template>
                     </n-button>
                   </template>
-                  <div class="popover-menu">
-                    <div
-                      v-for="opt in themeOptions"
-                      :key="opt.value"
-                      class="popover-item"
-                      :class="{ active: themeMode === opt.value }"
-                      @click="themeMode = opt.value"
-                    >
-                      <span class="popover-item-icon">{{ opt.icon }}</span>
-                      {{ opt.label }}
-                    </div>
-                  </div>
-                </n-popover>
+                  {{ t('cache.flushCache') }}
+                </n-tooltip>
 
                 <!-- 退出登录：图标 + 文字 -->
                 <n-button quaternary size="small" class="toolbar-btn" @click="handleLogout">
@@ -133,6 +152,8 @@
 import { computed, ref, watch, onMounted } from 'vue'
 import { useRouter, useRoute } from 'vue-router'
 import { useI18n } from 'vue-i18n'
+import { createDiscreteApi } from 'naive-ui'
+import { systemApi } from './api/system'
 import {
   NConfigProvider,
   NLayout,
@@ -144,6 +165,7 @@ import {
   NMessageProvider,
   NDialogProvider,
   NPopover,
+  NTooltip,
   NSpace,
   NButton,
   NDivider,
@@ -156,6 +178,7 @@ import {
 const router = useRouter()
 const route = useRoute()
 const { t, locale } = useI18n()
+const { dialog, message } = createDiscreteApi(['dialog', 'message'])
 
 // === 语言切换 ===
 const currentLang = ref(localStorage.getItem('agw_lang') || 'zh-CN')
@@ -199,11 +222,6 @@ const langOptions = [
   { label: '中文', value: 'zh-CN' },
   { label: 'English', value: 'en-US' },
 ]
-
-const currentLangLabel = computed(() => {
-  const opt = langOptions.find(o => o.value === currentLang.value)
-  return opt?.label || '中文'
-})
 
 import { type PopoverInst } from 'naive-ui'
 const langPopoverRef = ref<PopoverInst | null>(null)
@@ -399,6 +417,27 @@ function handleMenuClick(key: string) {
   router.push(key)
 }
 function handleLogout() { localStorage.removeItem('agw_token'); router.push('/login') }
+
+const flushLoading = ref(false)
+function handleFlushCache() {
+  dialog.warning({
+    title: t('cache.flushConfirmTitle'),
+    content: t('cache.flushConfirmContent'),
+    positiveText: t('cache.flushConfirmOk'),
+    negativeText: t('cache.flushConfirmCancel'),
+    onPositiveClick: async () => {
+      flushLoading.value = true
+      try {
+        await systemApi.flushCache()
+        message.success(t('cache.flushSuccess'))
+      } catch {
+        message.error(t('cache.flushFailed'))
+      } finally {
+        flushLoading.value = false
+      }
+    },
+  })
+}
 
 const menuOptions = computed(() => [
   { label: t('menu.dashboard'), key: '/console', icon: (): string => '📊' },

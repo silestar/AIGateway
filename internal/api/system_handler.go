@@ -6,19 +6,22 @@ import (
 	"strings"
 
 	"github.com/gin-gonic/gin"
+	"github.com/silestar/AIGateway/internal/account"
 	"github.com/silestar/AIGateway/internal/config"
 )
 
 // SystemHandler 系统配置 API
 type SystemHandler struct {
-	cfg     *config.Config
-	version string
+	cfg        *config.Config
+	accountMgr account.AccountManager
+	version    string
 }
 
-func NewSystemHandler(cfg *config.Config) *SystemHandler {
+func NewSystemHandler(cfg *config.Config, accountMgr account.AccountManager) *SystemHandler {
 	return &SystemHandler{
-		cfg:     cfg,
-		version: loadVersion("docs/VERSION"),
+		cfg:        cfg,
+		accountMgr: accountMgr,
+		version:    loadVersion("docs/VERSION"),
 	}
 }
 
@@ -40,6 +43,7 @@ func (h *SystemHandler) RegisterRoutes(rg *gin.RouterGroup) {
 	system := rg.Group("/system")
 	system.GET("/config", h.GetConfig)
 	system.PUT("/config", h.UpdateConfig)
+	system.POST("/cache/flush", h.FlushCache)
 }
 
 // Info 系统信息
@@ -76,5 +80,13 @@ func (h *SystemHandler) UpdateConfig(c *gin.Context) {
 
 	c.JSON(http.StatusOK, gin.H{
 		"data": gin.H{"message": "config updated successfully"},
+	})
+}
+
+// FlushCache 清空所有系统缓存（粘性绑定、账号状态缓存、速率计数等）
+func (h *SystemHandler) FlushCache(c *gin.Context) {
+	h.accountMgr.FlushAllCache()
+	c.JSON(http.StatusOK, gin.H{
+		"data": gin.H{"message": "cache flushed successfully"},
 	})
 }
