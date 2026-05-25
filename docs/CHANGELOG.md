@@ -4,6 +4,16 @@
 
 ### 修复
 
+#### 仪表盘今日数据重启清零 + health_check 不计入统计（P1）
+- **问题一重启清零**：`GetOverview` → `GetRealtime` → 读内存计数器 `m.counters.Snapshot()`，服务重启后计数器为空，即使 DB 有数据仪表盘今日概览也始终为 0
+- **问题二测试路径不计入统计**：`IncrementCounters` 过滤 `LogType != "consumption"` 即排除 health_check，且所有统计查询（小时趋势、Top模型/渠道、日聚合等）均只 `log_type = 'consumption'`，导致渠道可用性检测和渠道模型测试不进入任何仪表盘统计
+- **修复**：
+  - `GetRealtime` 改从 `request_logs` 实时聚合：`WHERE DATE(timestamp) = today AND log_type IN ('consumption','health_check')`，不再读内存计数器
+  - `IncrementCounters` 过滤条件从 `!= "consumption"` 改为 `== "probe"`（即 consumption + health_check 均进入计数器，仅 probe 排除）
+  - 三个日聚合函数（`aggregateSystemDaily` / `aggregateKeysDaily` / `aggregateChannelDaily`）和七个统计查询（`GetHourlyTrend` / `GetTopModels` / `GetTopChannels` / `GetRecentErrors` / `GetConsumerRealtime`×2 / `GetChannelRealtime`×2）：`log_type = 'consumption'` → `log_type IN ('consumption','health_check')`
+  - 共修改 14 处 SQL 过滤条件
+  - 更新测试以适配新的 DB 聚合方式
+
 #### 渠道可用性检测/模型测试不走插件代理（P1）
 - **问题**：`sendTestRequest()` 用裸 `&http.Client{}` 直连上游，完全绕过了 proxy.Engine 的 DialTLSContext（含 connection_decorator 钩子），导致渠道可用性检测和模型测试均不走代理。这造成同一账号短时间内从不同 IP（代理 IP vs 直连 IP）请求上游，触发异地请求风控
 - **修复**：
