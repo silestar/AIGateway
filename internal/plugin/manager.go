@@ -202,12 +202,71 @@ func NewManager(db *gorm.DB, logger *zap.Logger, pluginsDir string, sidecarTimeo
 		logger.Warn("load hook registry from db failed", zap.Error(err))
 	}
 
+	// 启动时恢复之前标记为 running 的插件（进程可能因容器重启而丢失）
+	go m.recoverRunningPlugins(context.Background())
+
 	return m
 }
 
 // AutoMigrate 自动迁移
 func (m *Manager) AutoMigrate() error {
 	return m.db.AutoMigrate(&Plugin{}, &Hook{}, &PluginPermission{})
+}
+
+// recoverRunningPlugins 启动时恢复所有标记为 running 的插件
+// 用于处理 AGW 重启/重新编译后插件进程已失活但 DB 状态仍为 running 的场景
+func (m *Manager) recoverRunningPlugins(ctx context.Context) {
+	var plugins []Plugin
+	if err := m.db.Where("status = ?", StatusRunning).Find(&plugins).Error; err != nil {
+		m.logger.Warn("recover running plugins: query failed", zap.Error(err))
+		return
+	}
+
+	if len(plugins) == 0 {
+		return
+	}
+
+	m.logger.Info("checking running plugins for recovery", zap.Int("count", len(plugins)))
+
+	for _, p := range plugins {
+		alive := false
+		if p.Pid > 0 {
+			if proc, err := os.FindProcess(p.Pid); err == nil {
+				// os.FindProcess 在 Unix 上永远成功，必须用 Signal(0) 真正验证进程存活
+				if err := proc.Signal(syscall.Signal(0)); err == nil {
+					alive = true
+				}
+				proc.Release()
+			}
+		}
+
+		if alive {
+			m.logger.Info("plugin process already alive, skip recovery",
+				zap.String("name", p.Name), zap.Int("pid", p.Pid))
+			continue
+		}
+
+		m.logger.Info("plugin process not found, auto-recovering...",
+			zap.String("name", p.Name), zap.Int("pid", p.Pid), zap.Uint("id", p.ID))
+
+		// 清理残留状态
+		m.db.Model(&p).Updates(map[string]interface{}{
+			"pid":    0,
+			"status": StatusStopped,
+		})
+		// loadFromDB 已加入注册表但进程已死，先移除再重新 Start（Start 会重新 insert）
+		m.registry.remove(p.Name)
+
+		// 重新启动插件
+		if err := m.Start(ctx, p.ID); err != nil {
+			m.logger.Warn("auto-recover plugin failed",
+				zap.String("name", p.Name),
+				zap.Uint("id", p.ID),
+				zap.Error(err))
+		}
+	}
+
+	m.logger.Info("plugin recovery check completed")
 }
 
 // Upload 解析 ZIP 中的 manifest.json，返回预览信息（不安装）
@@ -584,6 +643,8 @@ func (m *Manager) Start(ctx context.Context, pluginID uint) error {
 			"pid":    0,
 			"status": StatusStopped,
 		})
+		// 从钩子注册表移除
+		m.registry.remove(plugin.Name)
 		m.logger.Info("plugin process exited",
 			zap.String("name", plugin.Name),
 			zap.Int("pid", pid),
@@ -630,6 +691,9 @@ func (m *Manager) Stop(ctx context.Context, pluginID uint) error {
 		"pid":    0,
 		"status": StatusStopped,
 	})
+
+	// 从钩子注册表移除
+	m.registry.remove(plugin.Name)
 
 	m.logger.Info("plugin stopped", zap.String("name", plugin.Name))
 	return nil

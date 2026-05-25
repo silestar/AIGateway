@@ -1,5 +1,16 @@
 # Changelog
 
+## [0.3.2] - 2026-05-25
+
+### 修复
+
+#### 重启后插件状态不一致：DB 显示 running 但进程已死
+- **问题**：AGW 重启/重新编译后，插件进程随容器一起被杀死，但 DB 中 `status` 仍为 `running`。`loadFromDB` 只从 DB 加载条目到内存注册表，不验证进程是否真的活着，导致前端显示"运行中"但插件功能实际失效，给管理员造成错觉
+- **修复**：
+  - `internal/plugin/manager.go`：新增 `recoverRunningPlugins()` 方法 — 启动时遍历所有 `status='running'` 的插件，通过 `Signal(0)`（而非 `os.FindProcess` 的假阳性检查）验证进程存活；已死的自动清理残留状态并调用 `Start()` 重新启动
+  - `NewManager()`：`loadFromDB` 之后用 `go recoverRunningPlugins()` 异步触发恢复，不阻塞初始化
+- **附带修复**：`Stop()` 和 `cmd.Wait()` goroutine（进程意外退出）中补 `registry.remove()` 清理内存注册表，解决 Stop/崩溃后内存残留问题
+
 ## [0.3.1] - 2026-05-25
 
 ### 修复
