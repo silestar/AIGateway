@@ -31,6 +31,8 @@ export interface SystemLogEntry {
   caller?: string
   trace_id?: string
   source?: string // 插件日志来源
+  module?: string // 可读模块名（后端 callerToModule 转换）
+  message?: string // 可读消息描述（后端 msgToReadable 转换）
   [key: string]: unknown
 }
 
