@@ -75,14 +75,17 @@ func TestManager_Realtime(t *testing.T) {
 	logger := zap.NewNop()
 	mgr := NewManager(db, logger, "sqlite")
 
-	// 模拟递增
+	// 写入 DB（GetRealtime 现在从 request_logs 实时聚合）
 	log := &RequestLog{
-		StatusCode:      200,
-		LatencyMs:       50,
-		PromptTokens:    100,
+		Timestamp:        time.Now(),
+		StatusCode:       200,
+		LatencyMs:        50,
+		PromptTokens:     100,
 		CompletionTokens: 50,
+		LogType:          "consumption",
 	}
 	mgr.IncrementCounters(log)
+	db.Create(log)
 
 	stats, err := mgr.GetRealtime(nil)
 	if err != nil {

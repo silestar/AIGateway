@@ -80,8 +80,8 @@ func (m *Manager) StopAggregator() {
 
 // IncrementCounters 递增实时计数器（仅消费类日志）
 func (m *Manager) IncrementCounters(log *RequestLog) {
-	// 只统计消费类日志，排除探测和健康检查
-	if log.LogType != "" && log.LogType != "consumption" {
+	// 排除探测类日志，统计消费和健康检查
+	if log.LogType == "probe" {
 		return
 	}
 	success := log.StatusCode >= 200 && log.StatusCode < 300
@@ -111,25 +111,37 @@ func (m *Manager) IncrementCounters(log *RequestLog) {
 	}
 }
 
-// GetRealtime 获取今日实时统计
+// GetRealtime 获取今日实时统计（从 request_logs 实时聚合，解决重启清零问题）
 func (m *Manager) GetRealtime(ctx context.Context) (*RealtimeStats, error) {
-	date, total, success, fail, avgLatency, tokens := m.counters.Snapshot()
+	today := time.Now().Format("2006-01-02")
 
-	// 活跃密钥和渠道数量
+	var result struct {
+		Total   int64
+		Success int64
+		Fail    int64
+		Tokens  int64
+		AvgMs   float64
+	}
+	m.db.WithContext(ctx).Model(&RequestLog{}).
+		Where("DATE(timestamp) = ? AND log_type IN ('consumption', 'health_check')", today).
+		Select("COUNT(*) as total, SUM(CASE WHEN status_code >= 200 AND status_code < 300 THEN 1 ELSE 0 END) as success, SUM(CASE WHEN status_code < 200 OR status_code >= 300 THEN 1 ELSE 0 END) as fail, COALESCE(SUM(prompt_tokens + completion_tokens), 0) as tokens, COALESCE(AVG(latency_ms), 0) as avg_ms").
+		Scan(&result)
+
+	// 活跃密钥和渠道数量（从内存计数器获取）
 	m.mu.RLock()
 	activeKeys := int64(len(m.keysCounters))
 	activeChannels := int64(len(m.channelCounters))
 	m.mu.RUnlock()
 
 	return &RealtimeStats{
-		TotalRequests:   total,
-		SuccessRequests: success,
-		FailRequests:    fail,
-		AvgLatencyMs:    avgLatency,
-		TotalTokens:     tokens,
-		ActiveKeys: activeKeys,
+		TotalRequests:   result.Total,
+		SuccessRequests: result.Success,
+		FailRequests:    result.Fail,
+		AvgLatencyMs:    result.AvgMs,
+		TotalTokens:     result.Tokens,
+		ActiveKeys:      activeKeys,
 		ActiveChannels:  activeChannels,
-		Date:            date,
+		Date:            today,
 	}, nil
 }
 
@@ -323,7 +335,7 @@ func (m *Manager) aggregateSystemDaily(ctx context.Context, date string) {
 
 	m.db.WithContext(ctx).Model(&RequestLog{}).
 		Where("timestamp >= ? AND timestamp < ?", date+" 00:00:00", date+" 23:59:59").
-		Where("log_type = ?", "consumption").
+		Where("log_type IN (?,?)", "consumption", "health_check").
 		Select("COUNT(*) as total, SUM(CASE WHEN status_code >= 200 AND status_code < 300 THEN 1 ELSE 0 END) as success, SUM(CASE WHEN status_code < 200 OR status_code >= 300 THEN 1 ELSE 0 END) as fail, COALESCE(SUM(prompt_tokens + completion_tokens), 0) as tokens, COALESCE(AVG(latency_ms), 0) as avg_ms").
 		Scan(&result)
 
@@ -354,7 +366,7 @@ func (m *Manager) aggregateKeysDaily(ctx context.Context, date string) {
 	var rows []row
 	m.db.WithContext(ctx).Model(&RequestLog{}).
 		Where("timestamp >= ? AND timestamp < ?", date+" 00:00:00", date+" 23:59:59").
-		Where("log_type = ?", "consumption").
+		Where("log_type IN (?,?)", "consumption", "health_check").
 		Select("keys_id, model_name, COUNT(*) as total, SUM(CASE WHEN status_code >= 200 AND status_code < 300 THEN 1 ELSE 0 END) as success, SUM(CASE WHEN status_code < 200 OR status_code >= 300 THEN 1 ELSE 0 END) as fail, COALESCE(SUM(prompt_tokens + completion_tokens), 0) as tokens, COALESCE(AVG(latency_ms), 0) as avg_ms").
 		Group("keys_id, model_name").
 		Scan(&rows)
@@ -388,7 +400,7 @@ func (m *Manager) aggregateChannelDaily(ctx context.Context, date string) {
 	var rows []row
 	m.db.WithContext(ctx).Model(&RequestLog{}).
 		Where("timestamp >= ? AND timestamp < ?", date+" 00:00:00", date+" 23:59:59").
-		Where("log_type = ?", "consumption").
+		Where("log_type IN (?,?)", "consumption", "health_check").
 		Select("channel_id, model_name, COUNT(*) as total, SUM(CASE WHEN status_code >= 200 AND status_code < 300 THEN 1 ELSE 0 END) as success, SUM(CASE WHEN status_code < 200 OR status_code >= 300 THEN 1 ELSE 0 END) as fail, COALESCE(SUM(prompt_tokens + completion_tokens), 0) as tokens, COALESCE(AVG(latency_ms), 0) as avg_ms").
 		Where("channel_id IS NOT NULL").
 		Group("channel_id, model_name").
@@ -454,7 +466,7 @@ func (m *Manager) GetConsumerRealtime(ctx context.Context, keysID uint) (*Consum
 
 	today := time.Now().Format("2006-01-02")
 	query := m.db.WithContext(ctx).
-		Where("keys_id = ? AND log_type = 'consumption' AND DATE(timestamp) = ?", keysID, today)
+		Where("keys_id = ? AND log_type IN ('consumption','health_check') AND DATE(timestamp) = ?", keysID, today)
 
 	// 基础聚合
 	var result struct {
@@ -483,7 +495,7 @@ func (m *Manager) GetConsumerRealtime(ctx context.Context, keysID uint) (*Consum
 	m.db.WithContext(ctx).
 		Model(&RequestLog{}).
 		Select("model_name, COUNT(*) as total_requests").
-		Where("keys_id = ? AND log_type = 'consumption' AND DATE(timestamp) = ?", keysID, today).
+		Where("keys_id = ? AND log_type IN ('consumption','health_check') AND DATE(timestamp) = ?", keysID, today).
 		Group("model_name").
 		Order("total_requests DESC").
 		Limit(10).
@@ -512,7 +524,7 @@ func (m *Manager) GetChannelRealtime(ctx context.Context, channelID uint) (*Chan
 
 	today := time.Now().Format("2006-01-02")
 	query := m.db.WithContext(ctx).
-		Where("channel_id = ? AND log_type = 'consumption' AND DATE(timestamp) = ?", channelID, today)
+		Where("channel_id = ? AND log_type IN ('consumption','health_check') AND DATE(timestamp) = ?", channelID, today)
 
 	var result struct {
 		TotalRequests int64
@@ -540,7 +552,7 @@ func (m *Manager) GetChannelRealtime(ctx context.Context, channelID uint) (*Chan
 	m.db.WithContext(ctx).
 		Model(&RequestLog{}).
 		Select("model_name, COUNT(*) as total_requests").
-		Where("channel_id = ? AND log_type = 'consumption' AND DATE(timestamp) = ?", channelID, today).
+		Where("channel_id = ? AND log_type IN ('consumption','health_check') AND DATE(timestamp) = ?", channelID, today).
 		Group("model_name").
 		Order("total_requests DESC").
 		Limit(10).
@@ -574,7 +586,7 @@ func (m *Manager) GetHourlyTrend(ctx context.Context, hours int) ([]HourlyTrendE
 	var rows []row
 	err := m.db.WithContext(ctx).Model(&RequestLog{}).
 		Select(m.hourTruncExpr("timestamp", "hour") + " as hour, SUM(CASE WHEN status_code >= 200 AND status_code < 300 THEN 1 ELSE 0 END) as success, SUM(CASE WHEN status_code < 200 OR status_code >= 300 THEN 1 ELSE 0 END) as fail").
-		Where("timestamp >= ? AND log_type = ?", cutoff, "consumption").
+		Where("timestamp >= ? AND log_type IN (?,?)", cutoff, "consumption", "health_check").
 		Group("hour").
 		Order("hour ASC").
 		Scan(&rows).Error
@@ -682,7 +694,7 @@ func (m *Manager) GetTopModels(ctx context.Context, limit int) ([]TopModelEntry,
 	var models []TopModelEntry
 	err := m.db.WithContext(ctx).Model(&RequestLog{}).
 		Select("model_name, COUNT(*) as total_requests").
-		Where("log_type = ? AND DATE(timestamp) = ? AND model_name != ''", "consumption", today).
+		Where("log_type IN (?,?) AND DATE(timestamp) = ? AND model_name != ''", "consumption", "health_check", today).
 		Group("model_name").
 		Order("total_requests DESC").
 		Limit(limit).
@@ -715,7 +727,7 @@ func (m *Manager) GetTopChannels(ctx context.Context, limit int) ([]TopChannelEn
 	var rows []row
 	err := m.db.WithContext(ctx).Model(&RequestLog{}).
 		Select("channel_id, COUNT(*) as total_requests, SUM(CASE WHEN status_code >= 200 AND status_code < 300 THEN 1 ELSE 0 END) as success_count, CASE WHEN COUNT(*) > 0 THEN AVG(latency_ms) ELSE 0 END as avg_latency_ms").
-		Where("log_type = ? AND DATE(timestamp) = ? AND channel_id IS NOT NULL", "consumption", today).
+		Where("log_type IN (?,?) AND DATE(timestamp) = ? AND channel_id IS NOT NULL", "consumption", "health_check", today).
 		Group("channel_id").
 		Order("total_requests DESC").
 		Limit(limit).
@@ -789,7 +801,7 @@ func (m *Manager) GetRecentErrors(ctx context.Context, limit int) ([]RecentError
 
 	var logs []RequestLog
 	err := m.db.WithContext(ctx).
-		Where("log_type = ? AND (status_code < 200 OR status_code >= 300 OR latency_ms > ?)", "consumption", latencyThreshold).
+		Where("log_type IN (?,?) AND (status_code < 200 OR status_code >= 300 OR latency_ms > ?)", "consumption", "health_check", latencyThreshold).
 		Order("timestamp DESC").
 		Limit(limit).
 		Find(&logs).Error
