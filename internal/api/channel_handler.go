@@ -406,6 +406,8 @@ func (h *ChannelHandler) TestChannel(c *gin.Context) {
 		ClientIP:        c.ClientIP(),
 		PromptTokens:    result.PromptTokens,
 		CompletionTokens: result.CompletionTokens,
+		UpstreamAddr:    result.UpstreamAddr,
+		ProxyAddr:       result.ProxyAddr,
 	})
 
 	c.JSON(http.StatusOK, gin.H{"data": result})
@@ -446,6 +448,29 @@ func (h *ChannelHandler) BatchTestModels(c *gin.Context) {
 		return
 	}
 
+	// 为每个测试结果写 health_check 日志
+	traceID, _ := c.Get("trace_id")
+	traceIDStr, _ := traceID.(string)
+	for _, r := range results {
+		errMsg := r.Error
+		log := &stats.RequestLog{
+			Timestamp:    time.Now(),
+			ChannelID:    &id,
+			ModelName:    r.Model,
+			StatusCode:   r.Status,
+			LatencyMs:    r.Latency,
+			LogType:      "health_check",
+			TraceID:      traceIDStr,
+			ClientIP:     c.ClientIP(),
+			UpstreamAddr: r.UpstreamAddr,
+			ProxyAddr:    r.ProxyAddr,
+		}
+		if errMsg != "" {
+			log.ErrorMsg = &errMsg
+		}
+		h.asyncWriter.Record(log)
+	}
+
 	c.JSON(http.StatusOK, gin.H{"data": results})
 }
 
@@ -483,6 +508,30 @@ func (h *ChannelHandler) TestSingleModel(c *gin.Context) {
 		c.JSON(http.StatusBadRequest, errorResponse("test_failed", err.Error()))
 		return
 	}
+
+	// 记录 health_check 日志
+	traceID, _ := c.Get("trace_id")
+	traceIDStr, _ := traceID.(string)
+	log := &stats.RequestLog{
+		Timestamp:    time.Now(),
+		ChannelID:    &id,
+		ModelName:    result.Model,
+		StatusCode:   result.Status,
+		LatencyMs:    result.Latency,
+		LogType:      "health_check",
+		TraceID:      traceIDStr,
+		ClientIP:     c.ClientIP(),
+		UpstreamAddr: result.UpstreamAddr,
+		ProxyAddr:    result.ProxyAddr,
+	}
+	if result.Error != "" {
+		log.ErrorMsg = &result.Error
+	}
+	if result.PromptTokens > 0 || result.CompletionTokens > 0 {
+		log.PromptTokens = result.PromptTokens
+		log.CompletionTokens = result.CompletionTokens
+	}
+	h.asyncWriter.Record(log)
 
 	c.JSON(http.StatusOK, gin.H{"data": result})
 }

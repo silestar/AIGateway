@@ -19,12 +19,36 @@ import (
 
 type service struct {
 	db            *gorm.DB
+	proxyEngine   RawProxyEngine
 	onModelsChange func() // 模型变更回调，用于同步 model_catalog
+}
+
+// RawProxyEngine 原始请求代理接口（避免 channel → proxy 循环引用）
+type RawProxyEngine interface {
+	ForwardRaw(ctx context.Context, ch *Channel, accountID uint, req *http.Request) (*RawProxyResult, error)
+	GetProxyInfo() ProxyInfo
+}
+
+// RawProxyResult 代理返回的原始结果（避免 channel → proxy 循环引用）
+type RawProxyResult struct {
+	StatusCode int
+	Body       []byte
+}
+
+// ProxyInfo 代理连接信息（避免 channel → proxy 循环引用）
+type ProxyInfo struct {
+	UpstreamAddr string
+	ProxyAddr    string
 }
 
 // NewService 创建渠道服务
 func NewService(db *gorm.DB) ChannelService {
 	return &service{db: db}
+}
+
+// SetProxyEngine 设置代理引擎引用
+func (s *service) SetProxyEngine(engine RawProxyEngine) {
+	s.proxyEngine = engine
 }
 
 // SetOnModelsChange 设置模型变更回调
@@ -460,6 +484,8 @@ func (s *service) BatchTestModels(ctx context.Context, id uint, modelNames []str
 			result.Latency = testResult.Latency
 			result.Status = testResult.Status
 			result.Error = testResult.Error
+			result.UpstreamAddr = testResult.UpstreamAddr
+			result.ProxyAddr = testResult.ProxyAddr
 		}
 
 		results = append(results, result)
@@ -632,34 +658,60 @@ func (s *service) sendTestRequest(ctx context.Context, ch *Channel, model string
 	}
 
 	start := time.Now()
-	client := &http.Client{Timeout: 30 * time.Second}
-	resp, err := client.Do(req)
-	latency := int(time.Since(start).Milliseconds())
 
 	result := &TestResult{
-		Model:   model,
-		Latency: latency,
+		Model: model,
 	}
 
-	if err != nil {
-		result.Success = false
-		result.Error = err.Error()
+	var respStatus int
+	var respBody []byte
+	var respErr error
+
+	if s.proxyEngine != nil {
+		// 走 proxy engine（含插件代理链路）
+		rawResult, err := s.proxyEngine.ForwardRaw(ctx, ch, 0, req)
+		// 记录代理连接信息
+		proxyInfo := s.proxyEngine.GetProxyInfo()
+		result.UpstreamAddr = proxyInfo.UpstreamAddr
+		result.ProxyAddr = proxyInfo.ProxyAddr
+		if err != nil {
+			respErr = err
+		} else {
+			respStatus = rawResult.StatusCode
+			respBody = rawResult.Body
+		}
 	} else {
-		body, _ := io.ReadAll(resp.Body)
-		resp.Body.Close()
-		result.Status = resp.StatusCode
-		if resp.StatusCode >= 400 {
+		// 降级：直连
+		client := &http.Client{Timeout: 30 * time.Second}
+		resp, err := client.Do(req)
+		if err != nil {
+			respErr = err
+		} else {
+			body, _ := io.ReadAll(resp.Body)
+			resp.Body.Close()
+			respStatus = resp.StatusCode
+			respBody = body
+		}
+	}
+
+	latency := int(time.Since(start).Milliseconds())
+	result.Latency = latency
+
+	if respErr != nil {
+		result.Success = false
+		result.Error = respErr.Error()
+	} else {
+		result.Status = respStatus
+		if respStatus >= 400 {
 			result.Success = false
-			// 截取错误信息，避免过长
-			errMsg := string(body)
+			errMsg := string(respBody)
 			if len(errMsg) > 500 {
 				errMsg = errMsg[:500] + "..."
 			}
-			result.Error = fmt.Sprintf("HTTP %d: %s", resp.StatusCode, errMsg)
+			result.Error = fmt.Sprintf("HTTP %d: %s", respStatus, errMsg)
 		} else {
 			result.Success = true
-			// 提取 token usage
-			tokenUsage := usage.ExtractFromResponse(body)
+			tokenUsage := usage.ExtractFromResponse(respBody)
 			if tokenUsage != nil {
 				result.PromptTokens = tokenUsage.PromptTokens
 				result.CompletionTokens = tokenUsage.CompletionTokens

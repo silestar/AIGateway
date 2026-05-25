@@ -57,6 +57,15 @@ func (e *Engine) LastProxyInfo() ProxyConnInfo {
 	return ProxyConnInfo{}
 }
 
+// LastProxyInfoForChannel 返回 channel.ProxyInfo（实现 channel.RawProxyEngine 接口，避免循环引用）
+func (e *Engine) GetProxyInfo() channel.ProxyInfo {
+	info := e.LastProxyInfo()
+	return channel.ProxyInfo{
+		UpstreamAddr: info.UpstreamAddr,
+		ProxyAddr:    info.ProxyAddr,
+	}
+}
+
 // NewEngine 创建代理引擎
 func NewEngine(cfg config.ProxyConfig, accountMgr account.AccountManager, pluginMgr plugin.PluginManager, logger *zap.Logger) *Engine {
 	engine := &Engine{
@@ -394,6 +403,47 @@ func (e *Engine) Forward(ctx context.Context, ch *channel.Channel, acc *account.
 		SystemFingerprint: sysFP,
 		UpstreamLatencyMs: upstreamLatencyMs,
 		DisconnectType:   "normal",
+	}, nil
+}
+
+// ForwardRaw 转发预构造好的请求到上游（绕过 adapter 层，但复用 engine.client 走插件代理）
+// 适用场景：渠道可用性检测、模型测试 — 请求体已由调用者按渠道类型构造好，
+// 但需要通过 engine.client（含 DialTLSContext connection_decorator 钩子）确保走插件代理。
+func (e *Engine) ForwardRaw(ctx context.Context, ch *channel.Channel, accountID uint, originalReq *http.Request) (*channel.RawProxyResult, error) {
+	upstreamReq, err := http.NewRequestWithContext(ctx, originalReq.Method, originalReq.URL.String(), originalReq.Body)
+	if err != nil {
+		return nil, fmt.Errorf("create upstream request: %w", err)
+	}
+	// 注入渠道 ID 和账号 ID 到 context，供 DialTLSContext 使用
+	upstreamReq = upstreamReq.WithContext(context.WithValue(upstreamReq.Context(), ctxKeyChannelID, ch.ID))
+	if accountID > 0 {
+		upstreamReq = upstreamReq.WithContext(context.WithValue(upstreamReq.Context(), ctxKeyAccountID, accountID))
+	}
+
+	// 复制原始 header（跳过 Host），保留调用者设置的认证头和 Content-Type
+	for k, vv := range originalReq.Header {
+		if k == "Host" || k == "Accept-Encoding" {
+			continue
+		}
+		for _, v := range vv {
+			upstreamReq.Header.Add(k, v)
+		}
+	}
+
+	resp, err := e.client.Do(upstreamReq)
+	if err != nil {
+		return nil, fmt.Errorf("upstream request: %w", err)
+	}
+	defer resp.Body.Close()
+
+	body, err := io.ReadAll(resp.Body)
+	if err != nil {
+		return nil, fmt.Errorf("read response body: %w", err)
+	}
+
+	return &channel.RawProxyResult{
+		StatusCode: resp.StatusCode,
+		Body:       body,
 	}, nil
 }
 

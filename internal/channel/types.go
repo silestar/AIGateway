@@ -100,6 +100,8 @@ type TestResult struct {
 	Model             string `json:"model"`
 	PromptTokens      int    `json:"prompt_tokens,omitempty"`
 	CompletionTokens  int    `json:"completion_tokens,omitempty"`
+	UpstreamAddr      string `json:"upstream_addr,omitempty"`
+	ProxyAddr         string `json:"proxy_addr,omitempty"`
 }
 
 // BatchTestResult 批量测试结果项
@@ -109,6 +111,8 @@ type BatchTestResultItem struct {
 	Latency int    `json:"latency"` // 毫秒
 	Error   string `json:"error,omitempty"`
 	Status  int    `json:"status,omitempty"` // HTTP 状态码（失败时）
+	UpstreamAddr string `json:"upstream_addr,omitempty"`
+	ProxyAddr    string `json:"proxy_addr,omitempty"`
 }
 
 // ChannelService 渠道服务接口
@@ -136,4 +140,6 @@ type ChannelService interface {
 	SetOnModelsChange(fn func())
 	// GetCustomModelNames 获取所有渠道已配置的自定义模型名（display != actual）
 	GetCustomModelNames(ctx context.Context) ([]string, error)
+	// SetProxyEngine 设置代理引擎引用（让可用性检测/模型测试走插件代理链路）
+	SetProxyEngine(engine RawProxyEngine)
 }

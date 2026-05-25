@@ -23,16 +23,20 @@ type Manager struct {
 	channelCounters  map[uint]*TodayCounters
 	// 聚合调度器
 	aggregatorCancel context.CancelFunc
+	// 数据库方言: sqlite / mysql / postgresql
+	dbType string
 }
 
 // NewManager 创建统计管理器
-func NewManager(db *gorm.DB, logger *zap.Logger) *Manager {
+// dbType: 数据库类型（sqlite/mysql/postgresql），用于 SQL 方言适配
+func NewManager(db *gorm.DB, logger *zap.Logger, dbType string) *Manager {
 	return &Manager{
 		db:               db,
 		logger:           logger,
 		counters:         NewTodayCounters(),
 		keysCounters: make(map[uint]*TodayCounters),
 		channelCounters:  make(map[uint]*TodayCounters),
+		dbType:           dbType,
 	}
 }
 
@@ -569,7 +573,7 @@ func (m *Manager) GetHourlyTrend(ctx context.Context, hours int) ([]HourlyTrendE
 	}
 	var rows []row
 	err := m.db.WithContext(ctx).Model(&RequestLog{}).
-		Select("strftime('%Y-%m-%d %H:00', timestamp) as hour, SUM(CASE WHEN status_code >= 200 AND status_code < 300 THEN 1 ELSE 0 END) as success, SUM(CASE WHEN status_code < 200 OR status_code >= 300 THEN 1 ELSE 0 END) as fail").
+		Select(m.hourTruncExpr("timestamp", "hour") + " as hour, SUM(CASE WHEN status_code >= 200 AND status_code < 300 THEN 1 ELSE 0 END) as success, SUM(CASE WHEN status_code < 200 OR status_code >= 300 THEN 1 ELSE 0 END) as fail").
 		Where("timestamp >= ? AND log_type = ?", cutoff, "consumption").
 		Group("hour").
 		Order("hour ASC").
@@ -587,6 +591,18 @@ func (m *Manager) GetHourlyTrend(ctx context.Context, hours int) ([]HourlyTrendE
 		})
 	}
 	return result, nil
+}
+
+// hourTruncExpr 返回按小时截断的 SQL 表达式（适配 SQLite/MySQL/PostgreSQL）
+func (m *Manager) hourTruncExpr(col, alias string) string {
+	switch m.dbType {
+	case "postgresql":
+		return fmt.Sprintf("to_char(date_trunc('hour', %s), 'YYYY-MM-DD HH24:00')", col)
+	case "mysql":
+		return fmt.Sprintf("DATE_FORMAT(%s, '%%Y-%%m-%%d %%H:00')", col)
+	default: // sqlite
+		return fmt.Sprintf("strftime('%%Y-%%m-%%d %%H:00', %s)", col)
+	}
 }
 
 // GetTokenStats 获取 Token 统计（总token、TPM、TPR、前3模型）

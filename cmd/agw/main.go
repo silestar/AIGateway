@@ -102,11 +102,14 @@ func main() {
 		proxyEngine.SetLatencyThresholdMs(int64(cfg.AccountManager.ChannelDisableLatencyThreshold) * 1000)
 	}
 
+	// 给渠道服务注入 proxy engine，让可用性检测/模型测试走插件代理链路
+	channelSvc.SetProxyEngine(proxyEngine)
+
 	// 模型目录服务
 	catalogSvc := models.NewCatalogService(db, logger)
 
 	// 统计管理器 + 异步日志写入器
-	statsMgr := stats.NewManager(db, logger)
+	statsMgr := stats.NewManager(db, logger, cfg.DB.Type)
 	asyncWriter := stats.NewAsyncWriter(db, logger, statsMgr, 10000, 50, 100)
 	// 注册 on_log 钩子：日志入队前触发插件的 on_log 钩子
 	asyncWriter.SetOnLogHook(func(log *stats.RequestLog) {

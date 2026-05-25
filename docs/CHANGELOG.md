@@ -1,17 +1,17 @@
 # Changelog
 
-## [0.3.1] - 2026-05-24
+## [0.3.1] - 2026-05-25
 
 ### 修复
 
-#### 渠道测试不走插件代理（P1）
-- **问题**：`sendTestRequest()` 和 `testOpenAIConnection()` 用裸 `&http.Client{}`，无 Transport，直连上游完全绕过了 Engine 的 DialTLSContext（含插件的 connection_decorator 钩子），导致渠道可用性测试和模型测试均不走代理，插件日志无记录
-- **渠道 5 操作失败**：直连被上游拒绝/超时，但请求实际发出，刷新后显示最新结果。走代理后应稳定通过
+#### 渠道可用性检测/模型测试不走插件代理（P1）
+- **问题**：`sendTestRequest()` 用裸 `&http.Client{}` 直连上游，完全绕过了 proxy.Engine 的 DialTLSContext（含 connection_decorator 钩子），导致渠道可用性检测和模型测试均不走代理。这造成同一账号短时间内从不同 IP（代理 IP vs 直连 IP）请求上游，触发异地请求风控
 - **修复**：
-  - `internal/channel/service.go`：新增 `proxyTransport http.RoundTripper` 字段 + `SetProxyTransport()`
-  - `internal/channel/types.go`：接口新增 `SetProxyTransport()`
-  - `internal/proxy/engine.go`：新增 `GetClientTransport()` 暴露 Engine 的 Transport
-  - `cmd/agw/main.go`：创建 channelSvc 后注入 `proxyEngine.GetClientTransport()`
+  - `internal/proxy/engine.go`：新增 `ForwardRaw()` 方法 — 绕过 adapter 层（请求体已由调用者构造好），但复用 `engine.client`（含 DialTLSContext 插件钩子），确保探测请求走插件代理链路
+  - `internal/channel/service.go`：`service` struct 新增 `proxyEngine` 字段 + `SetProxyEngine()` + `RawProxyEngine` 接口 + `RawProxyResult` 类型；`sendTestRequest()` 优先走 `proxyEngine.ForwardRaw()`，降级回直连
+  - `internal/channel/types.go`：`ChannelService` 接口新增 `SetProxyEngine(engine RawProxyEngine)`
+  - `cmd/agw/main.go`：启动时 `channelSvc.SetProxyEngine(proxyEngine)` 注入代理引擎
+- **影响范围**：`TestAccount`（探测/巡检）、`TestChannel`（渠道可用性测试）、`BatchTestModels`（批量模型测试）、`TestSingleModel`（单模型测试）全部受益
 
 #### 模型测试弹窗列表展示优化
 - **问题**：弹窗中待测试模型列表显示不完整。渠道 5 的 7 个上游模型 + 5 个自定义映射，弹窗仅显示 2+5
@@ -27,6 +27,22 @@
 
 ### 变更
 - `cmd/agw/main.go`：Forward / ForwardStream 后读取 `proxyEngine.LastProxyInfo()` 注入 Gin context
+
+#### 测试路径请求日志补全
+- **问题**：`BatchTestModels` 和 `TestSingleModel` handler 没有写 `RequestLog`，导致渠道模型测试在请求日志中完全不可见。同时所有测试路径（包括 `TestChannel`）的 `upstream_addr` / `proxy_addr` 字段为空 — 因为 `sendTestRequest` 走 `ForwardRaw` 后没有读取 `LastProxyInfo()`
+- **修复**：
+  - `internal/channel/service.go`：`RawProxyEngine` 接口新增 `GetProxyInfo() ProxyInfo` 方法；新增 `ProxyInfo` 类型（避免 channel→proxy 循环引用）；`sendTestRequest` 调 `ForwardRaw` 后立即调 `GetProxyInfo()` 填入 `TestResult`；`BatchTestModels` 传递代理信息到结果
+  - `internal/proxy/engine.go`：新增 `GetProxyInfo()` 方法，从 `ProxyConnInfo` 转换为 `channel.ProxyInfo`
+  - `internal/channel/types.go`：`TestResult` 和 `BatchTestResultItem` 新增 `UpstreamAddr` / `ProxyAddr` 字段
+  - `internal/api/channel_handler.go`：`TestChannel` 成功日志补 `UpstreamAddr` / `ProxyAddr`；`BatchTestModels` 和 `TestSingleModel` 新增 `health_check` 日志记录（含 `UpstreamAddr` / `ProxyAddr`）
+
+#### PostgreSQL `strftime` 不兼容修复
+- **问题**：`GetHourlyTrend` 硬编码 SQLite `strftime()`，PostgreSQL 报 `function strftime(unknown, timestamp without time zone) does not exist`
+- **修复**：`internal/stats/manager.go` — `Manager` 新增 `dbType` 字段，`NewManager` 签名改为 `(db, logger, dbType)`；新增 `hourTruncExpr()` 方法，按方言返回对应的按小时截断表达式：
+  - SQLite: `strftime('%Y-%m-%d %H:00', timestamp)`
+  - MySQL: `DATE_FORMAT(timestamp, '%Y-%m-%d %H:00')`
+  - PostgreSQL: `to_char(date_trunc('hour', timestamp), 'YYYY-MM-DD HH24:00')`
+- `cmd/agw/main.go`：调用 `NewManager` 时传入 `cfg.DB.Type`
 
 ## [0.3.0] - 2026-05-22
 

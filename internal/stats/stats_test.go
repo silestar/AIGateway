@@ -25,7 +25,7 @@ func setupTestDB(t *testing.T) *gorm.DB {
 func TestAsyncWriter_Record(t *testing.T) {
 	db := setupTestDB(t)
 	logger := zap.NewNop()
-	statsMgr := NewManager(db, logger)
+	statsMgr := NewManager(db, logger, "sqlite")
 
 	writer := NewAsyncWriter(db, logger, statsMgr, 100, 10, 50)
 	writer.Start()
@@ -73,7 +73,7 @@ func TestAsyncWriter_Record(t *testing.T) {
 func TestManager_Realtime(t *testing.T) {
 	db := setupTestDB(t)
 	logger := zap.NewNop()
-	mgr := NewManager(db, logger)
+	mgr := NewManager(db, logger, "sqlite")
 
 	// 模拟递增
 	log := &RequestLog{
@@ -102,7 +102,7 @@ func TestManager_Realtime(t *testing.T) {
 func TestManager_QueryRequestLogs(t *testing.T) {
 	db := setupTestDB(t)
 	logger := zap.NewNop()
-	mgr := NewManager(db, logger)
+	mgr := NewManager(db, logger, "sqlite")
 
 	// 插入测试数据
 	db.Create(&RequestLog{
@@ -156,7 +156,7 @@ func TestManager_QueryRequestLogs(t *testing.T) {
 func TestManager_Aggregation(t *testing.T) {
 	db := setupTestDB(t)
 	logger := zap.NewNop()
-	mgr := NewManager(db, logger)
+	mgr := NewManager(db, logger, "sqlite")
 
 	// 插入测试数据
 	now := time.Now()
