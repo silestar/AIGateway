@@ -15,6 +15,11 @@
 
 - **账号列表新增诊断列** — 冷却剩余时间、连续失败/阈值、最后禁用时间三列，便于定位故障账号。
 - **Settings / SystemMonitor 配置整合** — 原 SystemMonitor 的 9 个账号管理器配置项迁入 Settings 页面，SystemMonitor 改为只读占位（后续迭代完善为实时监控面板）。`channel_retry_status_codes` 增加「尚未实现」黄色标签。
+- **SystemMonitor 监控面板** — 占位页升级为完整只读监控面板：
+  - 新增 `GET /api/system/monitor/channel-health` API，返回渠道健康快照（可用率/账号分布/冷却等级/上次探测时间）+ 冷却账号明细
+  - 前端健康卡片：可用率进度条、活跃/禁用/冷却账号数、冷却等级标签、上次探测时间
+  - 前端冷却账号表：渠道、冷却等级、冷却周期、连续失败、冷却截至时间
+  - `NewSystemHandler` 注入 `*gorm.DB` 以支持直接 SQL 聚合查询
 
 ### 未落地
 

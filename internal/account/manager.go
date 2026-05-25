@@ -273,11 +273,13 @@ func (m *Manager) ReportResult(ctx context.Context, accountID uint, success bool
 	// ===== 429 被动熔断：上游返回 429 时直接禁用 + L1 冷却（冷却期内健康巡检不探测该账号）=====
 	if statusCode == 429 {
 		shortCooldown := time.Now().Add(time.Duration(m.cfg.ProbeCooldownDuration) * time.Second)
+		now := time.Now()
 		updates := map[string]interface{}{
 			"status":               "disabled",
 			"disabled_reason":      "rate_limited: 429",
 			"consecutive_failures": acc.ConsecutiveFailures + 1,
 			"probe_cooldown_until": shortCooldown,
+			"last_failed_at":       now,
 		}
 		m.logger.Warn("account disabled due to upstream 429 rate limit",
 			zap.Uint("account_id", accountID),

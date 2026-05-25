@@ -647,7 +647,11 @@
     "saveSuccess": "监控规则已保存",
     "migratedTitle": "监控配置已迁移",
     "migratedDesc": "所有监控配置项已迁移到系统设置页面，点击下方按钮前往。",
-    "goToSettings": "前往系统设置"
+    "goToSettings": "前往系统设置",
+    "neverProbed": "从未探测",
+    "noChannels": "暂无活跃渠道",
+    "coolingAccounts": "冷却中账号",
+    "noCoolingAccounts": "无冷却状态的账号"
   },
   "home": {
     "nav": {

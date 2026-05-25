@@ -10,6 +10,9 @@ export const systemApi = {
   updateConfig(data: Record<string, unknown>) {
     return api.put('/system/config', data)
   },
+  getChannelHealth() {
+    return api.get<{ data: { channels: any[]; cooling_accounts: any[] } }>('/system/monitor/channel-health')
+  },
   flushCache() {
     return api.post('/system/cache/flush')
   },

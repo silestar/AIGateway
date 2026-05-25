@@ -122,8 +122,8 @@ func (m *Manager) GetRealtime(ctx context.Context) (*RealtimeStats, error) {
 		Tokens  int64
 		AvgMs   float64
 	}
-	m.db.WithContext(ctx).Model(&RequestLog{}).
-		Where("DATE(timestamp) = ? AND log_type IN ('consumption', 'health_check')", today).
+m.db.WithContext(ctx).Model(&RequestLog{}).
+		Where("timestamp >= ? AND log_type IN ('consumption', 'health_check')", today).
 		Select("COUNT(*) as total, SUM(CASE WHEN status_code >= 200 AND status_code < 300 THEN 1 ELSE 0 END) as success, SUM(CASE WHEN status_code < 200 OR status_code >= 300 THEN 1 ELSE 0 END) as fail, COALESCE(SUM(prompt_tokens + completion_tokens), 0) as tokens, COALESCE(AVG(latency_ms), 0) as avg_ms").
 		Scan(&result)
 

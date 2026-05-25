@@ -1381,13 +1381,10 @@ const accountColumns = computed(() => [
       if (!row.last_failed_at) return '-'
       const diff = Date.now() - new Date(row.last_failed_at).getTime()
       const min = Math.floor(diff / 60000)
-      const reason = row.disabled_reason || ''
-      let ago = ''
-      if (min < 1) ago = '刚刚'
-      else if (min < 60) ago = `${min}分钟前`
-      else if (min < 1440) ago = `${Math.floor(min / 60)}小时前`
-      else ago = `${Math.floor(min / 1440)}天前`
-      return `${ago} · ${reason}`
+      if (min < 1) return '刚刚'
+      if (min < 60) return `${min}分钟前`
+      if (min < 1440) return `${Math.floor(min / 60)}小时前`
+      return `${Math.floor(min / 1440)}天前`
     },
   },
   {

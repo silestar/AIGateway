@@ -643,7 +643,11 @@
     "saveSuccess": "Monitor rules saved",
     "migratedTitle": "Config Moved to Settings",
     "migratedDesc": "All configuration items have been moved to the Settings page. Click below to go there.",
-    "goToSettings": "Go to Settings"
+    "goToSettings": "Go to Settings",
+    "neverProbed": "Never probed",
+    "noChannels": "No active channels",
+    "coolingAccounts": "Cooling Accounts",
+    "noCoolingAccounts": "No accounts in cooling state"
   },
   "home": {
     "nav": {
