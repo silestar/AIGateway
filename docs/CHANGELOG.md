@@ -1,5 +1,42 @@
 # Changelog
 
+## [0.3.3] — 2026-05-25
+
+> **监控与故障恢复机制全面整改第一轮** — 从问题排查到底层冷却逻辑修复 + Settings/SystemMonitor 配置整合。
+
+### 问题排查与修复
+
+- **修复生产数据库 `malformed` 导致消费日志 500** — 宿主机 dump → rebuild → 替换容器内 agw.db，丢失率 0.47%。
+- **429 被动熔断缺少冷却时间** — 上游返回 429 时禁用账号未设 `probe_cooldown_until`，导致系统立即尝试探测恢复。现加设一级冷却时间。
+- **L2 冷却从未触发** — `consecutive_cooldown_cycles` 始终为 1，`incrementCooldownCycles` 改为原子递增 `cycles+1`，超过 1 次循环自动进入 L2 冷却。
+- **无可用账号渠道仍在重试链中出现** — `Route` 方法遍历前新增 `CountActiveAccountsByChannels` 批量查询，count=0 的渠道静默跳过，减少无效 `no available account` 报错。
+
+### 前端改进
+
+- **账号列表新增诊断列** — 冷却剩余时间、连续失败/阈值、最后禁用时间三列，便于定位故障账号。
+- **Settings / SystemMonitor 配置整合** — 原 SystemMonitor 的 9 个账号管理器配置项迁入 Settings 页面，SystemMonitor 改为只读占位（后续迭代完善为实时监控面板）。`channel_retry_status_codes` 增加「尚未实现」黄色标签。
+
+### 未落地
+
+- **渠道级熔断降级（P2）** — 生产 Redis 未启用，暂不可用。等 Redis 部署后激活。
+
+### 变更文件
+
+```
+internal/account/manager.go     | 23 ++-
+internal/account/probe.go       | 16 +-
+internal/account/types.go       |  3 +
+internal/channel/types.go       |  1 +
+internal/group/router.go        |  6 +
+web/locales/en-US.json          | 75 +++++--
+web/locales/zh-CN.json          | 75 +++++--
+web/src/api/account.ts          |  5 +
+web/src/views/Channels.vue      | 39 ++++
+web/src/views/Settings.vue      | 151 +++++++-
+web/src/views/SystemMonitor.vue | 334 +------------------------
+11 files changed, 369 insertions(+), 359 deletions(-)
+```
+
 ## [0.3.2] - 2026-05-25
 
 ### 新增
