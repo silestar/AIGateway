@@ -58,7 +58,7 @@ func (m *Manager) SelectAccount(ctx context.Context, keysID, channelID uint) (*A
 		statusCacheKey := fmt.Sprintf("account_status:%s", accountIDStr)
 		if status, err := m.cache.Get(statusCacheKey); err == nil && status == "active" {
 			var acc Account
-			if err := m.db.WithContext(ctx).First(&acc, accountIDStr).Error; err == nil {
+			if err := m.db.WithContext(ctx).Where("id = ? AND status = ?", accountIDStr, "active").First(&acc).Error; err == nil {
 				return &acc, nil
 			}
 		}
@@ -285,14 +285,15 @@ func (m *Manager) ReportResult(ctx context.Context, accountID uint, success bool
 		return m.db.WithContext(ctx).Model(&Account{}).Where("id = ?", accountID).Updates(updates).Error
 	}
 
-	// 判断是否计入失败
-	if !isFailureCountable(statusCode) {
-		m.logger.Debug("failure not countable",
-			zap.Uint("account_id", accountID),
-			zap.Int("status_code", statusCode),
-		)
-		return nil
-	}
+// 判断是否计入失败
+if !isFailureCountable(statusCode) {
+    m.clearAccountBindings(ctx, &acc)
+    m.logger.Debug("failure not countable",
+        zap.Uint("account_id", accountID),
+        zap.Int("status_code", statusCode),
+    )
+    return nil
+}
 
 	// 超时不计入账号失败计数（但已清除粘性，触发渠道级熔断）
 	if isTimeoutFailure {

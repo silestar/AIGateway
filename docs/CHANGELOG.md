@@ -22,6 +22,19 @@
   - `NewManager()`：`loadFromDB` 之后用 `go recoverRunningPlugins()` 异步触发恢复，不阻塞初始化
 - **附带修复**：`Stop()` 和 `cmd.Wait()` goroutine（进程意外退出）中补 `registry.remove()` 清理内存注册表，解决 Stop/崩溃后内存残留问题
 
+#### 上游 499 错误下故障转移三重死锁（P0 — 生产事故，持续 42 分钟）
+- **故障时间**：2026-05-24 17:35 ~ 18:17
+- **现象**：上游返回 499 后，账号切换和渠道降级双重保护全部失效，持续 42 分钟死磕同一故障账号，手动调整优先级/禁用账号均无效，重启容器才恢复
+- **根因**：三个缺陷叠加形成死锁闭环
+  1. `ReportResult` 对 499（statusCode=0）完全不处理 — `isFailureCountable(0)` 返回 false 直接 `return nil`，不计数、不禁用、不清粘性
+  2. `SelectAccount` 粘性命中后只查内存缓存不验证 DB 实际 status，已禁用账号仍可通过粘性返回
+  3. 跨请求之间无保护 — `RerouteAfterFailure` 只在当前请求重试周期内有效
+- **修复**（`cmd/agw/main.go` / `internal/account/manager.go` / `internal/config/config.go`）：
+  - **主因修复**：`main.go` 非流式 Forward 失败时，调用已有的 `extractStatusCode(err)` 从 `"upstream returned NNN:"` 消息中提取状态码传入 `ReportResult`，避免永远传入 0
+  - **粘性锁死修复**：`SelectAccount` 粘性命中后改为 `WHERE id = ? AND status = 'active'` 查 DB 验证，已禁用账号自动清除粘性走优先级选择
+  - **兜底保护**：`isFailureCountable` 返回 false（statusCode < 500 且非 429）时，也加 `clearAccountBindings` 清除粘性，防止"不计入失败但不解绑"的死锁
+  - **默认值加固**：`channel_disable_status_codes` 默认值新增 499，配合 statusCode 正确传入后自动触发立即禁用
+
 ## [0.3.1] - 2026-05-25
 
 ### 修复

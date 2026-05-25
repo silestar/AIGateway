@@ -504,7 +504,7 @@ func setDefaults(v *viper.Viper) {
 	v.SetDefault("account_manager.channel_health_check_interval", 43200)
 	v.SetDefault("account_manager.channel_disable_latency_threshold", 0)
 	v.SetDefault("account_manager.channel_disable_on_failure", true)
-	v.SetDefault("account_manager.channel_disable_status_codes", []int{401, 403, 429})
+	v.SetDefault("account_manager.channel_disable_status_codes", []int{401, 403, 429, 499})
 	v.SetDefault("account_manager.channel_retry_status_codes", []int{502, 503, 504})
 	v.SetDefault("account_manager.channel_disable_keywords", []string{
 		"Your credit balance is too low",

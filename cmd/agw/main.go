@@ -655,7 +655,7 @@ func handleChatCompletions(c *gin.Context) {
 		if err != nil {
 			// 记录失败 + 进入重试循环
 			currentResult.RetryChain.MarkError(shortenError(err.Error()), latencyMs, http.StatusBadGateway)
-			accountMgr.ReportResult(c.Request.Context(), currentResult.Account.ID, false, 0, err)
+			accountMgr.ReportResult(c.Request.Context(), currentResult.Account.ID, false, extractStatusCode(err), err)
 			logger.Warn("forward attempt failed, retrying",
 				zap.Int("retry", retryCount),
 				zap.Uint("channel", currentResult.Channel.ID),
