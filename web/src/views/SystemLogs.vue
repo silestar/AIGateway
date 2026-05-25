@@ -538,9 +538,16 @@ const tableColumns = computed<DataTableColumns<SystemLogEntry>>(() => {
     cols.push({
       title: t('systemLogs.colModule'),
       key: 'caller',
-      width: 200,
+      width: 160,
       ellipsis: { tooltip: true },
-      render: (row) => shortCaller(row.caller),
+      render: (row) => {
+        // 优先显示可读模块名，tooltip 显示原始 caller
+        const mod = row.module || shortCaller(row.caller)
+        return h('span', {
+          title: row.caller || '',
+          style: { cursor: 'default' },
+        }, mod)
+      },
     })
   }
   if (visibleColumns.value.includes('msg')) {
@@ -549,11 +556,16 @@ const tableColumns = computed<DataTableColumns<SystemLogEntry>>(() => {
       key: 'msg',
       ellipsis: { tooltip: true },
       render: (row) => {
-        const msg = row.msg || ''
+        // 优先显示可读描述，tooltip 显示原始 msg
+        const displayMsg = row.message || row.msg || ''
+        const rawMsg = row.msg || ''
         if (keyword.value) {
-          return h('span', { innerHTML: highlightText(msg, keyword.value) })
+          return h('span', {
+            title: rawMsg,
+            innerHTML: highlightText(displayMsg, keyword.value),
+          })
         }
-        return msg
+        return h('span', { title: rawMsg }, displayMsg)
       },
     })
   }

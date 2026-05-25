@@ -221,6 +221,8 @@ func (h *SystemLogHandler) List(c *gin.Context) {
 		}
 
 		allLogs = append(allLogs, entry)
+		// 添加可读字段（模块中文名 + 消息可读描述）
+		enrichLogEntry(entry)
 	}
 
 	if err := scanner.Err(); err != nil {
@@ -378,6 +380,125 @@ func (h *SystemLogHandler) Download(c *gin.Context) {
 	c.Header("Content-Disposition", "attachment; filename="+strconv.Quote(fileName))
 	c.Header("Content-Type", "application/octet-stream")
 	c.File(logFilePath)
+}
+
+// ============ 日志可读性转换 ============
+
+// callerToModule 将 zap caller 转换为可读的中文模块名
+func callerToModule(caller string) string {
+	switch {
+	case strings.Contains(caller, "storage/"):
+		return "存储层"
+	case strings.Contains(caller, "proxy/"):
+		return "代理引擎"
+	case strings.Contains(caller, "internal/auth/"), strings.Contains(caller, "api/auth/"):
+		return "认证模块"
+	case strings.Contains(caller, "internal/api/"):
+		return "API 层"
+	case strings.Contains(caller, "internal/stats/"):
+		return "统计模块"
+	case strings.Contains(caller, "internal/plugin/"):
+		return "插件系统"
+	case strings.Contains(caller, "internal/channel/"):
+		return "渠道管理"
+	case strings.Contains(caller, "internal/keys/"):
+		return "密钥管理"
+	case strings.Contains(caller, "internal/account/"):
+		return "账号池"
+	case strings.Contains(caller, "internal/adapter/"):
+		return "适配器"
+	case strings.Contains(caller, "internal/middleware/"):
+		return "中间件"
+	case strings.Contains(caller, "internal/config/"):
+		return "配置模块"
+	case strings.Contains(caller, "cmd/"):
+		return "系统启动"
+	case strings.Contains(caller, "pkg/"):
+		return "工具库"
+	default:
+		return "系统"
+	}
+}
+
+// msgToReadable 将常见的英文消息转为中文可读描述
+func msgToReadable(msg string) string {
+	// 精确匹配
+	switch msg {
+	case "request":
+		return "请求处理"
+	case "context canceled":
+		return "客户端连接中断（请求方主动断开）"
+	case "connection reset by peer":
+		return "上游服务器主动关闭连接"
+	case "i/o timeout":
+		return "请求超时（上游 API 无响应）"
+	case "no route found":
+		return "路由匹配失败"
+	case "unauthorized":
+		return "认证失败"
+	case "forbidden":
+		return "权限不足"
+	case "not found":
+		return "资源不存在"
+	case "internal server error":
+		return "内部服务器错误"
+	case "bad gateway":
+		return "上游网关错误"
+	case "service unavailable":
+		return "服务不可用"
+	case "gateway timeout":
+		return "网关超时"
+	case "too many requests":
+		return "请求频率过高（被限流）"
+	}
+
+	// 前缀匹配
+	switch {
+	case strings.HasPrefix(msg, "request started"):
+		return "请求开始处理"
+	case strings.HasPrefix(msg, "request completed"):
+		return "请求处理完成"
+	case strings.HasPrefix(msg, "plugin started"):
+		return "插件启动"
+	case strings.HasPrefix(msg, "plugin stopped"):
+		return "插件停止"
+	case strings.HasPrefix(msg, "aggregation completed"):
+		return "日聚合完成"
+	case strings.HasPrefix(msg, "channel test"):
+		return "渠道可用性检测"
+	case strings.HasPrefix(msg, "model test"):
+		return "渠道模型测试"
+	case strings.HasPrefix(msg, "account probe"):
+		return "账号探测"
+	case strings.HasPrefix(msg, "proxy dial"):
+		return "代理连接建立"
+	case strings.HasPrefix(msg, "rate limit"):
+		return "触发速率限制"
+	case strings.HasPrefix(msg, "config"):
+		return "配置变更"
+	case strings.HasPrefix(msg, "migration"):
+		return "数据库迁移"
+	case strings.HasPrefix(msg, "health check"):
+		return "健康检查"
+	case strings.HasPrefix(msg, "cleanup"):
+		return "资源清理"
+	}
+
+	return ""
+}
+
+// enrichLogEntry 为日志条目添加可读字段（模块中文名 + 消息可读描述）
+func enrichLogEntry(entry map[string]interface{}) {
+	// 添加模块可读名
+	if caller, ok := entry["caller"].(string); ok && caller != "" {
+		entry["module"] = callerToModule(caller)
+	}
+	// 添加消息可读描述
+	if msg, ok := entry["msg"].(string); ok && msg != "" {
+		if readable := msgToReadable(msg); readable != "" {
+			entry["message"] = readable
+		}
+	}
 }
 
 // 插件日志行正则：YYYY/MM/DD HH:MM:SS [LEVEL] message
