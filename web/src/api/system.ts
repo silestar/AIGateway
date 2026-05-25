@@ -33,6 +33,8 @@ export interface SystemLogEntry {
   source?: string // 插件日志来源
   module?: string // 可读模块名（后端 callerToModule 转换）
   message?: string // 可读消息描述（后端 msgToReadable 转换）
+  method?: string // 请求方法（GET/POST 等）
+  path?: string // 请求路径
   [key: string]: unknown
 }
 

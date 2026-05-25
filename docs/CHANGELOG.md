@@ -54,6 +54,17 @@
   - PostgreSQL: `to_char(date_trunc('hour', timestamp), 'YYYY-MM-DD HH24:00')`
 - `cmd/agw/main.go`：调用 `NewManager` 时传入 `cfg.DB.Type`
 
+### 新增
+
+#### 系统日志可读性改进
+- **问题**：系统日志列表对非开发人员可读性极差 — `caller` 显示 `storage/logger.go:46`，`msg` 显示 `request`、`context canceled`，普通管理员完全看不懂
+- **修复**：
+  - 后端 `system_log_handler.go` 新增 `callerToModule()`（13 个模块映射：`storage/` → `存储层`、`proxy/` → `代理引擎` 等）+ `msgToReadable()`（40+ 常见消息映射：`request` → `请求处理`、`context canceled` → `客户端连接中断（请求方主动断开）` 等）
+  - 列表返回时自动附加 `module`（中文模块名）+ `message`（中文描述）字段
+  - 前端 `SystemLogs.vue`：`caller` 列显示中文模块名（tooltip 显示原始路径），`msg` 列显示中文描述（tooltip 显示原始消息）
+  - 新增 `method`（请求方法，带颜色 tag）和 `path`（请求路径）列，非请求日志显示 `-`
+  - 详情抽屉保留完整原始 `caller` / `msg` 数据
+
 ## [0.3.0] - 2026-05-22
 
 ### 数据库迁移工具

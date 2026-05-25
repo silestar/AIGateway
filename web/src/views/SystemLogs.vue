@@ -28,6 +28,15 @@
           style="width: 200px"
           @update:value="onFilterChange"
         />
+        <!-- 请求方法筛选 -->
+        <n-select
+          v-model:value="methodFilter"
+          :options="methodOptions"
+          :placeholder="t('systemLogs.selectMethod')"
+          clearable
+          style="width: 120px"
+          @update:value="onFilterChange"
+        />
         <!-- 关键字搜索 -->
         <n-input
           v-model:value="keyword"
@@ -237,7 +246,7 @@
 </template>
 
 <script setup lang="ts">
-import { ref, computed, onMounted, onUnmounted, h } from 'vue'
+import { ref, computed, onMounted, onUnmounted, watch, h } from 'vue'
 import { useI18n } from 'vue-i18n'
 import {
   NSelect,
@@ -270,6 +279,7 @@ const selectedDate = ref('')
 const selectedLevels = ref<string[]>([])
 const keyword = ref('')
 const traceId = ref('')
+const methodFilter = ref('')
 const currentPage = ref(1)
 const pageSize = ref(100)
 const total = ref(0)
@@ -305,10 +315,31 @@ const allColumns = computed(() => [
   { key: 'level', label: t('systemLogs.colLevel') },
   { key: 'source', label: t('systemLogs.colSource') },
   { key: 'caller', label: t('systemLogs.colModule') },
+  { key: 'method', label: t('systemLogs.colMethod') },
+  { key: 'path', label: t('systemLogs.colPath') },
   { key: 'msg', label: t('systemLogs.colMessage') },
   { key: 'trace_id', label: 'Trace ID' },
 ])
-const visibleColumns = ref<string[]>(['time', 'level', 'caller', 'msg'])
+const COOKIE_KEY = 'agw_syslog_columns'
+
+// 从 cookie 读取之前保存的列配置，没有则用默认值
+function loadColumnsCookie(): string[] {
+  try {
+    const val = document.cookie.split('; ').find(r => r.startsWith(COOKIE_KEY + '='))
+    if (val) {
+      const arr = JSON.parse(decodeURIComponent(val.split('=')[1]))
+      if (Array.isArray(arr) && arr.length > 0) return arr
+    }
+  } catch { /* ignore */ }
+  return ['time', 'level', 'caller', 'method', 'path', 'msg']
+}
+
+const visibleColumns = ref<string[]>(loadColumnsCookie())
+
+// 列选择变更时写入 cookie（7 天有效）
+watch(visibleColumns, (val) => {
+  document.cookie = `${COOKIE_KEY}=${encodeURIComponent(JSON.stringify(val))}; max-age=604800; path=/`
+}, { deep: true })
 
 // === 级别选项 ===
 const levelOptions = [
@@ -316,6 +347,15 @@ const levelOptions = [
   { label: 'INFO', value: 'info' },
   { label: 'WARN', value: 'warn' },
   { label: 'ERROR', value: 'error' },
+]
+
+// === 请求方法选项 ===
+const methodOptions = [
+  { label: 'GET', value: 'GET' },
+  { label: 'POST', value: 'POST' },
+  { label: 'PUT', value: 'PUT' },
+  { label: 'DELETE', value: 'DELETE' },
+  { label: 'PATCH', value: 'PATCH' },
 ]
 
 // === 分页大小选项 ===
@@ -550,6 +590,36 @@ const tableColumns = computed<DataTableColumns<SystemLogEntry>>(() => {
       },
     })
   }
+  if (visibleColumns.value.includes('method')) {
+    cols.push({
+      title: t('systemLogs.colMethod'),
+      key: 'method',
+      width: 70,
+      render: (row) => {
+        const m = row.method || ''
+        if (!m) return h('span', { style: { color: 'var(--n-text-color-3, #999)' } }, '-')
+        const colorMap: Record<string, string> = { GET: '#61affe', POST: '#49cc90', PUT: '#fca130', DELETE: '#f93e3e', PATCH: '#50e3c2' }
+        return h('span', {
+          style: { color: colorMap[m.toUpperCase()] || '#00d2ff', fontWeight: '600', fontSize: '12px' },
+        }, m.toUpperCase())
+      },
+    })
+  }
+  if (visibleColumns.value.includes('path')) {
+    cols.push({
+      title: t('systemLogs.colPath'),
+      key: 'path',
+      width: 200,
+      ellipsis: { tooltip: true },
+      render: (row) => {
+        const p = row.path || ''
+        if (!p) return h('span', { style: { color: 'var(--n-text-color-3, #999)' } }, '-')
+        return h('span', {
+          style: { fontFamily: 'JetBrains Mono, Fira Code, monospace', fontSize: '11px' },
+        }, p)
+      },
+    })
+  }
   if (visibleColumns.value.includes('msg')) {
     cols.push({
       title: t('systemLogs.colMessage'),
@@ -624,6 +694,7 @@ async function fetchLogs(since?: string) {
       params.source = selectedSource.value
     }
     if (selectedLevels.value.length > 0) params.level = selectedLevels.value.join(',')
+    if (methodFilter.value) params.method = methodFilter.value
     if (keyword.value) params.keyword = keyword.value
     if (traceId.value) params.trace_id = traceId.value
     if (since) params.since = since
@@ -705,6 +776,7 @@ function onSourceChange() {
 
 function resetFilters() {
   selectedLevels.value = []
+  methodFilter.value = ''
   keyword.value = ''
   traceId.value = ''
   currentPage.value = 1

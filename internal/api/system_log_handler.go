@@ -124,6 +124,7 @@ func (h *SystemLogHandler) List(c *gin.Context) {
 	levelFilter := c.Query("level")
 	keyword := c.Query("keyword")
 	traceID := c.Query("trace_id")
+method := c.Query("method")
 	page := intQuery(c, "page", 1)
 	pageSize := intQuery(c, "page_size", 100)
 	sinceStr := c.Query("since")
@@ -193,10 +194,20 @@ func (h *SystemLogHandler) List(c *gin.Context) {
 			}
 		}
 
-		// 按 keyword（msg 字段模糊匹配）筛选
+		// 按 keyword（msg + path 字段模糊匹配）筛选
 		if keyword != "" {
 			msgVal, _ := entry["msg"].(string)
-			if !strings.Contains(strings.ToLower(msgVal), strings.ToLower(keyword)) {
+			pathVal, _ := entry["path"].(string)
+			kw := strings.ToLower(keyword)
+			if !strings.Contains(strings.ToLower(msgVal), kw) && !strings.Contains(strings.ToLower(pathVal), kw) {
+				continue
+			}
+		}
+
+		// 按 method 筛选
+		if method != "" {
+			methodVal, _ := entry["method"].(string)
+			if !strings.EqualFold(methodVal, method) {
 				continue
 			}
 		}
