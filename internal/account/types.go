@@ -37,6 +37,9 @@ type AccountManager interface {
 	GetDecryptedAPIKey(ctx context.Context, accountID uint) (string, error)
 	ReportResult(ctx context.Context, accountID uint, success bool, statusCode int, err error) error
 
+	// 批量查询各渠道活跃账号数（路由选路用）
+	CountActiveAccountsByChannels(ctx context.Context, channelIDs []uint) map[uint]int
+
 	// 缓存管理
 	FlushAllCache()
 

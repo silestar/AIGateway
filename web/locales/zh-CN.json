@@ -130,7 +130,7 @@
     "autoFixMapping": "自动补齐",
     "backToEdit": "返回修改",
     "deleteConfirm": "确定要删除渠道「{name}」吗？此操作不可恢复。",
-    "upstreamModels": "已选上游模型",
+    "upstreamModels": "上游模型",
     "noModelsConfigured": "暂无已配置模型，请先获取并配置模型",
     "noBaseUrl": "该渠道未配置上游地址（Base URL），请先配置",
     "noActiveAccount": "该渠道没有可用账号，请先添加并启用账号",
@@ -169,7 +169,6 @@
     "modelsSelected": "个模型已选",
     "batchTestBtn": "批量测试",
     "batchTestFailed": "批量测试失败",
-    "upstreamModels": "上游模型",
     "customMappings": "自定义映射",
     "mappedTag": "映射",
     "statusUntested": "未测试",
@@ -180,7 +179,7 @@
     "editChannel": "编辑渠道",
     "upstreamUpdate": "上游更新",
     "copyChannel": "复制渠道",
-      "copyChannelConfirm": "确定要复制渠道「{name}」吗？",
+    "copyChannelConfirm": "确定要复制渠道「{name}」吗？",
     "manageKeys": "管理密钥",
     "channelCopied": "渠道已复制，请前往新渠道配置账号",
     "multiAccount": "多个账号",
@@ -192,6 +191,9 @@
     "noRemovedModels": "所有模型均在线，无已下线模型",
     "missingFields": "请填写必填项：",
     "disabledReason": "禁用原因",
+    "cooldownRemaining": "冷却剩余",
+    "failures": "失败/阈值",
+    "lastDisabled": "禁用时间",
     "accountTest": "测试",
     "accountTestPassed": "测试通过，账号已恢复",
     "accountTestFailed": "测试失败",
@@ -405,6 +407,31 @@
     "globalHealthCheckInterval": "全局健康巡检间隔",
     "accountStatusCacheTTL": "状态缓存时间",
     "accountKeyCacheTTL": "Key解密缓存时间",
+    "groupRouting": "路由与重试",
+    "healthProbe": "健康巡检",
+    "autoDisable": "账号自动处置",
+    "cache": "缓存",
+    "maxRetryAttempts": "渠道级重试次数",
+    "maxRetryAttemptsHint": "同一请求内跨账号连续失败后跳过该渠道的最大尝试次数",
+    "maxStreamRetries": "流式请求重试次数",
+    "maxStreamRetriesHint": "流式请求在未写入数据前的重试次数",
+    "cooldownProbeInterval": "冷却试探间隔",
+    "cooldownProbeIntervalHint": "账号冷却进入后半段后的试探性探测间隔，防止过早探测再次失败",
+    "channelDisableOnFailure": "测试失败累积次数",
+    "channelDisableOnFailureHint": "健康巡检测试失败时，是否累积到连续失败次数中",
+    "channelDisableStatusCodes": "立即禁用状态码",
+    "channelDisableStatusCodesHint": "上游返回这些状态码时，立即禁用该账号，不走连续失败累积逻辑",
+    "channelRetryStatusCodes": "触发重试状态码",
+    "channelRetryStatusCodesHint": "上游返回这些状态码时，引擎层自动触发重试（⚠️ 当前尚未实现）",
+    "channelDisableKeywords": "立即禁用关键词",
+    "channelDisableKeywordsHint": "上游响应内容包含这些关键词时，立即禁用该账号（不区分大小写）",
+    "channelDisableLatencyThreshold": "延迟禁用阈值",
+    "channelDisableLatencyThresholdHint": "请求延迟超过此值（秒）时自动禁用账号，0 表示不限制",
+    "failureExcludeKeywords": "不计入失败的关键词",
+    "failureExcludeKeywordsHint": "错误信息包含这些关键词时不计入连续失败次数",
+    "keywordsEmpty": "暂无关键词",
+    "keywordsPlaceholder": "输入关键词后按回车添加",
+    "keywordsAdd": "添加",
     "days": "天",
     "seconds": "秒",
     "serverModeHint": "debug 模式输出详细日志，release 模式仅输出错误和警告",
@@ -604,10 +631,9 @@
     "maxRetryAttemptsHint": "同一请求内跨不同账号连续失败N次后跳过当前渠道",
     "failureExcludeKeywords": "不计入失败的关键词",
     "failureExcludeKeywordsHint": "匹配这些关键词的错误不计入连续失败（如 context canceled）",
-    "disableStatusCodes": "立即禁用账号的状态码",
+    "disableStatusCodes": "自动禁用状态码",
     "latencyThreshold": "响应时间阈值",
     "latencyThresholdHint": "自动禁用超出此响应时间的渠道（0=不限制）",
-    "disableStatusCodes": "自动禁用状态码",
     "disableStatusCodesHint": "匹配这些状态码时立即禁用账号",
     "retryStatusCodes": "自动重试状态码",
     "retryStatusCodesHint": "匹配这些状态码时触发账号级重试",
@@ -618,7 +644,10 @@
     "keywordsPlaceholder": "输入关键词或短句，回车添加",
     "keywordsAdd": "添加",
     "save": "保存监控规则",
-    "saveSuccess": "监控规则已保存"
+    "saveSuccess": "监控规则已保存",
+    "migratedTitle": "监控配置已迁移",
+    "migratedDesc": "所有监控配置项已迁移到系统设置页面，点击下方按钮前往。",
+    "goToSettings": "前往系统设置"
   },
   "home": {
     "nav": {
@@ -636,14 +665,34 @@
     "features": {
       "title": "核心特性",
       "subtitle": "一站式 AI API 管理解决方案",
-      "multi": { "title": "多协议适配", "desc": "原生支持 OpenAI、Anthropic、Gemini 等多种 AI 服务商协议，请求自动转换。" },
-      "route": { "title": "智能路由", "desc": "分层确定性路由引擎，支持密钥分组、渠道分组、模型过滤和优先级调度。" },
-      "plugin": { "title": "插件系统", "desc": "Sidecar 代理模式，支持 TLS 指纹伪装、请求改写等高级功能，非侵入式扩展。" },
-      "keys": { "title": "密钥管理", "desc": "AES-256-GCM 加密存储 API 密钥，支持 RPM/TPM 配额控制和用量告警。" },
-      "stats": { "title": "统计监控", "desc": "实时请求日志、日聚合统计、仪表盘可视化，全方位掌握 API 使用情况。" },
-      "ha": { "title": "高可用", "desc": "自动故障探测与恢复，账号级冷却与重试，确保服务持续可用。" }
+      "multi": {
+        "title": "多协议适配",
+        "desc": "原生支持 OpenAI、Anthropic、Gemini 等多种 AI 服务商协议，请求自动转换。"
+      },
+      "route": {
+        "title": "智能路由",
+        "desc": "分层确定性路由引擎，支持密钥分组、渠道分组、模型过滤和优先级调度。"
+      },
+      "plugin": {
+        "title": "插件系统",
+        "desc": "Sidecar 代理模式，支持 TLS 指纹伪装、请求改写等高级功能，非侵入式扩展。"
+      },
+      "keys": {
+        "title": "密钥管理",
+        "desc": "AES-256-GCM 加密存储 API 密钥，支持 RPM/TPM 配额控制和用量告警。"
+      },
+      "stats": {
+        "title": "统计监控",
+        "desc": "实时请求日志、日聚合统计、仪表盘可视化，全方位掌握 API 使用情况。"
+      },
+      "ha": {
+        "title": "高可用",
+        "desc": "自动故障探测与恢复，账号级冷却与重试，确保服务持续可用。"
+      }
     },
-    "tech": { "title": "技术栈" }
+    "tech": {
+      "title": "技术栈"
+    }
   },
   "docs": {
     "title": "文档",

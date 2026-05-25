@@ -270,12 +270,14 @@ func (m *Manager) ReportResult(ctx context.Context, accountID uint, success bool
 		}
 	}
 
-	// ===== 429 被动熔断：上游返回 429 时直接禁用（不设置 probe_cooldown_until 以免阻塞探测）=====
+	// ===== 429 被动熔断：上游返回 429 时直接禁用 + L1 冷却（冷却期内健康巡检不探测该账号）=====
 	if statusCode == 429 {
+		shortCooldown := time.Now().Add(time.Duration(m.cfg.ProbeCooldownDuration) * time.Second)
 		updates := map[string]interface{}{
 			"status":               "disabled",
 			"disabled_reason":      "rate_limited: 429",
 			"consecutive_failures": acc.ConsecutiveFailures + 1,
+			"probe_cooldown_until": shortCooldown,
 		}
 		m.logger.Warn("account disabled due to upstream 429 rate limit",
 			zap.Uint("account_id", accountID),
@@ -425,6 +427,25 @@ func (m *Manager) ListByChannel(ctx context.Context, channelID uint) ([]Account,
 		return nil, err
 	}
 	return accounts, nil
+}
+
+// CountActiveAccountsByChannels 批量查询各渠道下活跃账号数（用于路由选路时跳过无可用账号的渠道）
+func (m *Manager) CountActiveAccountsByChannels(ctx context.Context, channelIDs []uint) map[uint]int {
+	type result struct {
+		ChannelID uint
+		Count     int
+	}
+	var results []result
+	m.db.WithContext(ctx).Table("channel_accounts").
+		Select("channel_id, COUNT(*) as count").
+		Where("channel_id IN ? AND status = 'active'", channelIDs).
+		Group("channel_id").Scan(&results)
+
+	counts := make(map[uint]int)
+	for _, r := range results {
+		counts[r.ChannelID] = r.Count
+	}
+	return counts
 }
 
 func (m *Manager) UpdatePriority(ctx context.Context, id uint, priority int) error {

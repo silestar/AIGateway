@@ -139,7 +139,13 @@ func (r *Router) Route(ctx context.Context, keysID uint, modelName string) (*Rou
 			continue
 		}
 
+		// 批量查询各渠道活跃账号数，跳过无可用账号的渠道（不污染 retry_chain）
+		activeCounts := r.accountMgr.CountActiveAccountsByChannels(ctx, chIDs)
+
 		for _, ch := range channels {
+			if count, ok := activeCounts[ch.ID]; ok && count == 0 {
+				continue
+			}
 			acc, err := r.accountMgr.SelectAccount(ctx, keysID, ch.ID)
 			if err != nil {
 				retryChain.AddAttempt(ch.ID, 0)

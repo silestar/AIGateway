@@ -167,11 +167,10 @@
     "statusCol": "Status",
     "actionCol": "Action",
     "testBtn": "Test",
-"clearSelection": "Clear",
+    "clearSelection": "Clear",
     "modelsSelected": "models selected",
     "batchTestBtn": "Batch Test",
     "batchTestFailed": "Batch Test Failed",
-    "upstreamModels": "Upstream Models",
     "customMappings": "Custom Mappings",
     "mappedTag": "Mapped",
     "statusUntested": "Untested",
@@ -182,7 +181,7 @@
     "editChannel": "Edit Channel",
     "upstreamUpdate": "Upstream Update",
     "copyChannel": "Copy Channel",
-      "copyChannelConfirm": "Are you sure you want to copy channel \"{name}\"?",
+    "copyChannelConfirm": "Are you sure you want to copy channel \"{name}\"?",
     "manageKeys": "Manage Keys",
     "channelCopied": "Channel copied, please configure accounts for the new channel",
     "multiAccount": "Multiple accounts",
@@ -194,6 +193,9 @@
     "noRemovedModels": "All models are online, no deprecated models found",
     "missingFields": "Please fill in required fields:",
     "disabledReason": "Disable Reason",
+    "cooldownRemaining": "Cooldown",
+    "failures": "Fails/Thres",
+    "lastDisabled": "Disabled At",
     "accountTest": "Test",
     "accountTestPassed": "Test passed, account recovered",
     "accountTestFailed": "Test failed",
@@ -407,6 +409,31 @@
     "globalHealthCheckInterval": "Global Health Check Interval",
     "accountStatusCacheTTL": "Status Cache TTL",
     "accountKeyCacheTTL": "Key Cache TTL",
+    "groupRouting": "Routing & Retry",
+    "healthProbe": "Health Probe",
+    "autoDisable": "Auto Disable",
+    "cache": "Cache",
+    "maxRetryAttempts": "Max Retry Attempts",
+    "maxRetryAttemptsHint": "Max per-channel retries across accounts in the same request group",
+    "maxStreamRetries": "Stream Max Retries",
+    "maxStreamRetriesHint": "Max stream request retries before the first data chunk",
+    "cooldownProbeInterval": "Cooldown Probe Interval",
+    "cooldownProbeIntervalHint": "Secondary probing interval during the second half of cooldown",
+    "channelDisableOnFailure": "Accumulate Test Failures",
+    "channelDisableOnFailureHint": "When enabled, health check test failures accumulate toward the consecutive failure count",
+    "channelDisableStatusCodes": "Disable Status Codes",
+    "channelDisableStatusCodesHint": "Immediately disable the account when these codes are returned (bypasses consecutive failure counting)",
+    "channelRetryStatusCodes": "Retry Status Codes",
+    "channelRetryStatusCodesHint": "Trigger automatic retry at the engine layer when these codes are returned (⚠️ not yet implemented)",
+    "channelDisableKeywords": "Disable Keywords",
+    "channelDisableKeywordsHint": "Immediately disable the account when any of these keywords appear in the response body (case-insensitive)",
+    "channelDisableLatencyThreshold": "Latency Disable Threshold",
+    "channelDisableLatencyThresholdHint": "Disable the account automatically when request latency exceeds this value (seconds). 0 = no limit",
+    "failureExcludeKeywords": "Failure Exclude Keywords",
+    "failureExcludeKeywordsHint": "Error messages containing these keywords are excluded from consecutive failure counting",
+    "keywordsEmpty": "No keywords",
+    "keywordsPlaceholder": "Type keyword + Enter to add",
+    "keywordsAdd": "Add",
     "days": "days",
     "seconds": "sec",
     "serverModeHint": "Debug mode logs everything; release mode logs errors and warnings only",
@@ -600,10 +627,9 @@
     "maxRetryAttemptsHint": "Skip channel after N cross-account failures in same request",
     "failureExcludeKeywords": "Failure exclude keywords",
     "failureExcludeKeywordsHint": "Errors containing these keywords won't count as failures (e.g., context canceled)",
-    "disableStatusCodes": "Status codes to immediately disable account",
+    "disableStatusCodes": "Auto-disable Status Codes",
     "latencyThreshold": "Latency Threshold",
     "latencyThresholdHint": "Auto-disable channels exceeding this response time (0=no limit)",
-    "disableStatusCodes": "Auto-disable Status Codes",
     "disableStatusCodesHint": "Immediately disable account when these status codes are matched",
     "retryStatusCodes": "Auto-retry Status Codes",
     "retryStatusCodesHint": "Trigger account-level retry when these status codes are matched",
@@ -614,7 +640,10 @@
     "keywordsPlaceholder": "Enter keyword or phrase, press Enter to add",
     "keywordsAdd": "Add",
     "save": "Save Monitor Rules",
-    "saveSuccess": "Monitor rules saved"
+    "saveSuccess": "Monitor rules saved",
+    "migratedTitle": "Config Moved to Settings",
+    "migratedDesc": "All configuration items have been moved to the Settings page. Click below to go there.",
+    "goToSettings": "Go to Settings"
   },
   "home": {
     "nav": {
@@ -632,14 +661,34 @@
     "features": {
       "title": "Core Features",
       "subtitle": "All-in-one AI API Management Solution",
-      "multi": { "title": "Multi-Protocol", "desc": "Native support for OpenAI, Anthropic, Gemini and more. Automatic request format conversion." },
-      "route": { "title": "Smart Routing", "desc": "Hierarchical deterministic routing engine with key groups, channel groups, model filters and priority scheduling." },
-      "plugin": { "title": "Plugin System", "desc": "Sidecar proxy for TLS fingerprinting, request rewriting and more. Non-invasive extensibility." },
-      "keys": { "title": "Key Management", "desc": "AES-256-GCM encrypted API key storage with RPM/TPM quota control and usage alerts." },
-      "stats": { "title": "Monitoring", "desc": "Real-time request logs, daily aggregated stats, dashboard visualization for full API observability." },
-      "ha": { "title": "High Availability", "desc": "Automatic fault detection and recovery, account-level cooldown and retry for continuous service." }
+      "multi": {
+        "title": "Multi-Protocol",
+        "desc": "Native support for OpenAI, Anthropic, Gemini and more. Automatic request format conversion."
+      },
+      "route": {
+        "title": "Smart Routing",
+        "desc": "Hierarchical deterministic routing engine with key groups, channel groups, model filters and priority scheduling."
+      },
+      "plugin": {
+        "title": "Plugin System",
+        "desc": "Sidecar proxy for TLS fingerprinting, request rewriting and more. Non-invasive extensibility."
+      },
+      "keys": {
+        "title": "Key Management",
+        "desc": "AES-256-GCM encrypted API key storage with RPM/TPM quota control and usage alerts."
+      },
+      "stats": {
+        "title": "Monitoring",
+        "desc": "Real-time request logs, daily aggregated stats, dashboard visualization for full API observability."
+      },
+      "ha": {
+        "title": "High Availability",
+        "desc": "Automatic fault detection and recovery, account-level cooldown and retry for continuous service."
+      }
     },
-    "tech": { "title": "Tech Stack" }
+    "tech": {
+      "title": "Tech Stack"
+    }
   },
   "docs": {
     "title": "Documentation",

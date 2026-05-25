@@ -111,7 +111,11 @@
         </div>
       </template>
       <div v-show="expandedSections.accountManager" class="section-body">
-        <n-form label-placement="left" label-width="210">
+        <n-form label-placement="left" label-width="220">
+
+          <!-- ===== 路由与缓存 ===== -->
+          <n-divider style="margin: 8px 0 12px">{{ t('settings.groupRouting') }}</n-divider>
+
           <n-form-item :label="t('settings.affinityTTL')">
             <n-input-number v-model:value="form.account_manager.affinity_ttl" :min="0" style="width:200px">
               <template #suffix>{{ t('settings.seconds') }}</template>
@@ -127,6 +131,24 @@
               <template #suffix>{{ t('settings.seconds') }}</template>
             </n-input-number>
             <div class="form-hint">{{ t('settings.minDisableDurationHint') }}</div>
+          </n-form-item>
+          <n-form-item :label="t('settings.maxRetryAttempts')">
+            <n-input-number v-model:value="form.account_manager.max_retry_attempts" :min="1" style="width:200px" />
+            <div class="form-hint">{{ t('settings.maxRetryAttemptsHint') }}</div>
+          </n-form-item>
+          <n-form-item :label="t('settings.maxStreamRetries')">
+            <n-input-number v-model:value="form.account_manager.max_stream_retries" :min="0" style="width:200px" />
+            <div class="form-hint">{{ t('settings.maxStreamRetriesHint') }}</div>
+          </n-form-item>
+
+          <!-- ===== 健康巡检 ===== -->
+          <n-divider style="margin: 12px 0">{{ t('settings.healthProbe') }}</n-divider>
+
+          <n-form-item :label="t('settings.globalHealthCheckInterval')">
+            <n-input-number v-model:value="form.account_manager.channel_health_check_interval" :min="0" style="width:200px">
+              <template #suffix>{{ t('settings.seconds') }}</template>
+            </n-input-number>
+            <div class="form-hint">{{ t('settings.globalHealthCheckIntervalHint') }}</div>
           </n-form-item>
           <n-form-item :label="t('settings.probeInterval')">
             <n-input-number v-model:value="form.account_manager.probe_interval" :min="0" style="width:200px">
@@ -158,12 +180,70 @@
             </n-input-number>
             <div class="form-hint">{{ t('settings.probeCooldownDurationL2Hint') }}</div>
           </n-form-item>
-          <n-form-item :label="t('settings.globalHealthCheckInterval')">
-            <n-input-number v-model:value="form.account_manager.channel_health_check_interval" :min="0" style="width:200px">
+          <n-form-item :label="t('settings.cooldownProbeInterval')">
+            <n-input-number v-model:value="form.account_manager.cooldown_probe_interval" :min="0" style="width:200px">
               <template #suffix>{{ t('settings.seconds') }}</template>
             </n-input-number>
-            <div class="form-hint">{{ t('settings.globalHealthCheckIntervalHint') }}</div>
+            <div class="form-hint">{{ t('settings.cooldownProbeIntervalHint') }}</div>
           </n-form-item>
+
+          <!-- ===== 账号自动处置 ===== -->
+          <n-divider style="margin: 12px 0">{{ t('settings.autoDisable') }}</n-divider>
+
+          <n-form-item :label="t('settings.channelDisableOnFailure')">
+            <n-switch v-model:value="form.account_manager.channel_disable_on_failure" />
+            <div class="form-hint">{{ t('settings.channelDisableOnFailureHint') }}</div>
+          </n-form-item>
+          <n-form-item :label="t('settings.channelDisableStatusCodes')">
+            <n-dynamic-tags v-model:value="disableStatusTags" />
+            <div class="form-hint">{{ t('settings.channelDisableStatusCodesHint') }}</div>
+          </n-form-item>
+          <n-form-item :label="t('settings.channelRetryStatusCodes')">
+            <div style="display:flex;align-items:center;gap:8px">
+              <n-dynamic-tags v-model:value="retryStatusTags" />
+              <n-tag type="warning" size="small">尚未实现</n-tag>
+            </div>
+            <div class="form-hint">{{ t('settings.channelRetryStatusCodesHint') }}</div>
+          </n-form-item>
+          <n-form-item :label="t('settings.channelDisableKeywords')">
+            <div class="keywords-section">
+              <div class="keywords-tags">
+                <n-tag
+                  v-for="(kw, idx) in form.account_manager.channel_disable_keywords"
+                  :key="idx"
+                  closable
+                  @close="() => removeKeyword(Number(idx))"
+                >{{ kw }}</n-tag>
+                <span v-if="!form.account_manager.channel_disable_keywords?.length" class="keywords-empty">
+                  {{ t('settings.keywordsEmpty') }}
+                </span>
+              </div>
+              <div class="keywords-input-row">
+                <n-input
+                  v-model:value="keywordInput"
+                  :placeholder="t('settings.keywordsPlaceholder')"
+                  style="flex:1"
+                  @keydown.enter.prevent="addKeyword"
+                />
+                <n-button @click="addKeyword" size="small">{{ t('settings.keywordsAdd') }}</n-button>
+              </div>
+            </div>
+            <div class="form-hint">{{ t('settings.channelDisableKeywordsHint') }}</div>
+          </n-form-item>
+          <n-form-item :label="t('settings.channelDisableLatencyThreshold')">
+            <n-input-number v-model:value="form.account_manager.channel_disable_latency_threshold" :min="0" style="width:200px">
+              <template #suffix>{{ t('settings.seconds') }}</template>
+            </n-input-number>
+            <div class="form-hint">{{ t('settings.channelDisableLatencyThresholdHint') }}</div>
+          </n-form-item>
+          <n-form-item :label="t('settings.failureExcludeKeywords')">
+            <n-dynamic-tags v-model:value="form.account_manager.failure_exclude_keywords" />
+            <div class="form-hint">{{ t('settings.failureExcludeKeywordsHint') }}</div>
+          </n-form-item>
+
+          <!-- ===== 缓存 ===== -->
+          <n-divider style="margin: 12px 0">{{ t('settings.cache') }}</n-divider>
+
           <n-form-item :label="t('settings.accountStatusCacheTTL')">
             <n-input-number v-model:value="form.account_manager.account_status_cache_ttl" :min="0" style="width:200px">
               <template #suffix>{{ t('settings.seconds') }}</template>
@@ -176,6 +256,7 @@
             </n-input-number>
             <div class="form-hint">{{ t('settings.accountKeyCacheTTLHint') }}</div>
           </n-form-item>
+
         </n-form>
       </div>
     </n-card>
@@ -200,7 +281,6 @@ const message = useMessage()
 
 const saving = ref(false)
 
-// 折叠状态 — 默认全部折叠
 const expandedSections = reactive<Record<string, boolean>>({
   server: false,
   log: false,
@@ -218,9 +298,17 @@ const form = reactive({
   proxy: { connect_timeout: 5, read_timeout: 60, max_idle_conns: 100, idle_conn_timeout: 90, stream_read_timeout: 300 } as Record<string, any>,
   account_manager: {
     affinity_ttl: 3600, consecutive_failure_threshold: 5, min_disable_duration: 120,
+    max_retry_attempts: 3, max_stream_retries: 3,
+    channel_health_check_interval: 3600,
     probe_interval: 30, probe_active_ratio_threshold: 0.4, max_probe_failures: 10,
     max_probe_recover_per_cycle: 1, probe_cooldown_duration: 7200,
-    probe_cooldown_duration_l2: 86400, channel_health_check_interval: 3600,
+    probe_cooldown_duration_l2: 86400, cooldown_probe_interval: 1800,
+    channel_disable_on_failure: true,
+    channel_disable_status_codes: [401, 403],
+    channel_retry_status_codes: [502, 503, 504],
+    channel_disable_keywords: [] as string[],
+    channel_disable_latency_threshold: 0,
+    failure_exclude_keywords: ['context canceled'] as string[],
     account_status_cache_ttl: 30, account_key_cache_ttl: 60,
   } as Record<string, any>,
 })
@@ -236,6 +324,35 @@ const levelOptions = computed(() => [
   { label: 'warn', value: 'warn' },
   { label: 'error', value: 'error' },
 ])
+
+const disableStatusTags = computed({
+  get: () => (form.account_manager.channel_disable_status_codes || []).map(String),
+  set: (val: string[]) => {
+    form.account_manager.channel_disable_status_codes = val.map(Number).filter(n => !isNaN(n))
+  },
+})
+
+const retryStatusTags = computed({
+  get: () => (form.account_manager.channel_retry_status_codes || []).map(String),
+  set: (val: string[]) => {
+    form.account_manager.channel_retry_status_codes = val.map(Number).filter(n => !isNaN(n))
+  },
+})
+
+const keywordInput = ref('')
+
+function addKeyword() {
+  const val = keywordInput.value.trim()
+  if (!val) return
+  if (!form.account_manager.channel_disable_keywords.includes(val)) {
+    form.account_manager.channel_disable_keywords.push(val)
+  }
+  keywordInput.value = ''
+}
+
+function removeKeyword(idx: number) {
+  form.account_manager.channel_disable_keywords.splice(idx, 1)
+}
 
 async function loadConfig() {
   try {
@@ -324,5 +441,27 @@ onMounted(() => loadConfig())
   content: 'ⓘ ';
   font-size: 12px;
   opacity: 0.7;
+}
+
+.keywords-section {
+  width: 100%;
+}
+.keywords-tags {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  margin-bottom: 8px;
+  min-height: 28px;
+  align-items: flex-start;
+}
+.keywords-empty {
+  font-size: 13px;
+  color: var(--text-tertiary);
+  line-height: 28px;
+}
+.keywords-input-row {
+  display: flex;
+  gap: 8px;
+  align-items: center;
 }
 </style>

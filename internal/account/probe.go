@@ -314,22 +314,26 @@ func (m *Manager) healthCheckChannel(ctx context.Context, ch *channel.Channel, t
 
 // incrementCooldownCycles 增加渠道冷却周期
 func (m *Manager) incrementCooldownCycles(ctx context.Context, channelID uint) {
+	newCycles := 1 // 默认从0→1
 	var ch channel.Channel
-	if err := m.db.WithContext(ctx).First(&ch, channelID).Error; err != nil {
-		return
+	if err := m.db.WithContext(ctx).First(&ch, channelID).Error; err == nil {
+		newCycles = ch.ConsecutiveCooldownCycles + 1
 	}
 
-	cycles := 1 // 默认新增一个周期
-	// TODO: ch.ConsecutiveCooldownCycles 字段需要添加到 Channel 模型
+	m.db.WithContext(ctx).Model(&channel.Channel{}).Where("id = ?", channelID).
+		Update("consecutive_cooldown_cycles", newCycles)
 
-	m.logger.Info("cooldown cycles incremented",
+	m.logger.Warn("cooldown cycles incremented",
 		zap.Uint("channel_id", channelID),
-		zap.Int("cycles", cycles),
+		zap.Int("cycles", newCycles),
 	)
 }
 
 // resetCooldownCycles 重置渠道冷却周期
 func (m *Manager) resetCooldownCycles(ctx context.Context, channelID uint) {
+	m.db.WithContext(ctx).Model(&channel.Channel{}).Where("id = ?", channelID).
+		Update("consecutive_cooldown_cycles", 0)
+
 	m.logger.Info("cooldown cycles reset",
 		zap.Uint("channel_id", channelID),
 	)

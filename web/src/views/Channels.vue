@@ -1352,6 +1352,45 @@ const accountColumns = computed(() => [
     render: (row: Account) => h(NTag, { type: row.status === 'active' ? 'success' : 'error', size: 'small' }, () => row.status === 'active' ? t('common.active') : t('common.disabled')),
   },
   {
+    title: t('channels.cooldownRemaining'), key: 'cooldown', width: 120,
+    render: (row: Account) => {
+      if (row.probe_cooldown_until) {
+        const remaining = new Date(row.probe_cooldown_until).getTime() - Date.now()
+        if (remaining > 0) {
+          const min = Math.floor(remaining / 60000)
+          if (min >= 60) return `还剩 ${Math.floor(min / 60)}h ${min % 60}m`
+          if (min > 0) return `还剩 ${min}m`
+          return `还剩 ${Math.floor(remaining / 1000)}s`
+        }
+        return h('span', { style: { color: 'var(--warning-color)' } }, '已过期')
+      }
+      if (row.status === 'disabled' && row.disabled_reason) return h('span', { style: { color: 'var(--text-tertiary)' } }, row.disabled_reason)
+      return '-'
+    },
+  },
+  {
+    title: t('channels.failures'), key: 'failures', width: 80,
+    render: (row: Account) => {
+      const fail = row.consecutive_failures || 0
+      return `${fail}/5`
+    },
+  },
+  {
+    title: t('channels.lastDisabled'), key: 'last_failed', width: 140,
+    render: (row: Account) => {
+      if (!row.last_failed_at) return '-'
+      const diff = Date.now() - new Date(row.last_failed_at).getTime()
+      const min = Math.floor(diff / 60000)
+      const reason = row.disabled_reason || ''
+      let ago = ''
+      if (min < 1) ago = '刚刚'
+      else if (min < 60) ago = `${min}分钟前`
+      else if (min < 1440) ago = `${Math.floor(min / 60)}小时前`
+      else ago = `${Math.floor(min / 1440)}天前`
+      return `${ago} · ${reason}`
+    },
+  },
+  {
     title: t('channels.disabledReason'), key: 'disabled_reason', width: 160, ellipsis: { tooltip: true },
     render: (row: Account) => row.status === 'disabled' ? (row as any).disabled_reason || '-' : '-',
   },

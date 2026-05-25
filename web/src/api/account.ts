@@ -5,9 +5,14 @@ export interface Account {
   channel_id: number
   status: string
   priority: number
+  api_key_prefix?: string
   api_key_mask: string
   remark: string
   disabled_reason?: string
+  consecutive_failures?: number
+  probe_failures?: number
+  probe_cooldown_until?: string
+  last_failed_at?: string
   created_at?: string
   updated_at?: string
 }

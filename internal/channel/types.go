@@ -19,6 +19,7 @@ type Channel struct {
 	TestModel          string    `gorm:"size:100;not null;default:''" json:"test_model"`           // 指定测试模型，为空时取第一个已配置模型
 	LastTestLatency    int       `gorm:"not null;default:0" json:"last_test_latency"`              // 最近测试响应延迟（毫秒），0=未测试
 	LastTestedAt       *time.Time `json:"last_tested_at"`                                          // 最近测试时间
+	ConsecutiveCooldownCycles int `gorm:"not null;default:0" json:"consecutive_cooldown_cycles"`   // 连续冷却周期数（用于L2冷却升级）
 	CreatedAt time.Time `gorm:"autoCreateTime" json:"created_at"`
 	UpdatedAt time.Time `gorm:"autoUpdateTime" json:"updated_at"`
 }
