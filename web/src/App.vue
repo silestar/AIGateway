@@ -45,11 +45,11 @@
                     <template #icon><span class="toolbar-icon">🏠</span></template>
                   </n-button>
                 </router-link>
-                <router-link to="/docs" custom v-slot="{ navigate }">
-                  <n-button quaternary size="small" class="toolbar-btn" title="文档" @click="navigate">
+                <a href="https://agwdoc.toysba.com" target="_blank" class="toolbar-btn-link">
+                  <n-button quaternary size="small" class="toolbar-btn" title="文档">
                     <template #icon><span class="toolbar-icon">📖</span></template>
                   </n-button>
-                </router-link>
+                </a>
 
                 <n-divider vertical style="height: 20px; margin: 0 4px;" />
 
@@ -524,6 +524,13 @@ const menuOptions = computed(() => [
 .toolbar-icon {
   font-size: 17px;
   line-height: 1;
+}
+
+/* 外链按钮去掉下划线 */
+.toolbar-btn-link {
+  text-decoration: none;
+  display: inline-flex;
+  align-items: center;
 }
 
 /* === Popover 菜单 === */

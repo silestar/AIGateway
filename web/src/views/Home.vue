@@ -9,7 +9,7 @@
       <div class="nav-links">
         <a href="/" class="nav-link active">{{ t('home.nav.home') }}</a>
         <router-link to="/console" class="nav-link">{{ t('home.nav.console') }}</router-link>
-        <router-link to="/docs" class="nav-link">{{ t('home.nav.docs') }}</router-link>
+        <a href="https://agwdoc.toysba.com" target="_blank" class="nav-link">{{ t('home.nav.docs') }}</a>
         <router-link to="/about" class="nav-link">{{ t('home.nav.about') }}</router-link>
       </div>
       <div class="nav-right">
@@ -37,11 +37,11 @@
               {{ t('home.hero.cta') }}
             </n-button>
           </router-link>
-          <router-link to="/docs">
+          <a href="https://agwdoc.toysba.com" target="_blank">
             <n-button size="large" round class="docs-btn" ghost>
               {{ t('home.hero.docs') }}
             </n-button>
-          </router-link>
+          </a>
         </div>
       </div>
     </section>
