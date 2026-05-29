@@ -1,5 +1,20 @@
 # Changelog
 
+## [0.3.4] — 2026-05-29
+
+> **运行时修复** — 全局健康巡检跳过 disabled 渠道。
+
+### 修复
+
+- **全局健康巡检无视渠道禁用状态** — `runGlobalHealthCheck` 查询渠道列表时缺少 `status='active'` 过滤，导致被禁用的渠道仍然执行阶段1（恢复 disabled 账号探测）和阶段2（active 账号健康探测）。现与 `runProbeCycle` 保持一致的过滤逻辑。
+
+### 变更文件
+
+```
+internal/account/probe.go | 2 +-
+1 file changed, 1 insertion(+), 1 deletion(-)
+```
+
 ## [0.3.3] — 2026-05-25
 
 > **监控与故障恢复机制全面整改第一轮** — 从问题排查到底层冷却逻辑修复 + Settings/SystemMonitor 配置整合。
