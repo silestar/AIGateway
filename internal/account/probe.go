@@ -182,7 +182,7 @@ func (m *Manager) probeChannel(ctx context.Context, ch *channel.Channel, traceID
 func (m *Manager) runGlobalHealthCheck(ctx context.Context) {
 	traceID := middleware.GenerateTraceID("health-check")
 	var channels []channel.Channel
-	if err := m.db.WithContext(ctx).Find(&channels).Error; err != nil {
+	if err := m.db.WithContext(ctx).Where("status = ?", "active").Find(&channels).Error; err != nil {
 		m.logger.Error("health check: query channels", zap.Error(err), zap.String("trace_id", traceID))
 		return
 	}
