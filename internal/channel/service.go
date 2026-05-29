@@ -314,16 +314,87 @@ func (s *service) GetModelsByChannel(ctx context.Context, id uint) ([]ChannelMod
 func (s *service) SaveModels(ctx context.Context, id uint, models []ChannelModel) error {
 	tx := s.db.WithContext(ctx).Begin()
 
+	// 先查当前渠道已有的模型（DELETE 前拿 visibility 快照，用于参考）
+	var oldModels []ChannelModel
+	tx.Where("channel_id = ? AND status = ?", id, "enabled").Find(&oldModels)
+	oldVis := make(map[string]struct{ upstream, display bool })
+	for _, om := range oldModels {
+		oldVis[om.ActualModelName] = struct{ upstream, display bool }{
+			upstream: om.UpstreamVisible,
+			display:  om.DisplayVisible,
+		}
+	}
+
 	// 删除旧的模型映射
 	if err := tx.Where("channel_id = ?", id).Delete(&ChannelModel{}).Error; err != nil {
 		tx.Rollback()
 		return err
 	}
 
+	// 收集本次新增的 actual_model_name（去重）
+	newModelNames := make(map[string]bool)
+	for i := range models {
+		newModelNames[models[i].ActualModelName] = true
+	}
+
+	// 查 active 渠道中同名模型的可见性（排除当前渠道，当前渠道已 DELETE）
+	// 规则：只要有一个 active 渠道是 false，新行就是 false
+	modelVisibility := make(map[string]struct{ upstream, display bool })
+	if len(newModelNames) > 0 {
+		names := make([]string, 0, len(newModelNames))
+		for n := range newModelNames {
+			names = append(names, n)
+		}
+		var visRows []struct {
+			ActualModelName string
+			UpstreamVisible bool
+			DisplayVisible  bool
+		}
+		tx.Table("channel_models cm").
+			Select("cm.actual_model_name, cm.upstream_visible, cm.display_visible").
+			Joins("JOIN channels c ON c.id = cm.channel_id").
+			Where("c.status = ? AND cm.channel_id != ? AND cm.status = ? AND cm.actual_model_name IN ?",
+				"active", id, "enabled", names).
+			Scan(&visRows)
+		for _, row := range visRows {
+			if existing, ok := modelVisibility[row.ActualModelName]; ok {
+				existing.upstream = existing.upstream && row.UpstreamVisible
+				existing.display = existing.display && row.DisplayVisible
+				modelVisibility[row.ActualModelName] = existing
+			} else {
+				modelVisibility[row.ActualModelName] = struct{ upstream, display bool }{
+					upstream: row.UpstreamVisible,
+					display:  row.DisplayVisible,
+				}
+			}
+		}
+	}
+
 	// 批量插入新的模型映射
 	for i := range models {
 		models[i].ChannelID = id
-		if err := tx.Create(&models[i]).Error; err != nil {
+		name := models[i].ActualModelName
+		// 优先级：1) 其他 active 渠道有同名 → 继承 AND 结果
+		//         2) 当前渠道之前有这个模型 → 继承旧值
+		//         3) 全新模型 → 默认 true
+		if vis, ok := modelVisibility[name]; ok {
+			models[i].UpstreamVisible = vis.upstream
+			models[i].DisplayVisible = vis.display
+		} else if old, ok := oldVis[name]; ok {
+			models[i].UpstreamVisible = old.upstream
+			models[i].DisplayVisible = old.display
+		} else {
+			models[i].UpstreamVisible = true
+			models[i].DisplayVisible = true
+		}
+		if err := tx.Model(&ChannelModel{}).Create(map[string]interface{}{
+			"channel_id":        models[i].ChannelID,
+			"display_model_name": models[i].DisplayModelName,
+			"actual_model_name": models[i].ActualModelName,
+			"status":            models[i].Status,
+			"upstream_visible":  models[i].UpstreamVisible,
+			"display_visible":   models[i].DisplayVisible,
+		}).Error; err != nil {
 			tx.Rollback()
 			return err
 		}

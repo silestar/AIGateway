@@ -2,17 +2,23 @@
 
 ## [0.3.4] — 2026-05-29
 
-> **运行时修复** — 全局健康巡检跳过 disabled 渠道。
+> **运行时修复** — 全局健康巡检跳过 disabled 渠道 + 模型可见性继承策略修复。
 
 ### 修复
 
 - **全局健康巡检无视渠道禁用状态** — `runGlobalHealthCheck` 查询渠道列表时缺少 `status='active'` 过滤，导致被禁用的渠道仍然执行阶段1（恢复 disabled 账号探测）和阶段2（active 账号健康探测）。现与 `runProbeCycle` 保持一致的过滤逻辑。
+- **渠道模型保存后可见性状态全部重置为 true** — `SaveModels` 采用全量替换（DELETE + CREATE），前端传来的数据不包含 `upstream_visible`/`display_visible` 字段，GORM Create 时零值 bool 被跳过让 PG default=true 生效，导致管理员在模型管理页设为 false 的模型在渠道重新保存后变回 true。现改为：
+  - **DELETE 前先读旧值**：保存当前渠道已有模型的 visibility 快照到内存
+  - **查其他 active 渠道**：查询同名模型在 active 渠道的 visibility 状态（AND 逻辑：任一 false → false）
+  - **三层优先级继承**：其他 active 渠道 AND 结果 → 当前渠道旧值 → 新模型默认 true
+  - **GORM 零值修复**：改用 `map[string]interface{}` 方式 Create，确保 false 也被写入 PG
 
 ### 变更文件
 
 ```
-internal/account/probe.go | 2 +-
-1 file changed, 1 insertion(+), 1 deletion(-)
+internal/account/probe.go       |  2 +-
+internal/channel/service.go     | 63 +++++++++++++++++++++++++++++----
+2 files changed, 57 insertions(+), 8 deletions(-)
 ```
 
 ## [0.3.3] — 2026-05-25
