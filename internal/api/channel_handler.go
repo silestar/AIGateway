@@ -18,10 +18,11 @@ type ChannelHandler struct {
 	svc         channel.ChannelService
 	accountMgr  account.AccountManager
 	asyncWriter *stats.AsyncWriter
+	cache       account.Cache
 }
 
-func NewChannelHandler(svc channel.ChannelService, accountMgr account.AccountManager, asyncWriter *stats.AsyncWriter) *ChannelHandler {
-	return &ChannelHandler{svc: svc, accountMgr: accountMgr, asyncWriter: asyncWriter}
+func NewChannelHandler(svc channel.ChannelService, accountMgr account.AccountManager, asyncWriter *stats.AsyncWriter, cache account.Cache) *ChannelHandler {
+	return &ChannelHandler{svc: svc, accountMgr: accountMgr, asyncWriter: asyncWriter, cache: cache}
 }
 
 // RegisterRoutes 注册渠道路由
@@ -122,8 +123,33 @@ func (h *ChannelHandler) List(c *gin.Context) {
 		return
 	}
 
+	// 聚合每个渠道今日请求量
+	todayKey := time.Now().Format("2006-01-02")
+	type channelItem struct {
+		*channel.ChannelListItem
+		TodayRequests int `json:"today_requests"`
+	}
+	result := make([]channelItem, len(items))
+	for i, item := range items {
+		result[i] = channelItem{ChannelListItem: &item}
+		// 遍历渠道下所有账号，读 daily 计数器求和
+		accounts, accErr := h.accountMgr.ListByChannel(c.Request.Context(), item.ID)
+		if accErr == nil {
+			sum := 0
+			for _, acc := range accounts {
+				dailyKey := fmt.Sprintf("stats:account:%d:daily_requests:%s", acc.ID, todayKey)
+				if val, err := h.cache.Get(dailyKey); err == nil {
+					n := 0
+					fmt.Sscanf(val, "%d", &n)
+					sum += n
+				}
+			}
+			result[i].TodayRequests = sum
+		}
+	}
+
 	c.JSON(http.StatusOK, gin.H{
-		"data":      items,
+		"data":      result,
 		"total":     total,
 		"page":      filter.Page,
 		"page_size": filter.PageSize,

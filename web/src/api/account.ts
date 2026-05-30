@@ -1,5 +1,14 @@
 import api from './index'
 
+export interface AccountRateLimit {
+  rpm_used: number
+  rpm_limit: number
+  tpm_used: number
+  tpm_limit: number
+  daily_used: number
+  daily_limit: number
+}
+
 export interface Account {
   id: number
   channel_id: number
@@ -13,6 +22,7 @@ export interface Account {
   probe_failures?: number
   probe_cooldown_until?: string
   last_failed_at?: string
+  rate_limit?: AccountRateLimit
   created_at?: string
   updated_at?: string
 }

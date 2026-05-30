@@ -552,6 +552,19 @@ const columns = computed(() => [
     },
   },
   {
+    title: t('channels.todayRequests'), key: 'today_requests', width: 110,
+    render: (row: ChannelListItem) => {
+      const val = row.today_requests ?? 0
+      const limit = row.max_daily_requests
+      if (limit > 0) {
+        const pct = val / limit
+        const color = pct >= 1 ? '#ff6b6b' : pct >= 0.8 ? '#f0c040' : 'inherit'
+        return h('span', { style: { color } }, `${val}/${limit}`)
+      }
+      return h('span', null, `${val}`)
+    },
+  },
+  {
     title: t('channels.responseTime'), key: 'latency', width: 120,
     render: (row: ChannelListItem) => {
       if (!row.last_test_latency || row.last_test_latency === 0) return h('span', { style: 'color: var(--text-tertiary)' }, t('channels.notTested'))
@@ -1350,6 +1363,28 @@ const accountColumns = computed(() => [
   {
     title: t('common.status'), key: 'status', width: 100,
     render: (row: Account) => h(NTag, { type: row.status === 'active' ? 'success' : 'error', size: 'small' }, () => row.status === 'active' ? t('common.active') : t('common.disabled')),
+  },
+  {
+    title: t('channels.rateUsage'), key: 'rate_usage', width: 180,
+    render: (row: Account) => {
+      const rl = row.rate_limit
+      if (!rl) return h('span', { style: 'color: var(--text-tertiary)' }, '-')
+      // limit 优先从渠道配置取（后端 rate_limit 里的 limit 为占位 0）
+      const rpmLimit = selectedChannel.value?.max_rpm ?? rl.rpm_limit
+      const tpmLimit = selectedChannel.value?.max_tpm ?? rl.tpm_limit
+      const dailyLimit = selectedChannel.value?.max_daily_requests ?? rl.daily_limit
+      const fmtRate = (used: number, limit: number) => {
+        if (limit <= 0) return `${used}/${t('channels.noLimit')}`
+        const pct = used / limit
+        const color = pct >= 1 ? '#ff6b6b' : pct >= 0.8 ? '#f0c040' : 'inherit'
+        return h('span', { style: { color } }, `${used}/${limit}`)
+      }
+      return h('div', { style: 'display: flex; flex-direction: column; gap: 2px; font-size: 12px' }, [
+        h('span', null, [h('span', { style: 'color: var(--text-tertiary); width: 36px; display: inline-block' }, 'RPM'), fmtRate(rl.rpm_used, rpmLimit)]),
+        h('span', null, [h('span', { style: 'color: var(--text-tertiary); width: 36px; display: inline-block' }, 'TPM'), fmtRate(rl.tpm_used, tpmLimit)]),
+        h('span', null, [h('span', { style: 'color: var(--text-tertiary); width: 36px; display: inline-block' }, t('channels.dailyUsage')), fmtRate(rl.daily_used, dailyLimit)]),
+      ])
+    },
   },
   {
     title: t('channels.cooldownRemaining'), key: 'cooldown', width: 120,

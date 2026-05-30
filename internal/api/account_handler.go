@@ -1,6 +1,8 @@
 package api
 import (
+	"fmt"
 	"net/http"
+	"time"
 
 	"github.com/gin-gonic/gin"
 	"github.com/silestar/AIGateway/internal/account"
@@ -8,11 +10,12 @@ import (
 
 // AccountHandler 账号管理 API
 type AccountHandler struct {
-	svc account.AccountManager
+	svc   account.AccountManager
+	cache account.Cache
 }
 
-func NewAccountHandler(svc account.AccountManager) *AccountHandler {
-	return &AccountHandler{svc: svc}
+func NewAccountHandler(svc account.AccountManager, cache account.Cache) *AccountHandler {
+	return &AccountHandler{svc: svc, cache: cache}
 }
 
 // RegisterRoutes 注册账号路由
@@ -103,9 +106,21 @@ func (h *AccountHandler) ListByChannel(c *gin.Context) {
 		return
 	}
 
-	// 批量脱敏
+	// 批量脱敏 + 速率限制用量
+	minuteKey := time.Now().Format("2006-01-02-15:04")
+	todayKey := time.Now().Format("2006-01-02")
 	result := make([]gin.H, len(accounts))
 	for i, acc := range accounts {
+		rpmUsed, tpmUsed, dailyUsed := 0, 0, 0
+		if rpmStr, err := h.cache.Get(fmt.Sprintf("stats:account:%d:rpm:%s", acc.ID, minuteKey)); err == nil {
+			fmt.Sscanf(rpmStr, "%d", &rpmUsed)
+		}
+		if tpmStr, err := h.cache.Get(fmt.Sprintf("stats:account:%d:tpm:%s", acc.ID, minuteKey)); err == nil {
+			fmt.Sscanf(tpmStr, "%d", &tpmUsed)
+		}
+		if dailyStr, err := h.cache.Get(fmt.Sprintf("stats:account:%d:daily_requests:%s", acc.ID, todayKey)); err == nil {
+			fmt.Sscanf(dailyStr, "%d", &dailyUsed)
+		}
 result[i] = gin.H{
 			"id":                    acc.ID,
 			"channel_id":            acc.ChannelID,
@@ -118,6 +133,14 @@ result[i] = gin.H{
 			"consecutive_failures":  acc.ConsecutiveFailures,
 			"probe_failures":        acc.ProbeFailures,
 			"last_failed_at":        acc.LastFailedAt,
+			"rate_limit": gin.H{
+				"rpm_used":   rpmUsed,
+				"rpm_limit":  0, // 占位，前端从渠道配置取
+				"tpm_used":   tpmUsed,
+				"tpm_limit":  0,
+				"daily_used": dailyUsed,
+				"daily_limit": 0,
+			},
 		}
 	}
 

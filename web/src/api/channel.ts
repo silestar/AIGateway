@@ -22,6 +22,7 @@ export interface ChannelListItem extends Channel {
   active_account_count: number
   total_account_count: number
   groups: GroupInfo[]
+  today_requests: number
 }
 
 export interface GroupInfo {

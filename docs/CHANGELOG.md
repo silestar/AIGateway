@@ -1,5 +1,15 @@
 # Changelog
 
+## [Unreleased]
+
+### 新增
+
+- **渠道列表 — 今日请求量**：渠道列表新增「今日请求」列，聚合渠道下所有账号的 daily_requests 计数器，有每日上限时显示 `已用/上限` 格式，接近/超限时自动变色（黄≥80%，红≥100%）
+- **账号列表 — 速率用量**：账号列表新增「用量」列，展示每个账号的 RPM / TPM / 每日请求的已用量，上限值从渠道配置自动关联，无限制时显示「无限制」
+- 后端 `GET /accounts/channel/:channel_id` 返回新增 `rate_limit` 对象（`rpm_used` / `tpm_used` / `daily_used`）
+- 后端 `GET /channels` 返回每条渠道新增 `today_requests` 字段
+- 多语言适配：zh-CN / en-US 新增 `todayRequests` / `rateUsage` / `rpmUsage` / `tpmUsage` / `dailyUsage` / `noLimit`
+
 ## [0.3.4] — 2026-05-29
 
 > **运行时修复** — 全局健康巡检跳过 disabled 渠道 + 模型可见性继承策略修复。
