@@ -12,13 +12,20 @@
   - **查其他 active 渠道**：查询同名模型在 active 渠道的 visibility 状态（AND 逻辑：任一 false → false）
   - **三层优先级继承**：其他 active 渠道 AND 结果 → 当前渠道旧值 → 新模型默认 true
   - **GORM 零值修复**：改用 `map[string]interface{}` 方式 Create，确保 false 也被写入 PG
+- **渠道 RPM/TPM/每日请求上限形同虚设** — `updateRateLimitCounters` 已存在并在请求完成时调用，但存在三个严重缺陷：
+  - TPM 计数器每次只 +1 而非累加实际 token 数，导致 TPM 限制永远无法触发
+  - 三个计数器（RPM/TPM/Daily）均未设 TTL，计数器永不过期，分钟级/天级计数窗口失效
+  - 探测请求（probe/health_check）未计入计数器，绕过速率限制
+  - 修复：新增 `Cache.IncrBy` 接口支持原子累加；TPM 改用 `IncrBy` 按实际 token 数累加；首次 Incr 后立即 `Set` 正确 TTL（RPM/TPM 120s、Daily 86400s）；`onProbeDone` 回调补加计数器更新
 
 ### 变更文件
 
 ```
 internal/account/probe.go       |  2 +-
-internal/channel/service.go     | 63 +++++++++++++++++++++++++++++----
-2 files changed, 57 insertions(+), 8 deletions(-)
+internal/account/cache.go       | 14 ++++++++++++++
+internal/channel/service.go     | 63 ++++++++++++++++++++++++++++++----
+cmd/agw/main.go                | 32 ++++++++++++++++++++---------
+3 files changed, 57 insertions(+), 8 deletions(-)
 ```
 
 ## [0.3.3] — 2026-05-25

@@ -12,6 +12,7 @@ type Cache interface {
 	Set(key string, value string, ttl time.Duration) error
 	Del(key string) error
 	Incr(key string) (int64, error)
+	IncrBy(key string, value int64) (int64, error)
 	Decr(key string) (int64, error)
 	SetNX(key string, value string, ttl time.Duration) (bool, error)
 	FlushAll() // 清空所有缓存
@@ -73,6 +74,19 @@ func (c *memoryCache) Incr(key string) (int64, error) {
 	val := parseInt(item.value) + 1
 	item.value = fmt.Sprintf("%d", val)
 	return int64(val), nil
+}
+
+func (c *memoryCache) IncrBy(key string, value int64) (int64, error) {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	item, ok := c.items[key]
+	if !ok {
+		c.items[key] = &cacheItem{value: fmt.Sprintf("%d", value), expiry: time.Now().Add(48 * time.Hour)}
+		return value, nil
+	}
+	val := int64(parseInt(item.value)) + value
+	item.value = fmt.Sprintf("%d", val)
+	return val, nil
 }
 
 func (c *memoryCache) Decr(key string) (int64, error) {

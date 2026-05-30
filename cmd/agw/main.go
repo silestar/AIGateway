@@ -167,6 +167,8 @@ func main() {
 			log.ErrorMsg = &errMsg
 		}
 		asyncWriter.Record(log)
+		// 探测请求也计入账号级速率计数器（上游不区分探测行为）
+		updateRateLimitCounters(cache, channelID, accountID, promptTokens+completionTokens)
 	})
 	accountMgr.StartProbeScheduler()
 	accountMgr.StartGlobalHealthCheck()
@@ -738,7 +740,11 @@ func handleChatCompletions(c *gin.Context) {
 
 	// 更新速率/配额计数器
 	cache := c.MustGet("cache").(account.Cache)
-	updateRateLimitCounters(cache, result.Channel.ID, result.Account.ID)
+	tokenCount := 0
+	if usage != nil {
+		tokenCount = usage.TotalTokens
+	}
+	updateRateLimitCounters(cache, result.Channel.ID, result.Account.ID, tokenCount)
 
 	// 记录成功日志（含响应摘要）
 	asyncWriter.Record(buildRequestLog(c, cons.ID, modelName, result.ActualModelName, result, isStream, statusCode, latencyMs, clientIP, usage, "", traceIDStr, respSummary))
@@ -976,22 +982,30 @@ func notImplemented(c *gin.Context) {
 }
 
 // updateRateLimitCounters 更新账号级 RPM/TPM/每日请求计数器
-func updateRateLimitCounters(cache account.Cache, channelID, accountID uint) {
+func updateRateLimitCounters(cache account.Cache, channelID, accountID uint, tokenCount int) {
 	now := time.Now()
 	minuteKey := now.Format("2006-01-02-15:04")
 	todayKey := now.Format("2006-01-02")
 
-	// 账号 RPM 计数器
+	// 账号 RPM 计数器：每次请求 +1，TTL 120s
 	rpmKey := fmt.Sprintf("stats:account:%d:rpm:%s", accountID, minuteKey)
-	cache.Incr(rpmKey)
+	if count, err := cache.Incr(rpmKey); err == nil && count == 1 {
+		cache.Set(rpmKey, "1", 120*time.Second)
+	}
 
-	// 账号 TPM 计数器（暂时只计数请求，Token 计数需解析响应体）
-	tpmKey := fmt.Sprintf("stats:account:%d:tpm:%s", accountID, minuteKey)
-	cache.Incr(tpmKey)
+	// 账号 TPM 计数器：累加实际 token 数，TTL 120s
+	if tokenCount > 0 {
+		tpmKey := fmt.Sprintf("stats:account:%d:tpm:%s", accountID, minuteKey)
+		if count, err := cache.IncrBy(tpmKey, int64(tokenCount)); err == nil && count == int64(tokenCount) {
+			cache.Set(tpmKey, fmt.Sprintf("%d", tokenCount), 120*time.Second)
+		}
+	}
 
-	// 账号每日请求计数器
+	// 账号每日请求计数器：每次请求 +1，TTL 24h
 	dailyKey := fmt.Sprintf("stats:account:%d:daily_requests:%s", accountID, todayKey)
-	cache.Incr(dailyKey)
+	if count, err := cache.Incr(dailyKey); err == nil && count == 1 {
+		cache.Set(dailyKey, "1", 86400*time.Second)
+	}
 }
 
 // captureAndWriteDetail 捕获请求/响应内容并异步写入文件
