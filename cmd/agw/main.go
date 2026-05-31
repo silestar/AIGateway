@@ -484,7 +484,9 @@ func handleChatCompletions(c *gin.Context) {
 	currentStreamResult := result
 	var streamResult *proxy.StreamResult
 
-		for attempt := 0; attempt <= cfg.AccountManager.MaxStreamRetries; attempt++ {
+		// 流式请求重试次数与非流式对齐，优先使用 max_retry_attempts
+		maxStreamRetryAttempts := cfg.AccountManager.MaxRetryAttempts
+		for attempt := 0; attempt <= maxStreamRetryAttempts; attempt++ {
 			// 每次重试前恢复请求体（ForwardStream 会消费 c.Request.Body）
 			c.Request.Body = io.NopCloser(bytes.NewReader(reqBodyBytes))
 			streamResult, err = proxyEngine.ForwardStream(c.Request.Context(), currentStreamResult.Channel, currentStreamResult.Account, c.Request, flusher, c.Writer)
@@ -499,7 +501,7 @@ func handleChatCompletions(c *gin.Context) {
 
 			if err != nil {
 				// 只有在未向客户端发送任何数据时才可安全重试
-				if !c.Writer.Written() && attempt < cfg.AccountManager.MaxStreamRetries {
+				if !c.Writer.Written() && attempt < maxStreamRetryAttempts {
 					// 从 error 中提取上游返回的状态码（如 "upstream returned 429: ..."）
 					sc := extractStatusCode(err)
 					accountMgr.ReportResult(c.Request.Context(), currentStreamResult.Account.ID, false, sc, err)
@@ -698,6 +700,7 @@ func handleChatCompletions(c *gin.Context) {
 					}
 					failedAcrossAccounts = 0
 					lastFailedAccountID = 0
+					retryCount = 0 // 渠道降级后重置重试计数，让新渠道获得完整的重试机会
 					continue
 				}
 			}

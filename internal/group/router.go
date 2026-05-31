@@ -146,41 +146,51 @@ func (r *Router) Route(ctx context.Context, keysID uint, modelName string) (*Rou
 			if count, ok := activeCounts[ch.ID]; ok && count == 0 {
 				continue
 			}
-			acc, err := r.accountMgr.SelectAccount(ctx, keysID, ch.ID)
-			if err != nil {
-				retryChain.AddAttempt(ch.ID, 0)
-				retryChain.MarkError("no available account", 0, 0)
-				continue
+
+			// 同渠道内多账号尝试：遇到限速账号时换下一个，而不是直接跳过整个渠道
+			var excludedIDs []uint
+			for {
+				acc, err := r.accountMgr.SelectAccountWithExclude(ctx, keysID, ch.ID, excludedIDs)
+				if err != nil {
+					// 该渠道所有账号已耗尽（包括无可用账号和全部被限速）
+					retryChain.AddAttempt(ch.ID, 0)
+					retryChain.MarkError("no available account (all rate-limited or exhausted)", 0, 0)
+					break // 跳出内层循环，由外层 continue 跳下一个渠道
+				}
+
+				// 账号级速率检查：限制值来自渠道配置，计数器按账号维度统计
+				if limitType, limited := r.accountMgr.IsAccountRateLimited(acc.ID, ch.MaxRPM, ch.MaxTPM, ch.MaxDailyRequests); limited {
+					r.logger.Debug("account rate limit exceeded, trying next account",
+						zap.Uint("channel_id", ch.ID),
+						zap.Uint("account_id", acc.ID),
+						zap.String("limit_type", limitType))
+					retryChain.AddAttempt(ch.ID, acc.ID)
+					retryChain.MarkError("account rate limit exceeded: "+limitType, 0, 0)
+					// 清除该账号的粘性绑定，避免下次继续选到它
+					r.accountMgr.ClearAccountAffinity(keysID, ch.ID)
+					excludedIDs = append(excludedIDs, acc.ID)
+					continue // 继续尝试同渠道的下一个账号
+				}
+
+				// 找到了不限速的可用账号
+				_ = retryChain.AddAttempt(ch.ID, acc.ID)
+				retryChain.MarkSuccess(0, 0)
+
+				actualName := actualModelMap[ch.ID]
+				if actualName == "" {
+					actualName = modelName
+				}
+
+				return &RouteResult{
+					Channel:         &ch,
+					Account:         acc,
+					RetryChain:      retryChain,
+					ActualModelName: actualName,
+					excludedAccountIDs: make(map[uint][]uint),
+					modelName:          modelName,
+					keysID:             keysID,
+				}, nil
 			}
-
-			// 账号级速率检查：限制值来自渠道配置，计数器按账号维度统计
-			if limitType, limited := r.accountMgr.IsAccountRateLimited(acc.ID, ch.MaxRPM, ch.MaxTPM, ch.MaxDailyRequests); limited {
-				r.logger.Debug("account rate limit exceeded, skipping",
-					zap.Uint("channel_id", ch.ID),
-					zap.Uint("account_id", acc.ID),
-					zap.String("limit_type", limitType))
-				retryChain.AddAttempt(ch.ID, acc.ID)
-				retryChain.MarkError("account rate limit exceeded: "+limitType, 0, 0)
-				continue
-			}
-
-			_ = retryChain.AddAttempt(ch.ID, acc.ID)
-			retryChain.MarkSuccess(0, 0)
-
-			actualName := actualModelMap[ch.ID]
-			if actualName == "" {
-				actualName = modelName
-			}
-
-			return &RouteResult{
-				Channel:         &ch,
-				Account:         acc,
-				RetryChain:      retryChain,
-				ActualModelName: actualName,
-				excludedAccountIDs: make(map[uint][]uint),
-				modelName:          modelName,
-				keysID:             keysID,
-			}, nil
 		}
 	}
 
