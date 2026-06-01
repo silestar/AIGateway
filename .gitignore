@@ -57,5 +57,6 @@ __pycache__/
 proposals/
 guide/
 agw
+agw-bin
 agw-new
 plugins/
