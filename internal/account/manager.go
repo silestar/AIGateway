@@ -99,10 +99,11 @@ func (m *Manager) SelectAccount(ctx context.Context, keysID, channelID uint) (*A
 func (m *Manager) SelectAccountWithExclude(ctx context.Context, keysID, channelID uint, excludeIDs []uint) (*Account, error) {
 	// 重试时不使用粘性绑定（已失败账号的粘性已被清除）
 	var accounts []Account
-	if err := m.db.WithContext(ctx).
-		Where("channel_id = ? AND status = ? AND id NOT IN ?", channelID, "active", excludeIDs).
-		Order("priority DESC").
-		Find(&accounts).Error; err != nil {
+	query := m.db.WithContext(ctx).Where("channel_id = ? AND status = ?", channelID, "active")
+	if len(excludeIDs) > 0 {
+		query = query.Where("id NOT IN ?", excludeIDs)
+	}
+	if err := query.Order("priority DESC").Find(&accounts).Error; err != nil {
 		return nil, fmt.Errorf("query accounts: %w", err)
 	}
 	if len(accounts) == 0 {

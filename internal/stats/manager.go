@@ -613,7 +613,7 @@ func (m *Manager) hourTruncExpr(col, alias string) string {
 	case "mysql":
 		return fmt.Sprintf("DATE_FORMAT(%s, '%%Y-%%m-%%d %%H:00')", col)
 	default: // sqlite
-		return fmt.Sprintf("strftime('%%Y-%%m-%%d %%H:00', %s)", col)
+		return fmt.Sprintf("strftime('%%Y-%%m-%%d %%H:00', substr(%s, 1, 19))", col)
 	}
 }
 

@@ -6,6 +6,7 @@
 
 ### 修复
 
+- **仪表盘当天请求趋势时间轴偏移8小时** — SQLite 的 `strftime` 遇到带 `+08:00` 时区后缀的时间戳会自动转换为 UTC，导致小时截断后整体偏移8小时（如本地 09:00 显示为 01:00）。`hourTruncExpr` SQLite 分支改用 `substr(timestamp, 1, 19)` 截掉时区后缀，`strftime` 不再做 UTC 转换。涉及 `internal/stats/manager.go`。
 - **Route() 预检阶段1个账号限速即跳过整个渠道** — `Route()` 中 `IsAccountRateLimited` 分支直接 `continue` 跳渠道，导致同渠道其他可用账号（如26个中仅1个被限速）完全没有机会被选中。现改为内层循环 `SelectAccountWithExclude` + `excludedIDs` 排除列表，限速账号排除后继续尝试同渠道下一个账号，直至所有账号耗尽才跳渠道。
 - **非流式主循环渠道降级后 retryCount 未重置** — 渠道快速熔断触发降级到新渠道时，只重置了 `failedAcrossAccounts` 和 `lastFailedAccountID`，`retryCount` 仍保留旧值，导致新渠道只有1次尝试机会就触发 `max retries exceeded`。现同步重置 `retryCount = 0`，让新渠道获得完整的重试机会。
 - **流式/非流式重试次数配置不一致** — 流式请求使用 `max_stream_retries`（默认3），非流式使用 `max_retry_attempts`（用户配置5），导致同一渠道流式和非流式行为差异。现流式请求统一使用 `max_retry_attempts`，确保流式和非流式的渠道级重试语义对齐。
@@ -17,8 +18,6 @@ internal/group/router.go  | 48 ++++++++++++++++++++++++---------------
 cmd/agw/main.go           |  7 +++--
 2 files changed, 35 insertions(+), 17 deletions(-)
 ```
-
-## [Unreleased]
 
 ### 新增
 
